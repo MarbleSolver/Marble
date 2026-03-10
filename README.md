@@ -1,0 +1,1 @@
+A C++ solver for quadratic programs with linear complementarity constraints.
