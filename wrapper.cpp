@@ -1,22 +1,29 @@
 #include <jlcxx/jlcxx.hpp>
 #include "solver.h"
 
-using jl_Vec = jlcxx::ArrayRef<double, 1>;
-using jl_Mat = jlcxx::ArrayRef<double, 2>;
+using jl_VecXd = jlcxx::ArrayRef<double, 1>;
+using jl_MatXd = jlcxx::ArrayRef<double, 2>;
+using jl_VecXi = jlcxx::ArrayRef<int, 1>;
+using jl_MatXi = jlcxx::ArrayRef<int, 2>;
 
 // Helper functions for converting between Eigen types and Julia types
-Eigen::VectorXd to_eigen(jlcxx::ArrayRef<double, 1>& arr) {
-    return Eigen::VectorXd::Map(arr.data(), arr.size());
+template <typename T>
+Eigen::Matrix<T, Eigen::Dynamic, 1> to_eigen(jlcxx::ArrayRef<T, 1>& arr) {
+    return Eigen::Matrix<T, Eigen::Dynamic, 1>::Map(arr.data(), arr.size());
 }
 
-Eigen::MatrixXd to_eigen(jlcxx::ArrayRef<double, 2>& arr, int rows, int cols) {
-    return Eigen::MatrixXd::Map(arr.data(), rows, cols);
+template <typename T>
+Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> to_eigen(jlcxx::ArrayRef<T, 2>& arr, int rows, int cols) {
+    return Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>::Map(arr.data(), rows, cols);
 }
 
-jlcxx::ArrayRef<double, 1> to_julia(Eigen::VectorXd& vec) {
+template <typename T>
+jlcxx::ArrayRef<T, 1> to_julia(Eigen::Matrix<T, Eigen::Dynamic, 1>& vec) {
     return jlcxx::make_julia_array(vec.data(), vec.size());
 }
-jlcxx::ArrayRef<double, 2> to_julia(Eigen::MatrixXd& mat) {
+
+template <typename T>
+jlcxx::ArrayRef<T, 2> to_julia(Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>& mat) {
     return jlcxx::make_julia_array(mat.data(), mat.rows(), mat.cols());
 }
 
@@ -26,9 +33,9 @@ Eigen::VectorXd eigen_vec = Eigen::VectorXd::Random(5);
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // Problem class bindings
     mod.add_type<Problem>("Problem")
-        .constructor([](jl_Mat cost_hessian, jl_Vec cost_gradient,
-                    jl_Mat J_eq, jl_Vec c_eq, jl_Mat J_ineq, jl_Vec c_ineq,
-                    jl_Mat J_comp_l, jl_Vec c_comp_l, jl_Mat J_comp_r, jl_Vec c_comp_r) {
+        .constructor([](jl_MatXd cost_hessian, jl_VecXd cost_gradient,
+                    jl_MatXd J_eq, jl_VecXd c_eq, jl_MatXd J_ineq, jl_VecXd c_ineq,
+                    jl_MatXd J_comp_l, jl_VecXd c_comp_l, jl_MatXd J_comp_r, jl_VecXd c_comp_r) {
         int nz = cost_gradient.size();
         int n_eq = c_eq.size();
         int n_ineq = c_ineq.size();
@@ -48,7 +55,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     mod.add_type<Solver>("Solver")
         .constructor()
         .method("set_problem", &Solver::set_problem)
-        .method("get_problem", &Solver::get_problem);
+        .method("get_problem", &Solver::get_problem)
+        .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })
+        .method("s_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_inds); })
+        .method("s_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_inds); })
+        .method("m_eq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_eq_inds); })
+        .method("m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_ineq_inds); })
+        .method("m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_comp_inds); });
 
 
     mod.method("test_array", [](jlcxx::ArrayRef<double, 1> arr) {
