@@ -14,7 +14,7 @@ if(NOT QDLDL_FOUND)
     FetchContent_Declare(
       qdldl
       GIT_REPOSITORY https://github.com/oxfordcontrol/QDLDL.git
-      GIT_TAG main
+      GIT_TAG master
     )
     FetchContent_MakeAvailable(qdldl)
     # If the fetched project provides a target, use it; otherwise adjust below.
