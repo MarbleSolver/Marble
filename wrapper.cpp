@@ -1,5 +1,5 @@
 #include <jlcxx/jlcxx.hpp>
-#include "problem.h"
+#include "solver.h"
 
 using jl_Vec = jlcxx::ArrayRef<double, 1>;
 using jl_Mat = jlcxx::ArrayRef<double, 2>;
@@ -44,7 +44,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("n_ineq", [](Problem& p) -> const int { return p.n_ineq; })
         .method("n_comp", [](Problem& p) -> const int { return p.n_comp; });
 
-    
+    // Solver class bindings
+    mod.add_type<Solver>("Solver")
+        .constructor()
+        .method("set_problem", &Solver::set_problem)
+        .method("get_problem", &Solver::get_problem);
+
+
     mod.method("test_array", [](jlcxx::ArrayRef<double, 1> arr) {
         std::cout << "here" << std::endl;
         eigen_vec = to_eigen(arr);

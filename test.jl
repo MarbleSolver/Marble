@@ -14,7 +14,7 @@ z_ours, solver = solve(problem; options=solver_options);
 
 module RCQP
   using CxxWrap
-  @wrapmodule(() -> joinpath(@__DIR__, "build", "librcqp_wrapper"))
+  @wrapmodule(() -> joinpath(@__DIR__, "submodules/RCQP/build/librcqp_wrapper.so"))
 
   function __init__()
     @initcxx
@@ -33,9 +33,13 @@ J_comp_l, J_comp_r = J_comp[1:2:end, :], J_comp[2:2:end, :]
 c_eq, c_ineq, c_comp = solver.conrhs[solver.eq_inds], solver.conrhs[solver.ineq_inds], solver.conrhs[solver.comp_inds]
 c_comp_l, c_comp_r = c_comp[1:2:end], c_comp[2:2:end]
 
-test = RCQP.Problem(H, g, J_eq, c_eq, J_ineq, c_ineq, 
+prob = RCQP.Problem(H, g, J_eq, c_eq, J_ineq, c_ineq, 
             J_comp_l, c_comp_l, J_comp_r, c_comp_r)
-@assert RCQP.nz(test) == solver.nz
-@assert RCQP.n_eq(test) == solver.n_eq
-@assert RCQP.n_ineq(test) == solver.n_ineq
-@assert RCQP.n_comp(test) == solver.n_comp
+@assert RCQP.nz(prob) == solver.nz
+@assert RCQP.n_eq(prob) == solver.n_eq
+@assert RCQP.n_ineq(prob) == solver.n_ineq
+@assert RCQP.n_comp(prob) == solver.n_comp
+
+rcqp = RCQP.Solver()
+RCQP.set_problem(rcqp, prob)
+test = RCQP.get_problem(rcqp)
