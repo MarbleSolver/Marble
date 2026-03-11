@@ -32,6 +32,7 @@ message(STATUS "Found JlCxx at ${JlCxx_location}")
 add_library(rcqp SHARED
   ${CMAKE_CURRENT_SOURCE_DIR}/src/solver.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/problem.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/workspace.cpp
 )
 
 target_include_directories(rcqp

@@ -35,16 +35,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     mod.add_type<Problem>("Problem")
         .constructor([](jl_MatXd cost_hessian, jl_VecXd cost_gradient,
                     jl_MatXd J_eq, jl_VecXd c_eq, jl_MatXd J_ineq, jl_VecXd c_ineq,
-                    jl_MatXd J_comp_l, jl_VecXd c_comp_l, jl_MatXd J_comp_r, jl_VecXd c_comp_r) {
+                    jl_MatXd J_comp, jl_VecXd c_comp) {
         int nz = cost_gradient.size();
         int n_eq = c_eq.size();
         int n_ineq = c_ineq.size();
-        int n_comp = c_comp_l.size();
+        int n_comp = c_comp.size();
         return new Problem(to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient),
                            to_eigen(J_eq, n_eq, nz), to_eigen(c_eq), 
                            to_eigen(J_ineq, n_ineq, nz), to_eigen(c_ineq),
-                           to_eigen(J_comp_l, n_comp, nz), to_eigen(c_comp_l),
-                           to_eigen(J_comp_r, n_comp, nz), to_eigen(c_comp_r));
+                           to_eigen(J_comp, n_comp, nz), to_eigen(c_comp));
         })
         .method("nz", [](Problem& p) -> const int { return p.nz; })
         .method("n_eq", [](Problem& p) -> const int { return p.n_eq; })

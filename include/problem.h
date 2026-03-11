@@ -2,6 +2,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Core>
 #include <Eigen/Sparse>
+#include <iostream>
 
 using SMat = Eigen::SparseMatrix<double>;
 using Mat = Eigen::MatrixXd;
@@ -24,10 +25,8 @@ public:
     Vec c_eq;
     SMat J_ineq;
     Vec c_ineq;
-    SMat J_comp_l;
-    Vec c_comp_l;
-    SMat J_comp_r;
-    Vec c_comp_r;
+    SMat J_comp;
+    Vec c_comp;
 
     /**
      * Construct a new Problem given problem data
@@ -35,7 +34,7 @@ public:
      */
     Problem(SMat cost_hessian, Vec cost_gradient,
             SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
-            SMat J_comp_l, Vec c_comp_l, SMat J_comp_r, Vec c_comp_r);
+            SMat J_comp, Vec c_comp);
 
     /**
      * Construct a new Problem given problem data
@@ -43,5 +42,5 @@ public:
      */
     Problem(Mat cost_hessian, Vec cost_gradient,
             Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
-            Mat J_comp_l, Vec c_comp_l, Mat J_comp_r, Vec c_comp_r);
+            Mat J_comp, Vec c_comp);
 };
