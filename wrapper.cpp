@@ -1,6 +1,9 @@
 #include <jlcxx/jlcxx.hpp>
 #include "problem.h"
 
+using jl_Vec = jlcxx::ArrayRef<double, 1>;
+using jl_Mat = jlcxx::ArrayRef<double, 2>;
+
 // Helper functions for converting between Eigen types and Julia types
 Eigen::VectorXd to_eigen(jlcxx::ArrayRef<double, 1>& arr) {
     return Eigen::VectorXd::Map(arr.data(), arr.size());
@@ -21,6 +24,27 @@ Eigen::MatrixXd eigen_mat = Eigen::MatrixXd::Random(3, 3);
 Eigen::VectorXd eigen_vec = Eigen::VectorXd::Random(5);
 
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
+    // Problem class bindings
+    mod.add_type<Problem>("Problem")
+        .constructor([](jl_Mat cost_hessian, jl_Vec cost_gradient,
+                    jl_Mat J_eq, jl_Vec c_eq, jl_Mat J_ineq, jl_Vec c_ineq,
+                    jl_Mat J_comp_l, jl_Vec c_comp_l, jl_Mat J_comp_r, jl_Vec c_comp_r) {
+        int nz = cost_gradient.size();
+        int n_eq = c_eq.size();
+        int n_ineq = c_ineq.size();
+        int n_comp = c_comp_l.size();
+        return new Problem(to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient),
+                           to_eigen(J_eq, n_eq, nz), to_eigen(c_eq), 
+                           to_eigen(J_ineq, n_ineq, nz), to_eigen(c_ineq),
+                           to_eigen(J_comp_l, n_comp, nz), to_eigen(c_comp_l),
+                           to_eigen(J_comp_r, n_comp, nz), to_eigen(c_comp_r));
+        })
+        .method("nz", [](Problem& p) -> const int { return p.nz; })
+        .method("n_eq", [](Problem& p) -> const int { return p.n_eq; })
+        .method("n_ineq", [](Problem& p) -> const int { return p.n_ineq; })
+        .method("n_comp", [](Problem& p) -> const int { return p.n_comp; });
+
+    
     mod.method("test_array", [](jlcxx::ArrayRef<double, 1> arr) {
         std::cout << "here" << std::endl;
         eigen_vec = to_eigen(arr);
