@@ -1,7 +1,8 @@
 #include "solver.h"
 
 Solver::Solver() {
-
+    // Init workspace
+    workspace = std::make_shared<Workspace>();
 };
 
 void Solver::set_problem(Problem& prob) {
@@ -28,4 +29,14 @@ void Solver::set_problem(Problem& prob) {
     m_ineq_inds = Eigen::VectorXi::LinSpaced(prob.n_ineq, total_inds, total_inds + prob.n_ineq - 1);
     total_inds += prob.n_ineq;
     m_comp_inds = Eigen::VectorXi::LinSpaced(2*prob.n_comp, total_inds, total_inds + 2*prob.n_comp - 1);
+    total_inds += 2*prob.n_comp;
+
+    // Init KKT system
+    workspace->kkt_system = SMat(total_inds, total_inds);
+    std::vector<Eigen::Triplet<double>> triplets;
+    workspace->appendBlockTriplets(triplets, p.cost_hessian, z_inds[0], z_inds[0]);
+    workspace->appendBlockTriplets(triplets, p.J_eq.transpose(), z_inds[0], m_eq_inds[0]);
+    workspace->appendBlockTriplets(triplets, p.J_ineq.transpose(), z_inds[0], m_ineq_inds[0]);
+    workspace->appendBlockTriplets(triplets, p.J_comp.transpose(), z_inds[0], m_comp_inds[0]);
+    workspace->kkt_system.setFromTriplets(triplets.begin(), triplets.end());
 }

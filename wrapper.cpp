@@ -50,6 +50,19 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("n_ineq", [](Problem& p) -> const int { return p.n_ineq; })
         .method("n_comp", [](Problem& p) -> const int { return p.n_comp; });
 
+    // Workspace class bindings
+    mod.add_type<Workspace>("Workspace")
+        .constructor()
+        .method("kkt_system", [](Workspace& w) {
+            Eigen::SparseMatrix<double>& kkt = w.kkt_system;
+            kkt.makeCompressed(); 
+            jl_VecXi colptr = jlcxx::make_julia_array(kkt.outerIndexPtr(), kkt.outerSize() + 1);
+            jl_VecXi rowval = jlcxx::make_julia_array(kkt.innerIndexPtr(), kkt.nonZeros());
+            jl_VecXd nzval = jlcxx::make_julia_array(kkt.valuePtr(), kkt.nonZeros());
+
+            return std::make_tuple(kkt.rows(), kkt.cols(), colptr, rowval, nzval); 
+        });
+
     // Solver class bindings
     mod.add_type<Solver>("Solver")
         .constructor()
@@ -60,7 +73,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_inds); })
         .method("m_eq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_eq_inds); })
         .method("m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_ineq_inds); })
-        .method("m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_comp_inds); });
+        .method("m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_comp_inds); })
+        .method("get_workspace", &Solver::get_workspace);
 
 
     mod.method("test_array", [](jlcxx::ArrayRef<double, 1> arr) {

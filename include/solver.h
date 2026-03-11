@@ -4,11 +4,15 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include "problem.h"
+#include "workspace.h"
 
 class Solver {
 public:
     // Problem instance
     std::shared_ptr<Problem> prob;
+
+    // Workspace for solve
+    std::shared_ptr<Workspace> workspace;
 
     // Indices that define the structure of the KKT system (order of rows and columns)
     Eigen::VectorXi z_inds; // Original primal variables
@@ -34,5 +38,12 @@ public:
      */
     Problem& get_problem() {
         return *prob;
+    }
+
+    /**
+     * Returns the workspace used by the solver
+     */
+    Workspace& get_workspace() {
+        return *workspace;
     }
 };

@@ -59,3 +59,11 @@ RCQP.s_comp_inds(rcqp) == solver.kkt_inds.σ .- 1
 RCQP.m_eq_inds(rcqp) == solver.kkt_inds.λ .- 1
 RCQP.m_ineq_inds(rcqp) == solver.kkt_inds.μ .- 1
 RCQP.m_comp_inds(rcqp) == solver.kkt_inds.τ .- 1
+
+# Get workspace
+workspace = RCQP.get_workspace(rcqp)
+nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
+kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+
+hess = lagrangian_hessian(solver, solver.iters[end - 1])
+@assert norm(hess[1:solver.nz, :] - kkt[1:solver.nz, :], Inf) < 1e-10
