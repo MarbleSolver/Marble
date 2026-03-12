@@ -66,6 +66,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // Solver class bindings
     mod.add_type<Solver>("Solver")
         .constructor()
+        .method("retract", [](Solver& solver, jl_VecXd s, double sqrt_relax_param) {
+            Vec p = solver.retract(to_eigen(s), sqrt_relax_param);
+            return std::vector<double>(p.data(), p.data() + p.size());
+        })
+        .method("retract_deriv", [](Solver& solver, jl_VecXd s, double sqrt_relax_param) {
+            Vec p_deriv = solver.retract_deriv(to_eigen(s), sqrt_relax_param);
+            return std::vector<double>(p_deriv.data(), p_deriv.data() + p_deriv.size());
+        })
         .method("set_problem", &Solver::set_problem)
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })

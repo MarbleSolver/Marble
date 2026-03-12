@@ -41,6 +41,17 @@ public:
      */
     Solver(); 
 
+    
+    /**
+     * Retraction map (vectorized)
+     */
+    Vec retract(const Vec& s, double sqrt_relax_param);
+
+    /**
+     * Retraction map derivative (vectorized)
+     */
+    Vec retract_deriv(const Vec& s, double sqrt_relax_param);
+
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
      */

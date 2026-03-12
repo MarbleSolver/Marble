@@ -5,6 +5,22 @@ Solver::Solver() {
     workspace = std::make_shared<Workspace>();
 };
 
+Vec Solver::retract(const Vec& s, double sqrt_relax_param) {
+    // Vectorized retraction map for both inequality and complementarity slacks
+    // p(s) = sqrt(s^2 + relax_param)
+    // Eigen::VectorXd p = 0.5*(s/sqrt_relax_param + (s.))
+    auto& s_arr = s.array()/sqrt_relax_param;
+    Vec p = 0.5*(s_arr + (s_arr.square() + 4.0).sqrt());
+    return sqrt_relax_param * p;
+}
+
+Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) {
+    // Derivative of the vectorized retraction map above
+    auto& s_arr = s.array()/sqrt_relax_param;
+    Vec p_deriv = 0.5*(s_arr/sqrt(s_arr.square() + 4.0) + 1.0);
+    return p_deriv;
+}
+
 void Solver::set_problem(Problem& prob) {
     // Move problem
     this->prob = std::make_shared<Problem>(std::move(prob));
@@ -33,7 +49,6 @@ void Solver::set_problem(Problem& prob) {
 
     // Initialize KKT system sparsirty
     initialize_kkt_sparsity();
-
 }
 
 void Solver::initialize_kkt_sparsity() {

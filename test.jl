@@ -45,6 +45,11 @@ prob = RCQP.Problem(H, g, J_eq, c_eq, J_ineq, c_ineq,
 # Set up solver, test setting and getting problem
 rcqp = RCQP.Solver()
 
+# Check retraction and retraction derivative
+s = randn(10)
+@assert norm(RCQP.retract(rcqp, s, 1e-2) - solver.r(s, 1e-2)) < 1e-10
+@assert norm(RCQP.retract_deriv(rcqp, s, 1e-2) - solver.d_r(s, 1e-2)) < 1e-10
+
 # Get workspace
 workspace = RCQP.get_workspace(rcqp)
 
