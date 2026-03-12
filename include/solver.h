@@ -75,6 +75,16 @@ public:
     void initialize_kkt_sparsity();
 
     /**
+     * Compute KKT residual given the current guess stored in the workspace
+     */
+    void update_KKT_residual(double sqrt_relax_param, double inv_penalty_param);
+
+    /**
+     * Update KKT system given the current guess stored in the workspace
+     */
+    void update_KKT_system(double sqrt_relax_param, double inv_penalty_param);
+
+    /**
      * Update the KKT terms associated with s_ineq (no dependence on m_ineq)
      */
     void update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param);

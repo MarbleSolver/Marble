@@ -146,6 +146,50 @@ void Solver::initialize_kkt_sparsity() {
     }
 }
 
+void Solver::update_KKT_residual(double sqrt_relax_param, double inv_penalty_param) {
+    // z stationarity
+    workspace->kkt_residual(z_inds) = prob->cost_hessian*workspace->z + prob->cost_gradient +
+                           prob->J_eq.transpose()*workspace->m_eq + 
+                           prob->J_ineq.transpose()*workspace->m_ineq + 
+                           prob->J_comp.transpose()*workspace->m_comp;
+
+    // Inequality slack stationarity
+    Vec p_neg_ineq = retract(-workspace->s_ineq, sqrt_relax_param);
+    Vec d_p_ineq = retract_deriv(workspace->s_ineq, sqrt_relax_param);
+    workspace->kkt_residual(s_ineq_inds) = d_p_ineq.cwiseProduct(-workspace->m_ineq - p_neg_ineq);
+
+    // Complementarity slack stationarity
+    Vec d_p_comp = retract_deriv(workspace->s_comp, sqrt_relax_param);
+    for (int i = 0; i < prob->n_comp; i++) {
+        workspace->kkt_residual(s_comp_inds[i]) = -d_p_comp[i]*workspace->m_comp[2*i] + (1 - d_p_comp[i])*workspace->m_comp[2*i + 1];
+    }
+
+    // Equality primal feasibility
+    workspace->kkt_residual(m_eq_inds) = prob->J_eq*workspace->z + prob->c_eq - 
+                                            inv_penalty_param*(workspace->m_eq - workspace->m_eq_est);
+
+    // Inequality primal feasibility
+    workspace->kkt_residual(m_ineq_inds) = prob->J_ineq*workspace->z + prob->c_ineq - 
+                                            (workspace->s_ineq + p_neg_ineq) - // p(s) - p(-s) = s
+                                            inv_penalty_param*(workspace->m_ineq - workspace->m_ineq_est);
+
+    // Complementarity primal feasibility
+    Vec p_comp = retract(workspace->s_comp, sqrt_relax_param);
+    workspace->kkt_residual(m_comp_inds) = prob->J_comp*workspace->z + prob->c_comp - 
+                                            inv_penalty_param*(workspace->m_comp - workspace->m_comp_est);
+    for (int i = 0; i < prob->n_comp; i++) {
+        workspace->kkt_residual(m_comp_inds[2*i]) += -p_comp[i]; // p(s)
+        workspace->kkt_residual(m_comp_inds[2*i + 1]) += -(p_comp[i] - workspace->s_comp[i]); // p(s) - p(-s) = s
+    }
+}
+
+void Solver::update_KKT_system(double sqrt_relax_param, double inv_penalty_param) {
+    // Update KKT system terms that depend on the solution, which are the nonlinear terms associated with the inequality and complementarity slacks and multipliers, as well as the penalty terms
+    update_KKT_ineq(workspace->s_ineq, sqrt_relax_param);
+    update_KKT_comp(workspace->s_comp, workspace->m_comp, sqrt_relax_param);
+    update_KKT_penalty(inv_penalty_param);
+}
+
 void Solver::update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Vec d_p = retract_deriv(s_ineq, sqrt_relax_param);

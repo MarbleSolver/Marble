@@ -88,6 +88,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             Vec p_second_deriv = solver.retract_second_deriv(to_eigen(s), sqrt_relax_param);
             return std::vector<double>(p_second_deriv.data(), p_second_deriv.data() + p_second_deriv.size());
         })
+        .method("update_KKT_residual", &Solver::update_KKT_residual)
+        .method("update_KKT_system", &Solver::update_KKT_system)
         .method("update_KKT_ineq", [](Solver& solver, jl_VecXd s_ineq, double sqrt_relax_param) {
             solver.update_KKT_ineq(to_eigen(s_ineq), sqrt_relax_param);
         })

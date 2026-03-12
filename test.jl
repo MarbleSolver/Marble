@@ -115,3 +115,46 @@ for iter in solver.iters
     kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
     @assert norm(triu(hess) - kkt, Inf) < 1e-10
 end
+
+# Check writing to workspace
+iter = solver.iters[2]
+RCQP.z(workspace) .= iter.z
+RCQP.s_ineq(workspace) .= iter.v
+RCQP.s_comp(workspace) .= iter.σ
+RCQP.m_eq(workspace) .= iter.λ
+RCQP.m_ineq(workspace) .= iter.μ
+RCQP.m_comp(workspace) .= iter.τ
+RCQP.update_KKT_residual(rcqp, sqrt(iter.κ), 1/iter.ρ)
+RCQP.update_KKT_system(rcqp, sqrt(iter.κ), 1/iter.ρ)
+residual = RCQP.kkt_residual(workspace)
+nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
+kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+@assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
+@assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
+
+# Check across all iteraters
+for iter in solver.iters
+    # Write current solution guess
+    RCQP.z(workspace) .= iter.z
+    RCQP.s_ineq(workspace) .= iter.v
+    RCQP.s_comp(workspace) .= iter.σ
+    RCQP.m_eq(workspace) .= iter.λ
+    RCQP.m_ineq(workspace) .= iter.μ
+    RCQP.m_comp(workspace) .= iter.τ
+
+    # Write current multiplier estimaters
+    RCQP.m_eq_est(workspace) .= iter.α
+    RCQP.m_ineq_est(workspace) .= iter.β
+    RCQP.m_comp_est(workspace) .= iter.γ
+
+    # Compute KKT residual and system
+    RCQP.update_KKT_residual(rcqp, sqrt(iter.κ), 1/iter.ρ)
+    RCQP.update_KKT_system(rcqp, sqrt(iter.κ), 1/iter.ρ)
+
+    # Check against iterate
+    residual = RCQP.kkt_residual(workspace)
+    nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
+    kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+    @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
+    @assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
+end
