@@ -30,4 +30,15 @@ public:
      * @param col_start the starting column index of the block in the sparse matrix
      */
     void appendBlockTriplets(std::vector<Eigen::Triplet<double>>& triplets, const SMat& block, int row_start, int col_start);
+
+    /**
+     * Given a row and column index into kkt_system, find the data index in the underlying
+     * kkt_system.valuePtr() array, returning -1 if it doesn't exist.
+     * 
+     * @warning this function assumes that the KKT system is in the compressed format
+     * 
+     * @param row row index
+     * @param col col_index
+     */
+    int findValuePtrIndex(int row, int col);
 };

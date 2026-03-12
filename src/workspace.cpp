@@ -1,4 +1,5 @@
 #include "workspace.h"
+#include <algorithm>
 
 Workspace::Workspace() {
 
@@ -13,4 +14,18 @@ void Workspace::appendBlockTriplets(std::vector<Eigen::Triplet<double>>& triplet
             triplets.emplace_back(row, col, value);
         }
     }
+}
+
+int Workspace::findValuePtrIndex(int row, int col) {
+    // Get indices for the start and end of the column
+    int col_start = kkt_system.outerIndexPtr()[col];
+    int col_end = kkt_system.outerIndexPtr()[col + 1];
+
+    // Search over the row for the row index
+    const int* inner = kkt_system.innerIndexPtr(); // This is like rowval in CSC format
+    const int* it = std::lower_bound(inner + col_start, inner + col_end, row);
+    if (it != inner + col_end && *it == row) {
+        return it - inner;
+    }
+    return -1;
 }
