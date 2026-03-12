@@ -78,7 +78,7 @@ void Solver::initialize_kkt_sparsity() {
     std::vector<Eigen::Triplet<double>> triplets;
 
     // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + J_comp'*m_comp 
-    workspace->appendBlockTriplets(triplets, prob->cost_hessian, z_inds[0], z_inds[0]);
+    workspace->appendBlockTriplets(triplets, prob->cost_hessian.triangularView<Eigen::Upper>(), z_inds[0], z_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_eq.transpose(), z_inds[0], m_eq_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_ineq.transpose(), z_inds[0], m_ineq_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_comp.transpose(), z_inds[0], m_comp_inds[0]);
