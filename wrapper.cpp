@@ -53,6 +53,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // Workspace class bindings
     mod.add_type<Workspace>("Workspace")
         .constructor()
+        .method("z", [](Workspace& w) { return to_julia(w.z); })
+        .method("s_ineq", [](Workspace& w) { return to_julia(w.s_ineq); })
+        .method("s_comp", [](Workspace& w) { return to_julia(w.s_comp); })
+        .method("m_eq", [](Workspace& w) { return to_julia(w.m_eq); })
+        .method("m_ineq", [](Workspace& w) { return to_julia(w.m_ineq); })
+        .method("m_comp", [](Workspace& w) { return to_julia(w.m_comp); })
+        .method("m_eq_est", [](Workspace& w) { return to_julia(w.m_eq_est); })
+        .method("m_ineq_est", [](Workspace& w) { return to_julia(w.m_ineq_est); })
+        .method("m_comp_est", [](Workspace& w) { return to_julia(w.m_comp_est); })
+        .method("kkt_residual", [](Workspace& w) { return to_julia(w.kkt_residual); })
         .method("kkt_system", [](Workspace& w) {
             Eigen::SparseMatrix<double>& kkt = w.kkt_system;
             kkt.makeCompressed(); 

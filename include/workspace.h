@@ -7,6 +7,22 @@
 
 class Workspace {
 public:
+    // Current solution vectors
+    Vec z;
+    Vec s_ineq;
+    Vec s_comp;
+    Vec m_eq;
+    Vec m_ineq;
+    Vec m_comp;
+
+    // Current multiplier estimates for AL
+    Vec m_eq_est;
+    Vec m_ineq_est;
+    Vec m_comp_est;
+    
+    // KKT residual, driven to 0 in each subproblem solve
+    Vec kkt_residual;
+
     /**
      * KKT system matrix, stored in sparse format with the structure intended to be fixed
      * after it is initialize by Solver::set_problem.

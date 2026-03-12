@@ -54,7 +54,19 @@ void Solver::set_problem(Problem& prob) {
     m_comp_inds = Eigen::VectorXi::LinSpaced(2*prob.n_comp, total_inds, total_inds + 2*prob.n_comp - 1);
     total_inds += 2*prob.n_comp;
 
-    // Initialize KKT system sparsirty
+    // Allocate for solution vector, multiplier estimates, and KKT residual
+    workspace->z.resize(prob.nz);
+    workspace->s_ineq.resize(prob.n_ineq);
+    workspace->s_comp.resize(prob.n_comp);
+    workspace->m_eq.resize(prob.n_eq);
+    workspace->m_ineq.resize(prob.n_ineq);
+    workspace->m_comp.resize(2*prob.n_comp);
+    workspace->m_eq_est.resize(prob.n_eq);
+    workspace->m_ineq_est.resize(prob.n_ineq);
+    workspace->m_comp_est.resize(2*prob.n_comp);
+    workspace->kkt_residual.resize(n_vars);
+
+    // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
 }
 
