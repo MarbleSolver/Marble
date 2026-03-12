@@ -21,6 +21,13 @@ Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) {
     return p_deriv;
 }
 
+Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) {
+    // Second derivative of the vectorized retraction map above
+    auto& s_arr = s.array()/sqrt_relax_param;
+    Vec p_second_deriv = 2.0/(s_arr.square() + 4.0).pow(1.5);
+    return p_second_deriv/sqrt_relax_param;
+}
+
 void Solver::set_problem(Problem& prob) {
     // Move problem
     this->prob = std::make_shared<Problem>(std::move(prob));
@@ -115,4 +122,45 @@ void Solver::initialize_kkt_sparsity() {
         s_comp_m_comp_inds[i*2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2]);
         s_comp_m_comp_inds[i*2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2 + 1]);
     }
+    penalty_inds.resize(prob->n_eq + prob->n_ineq + 2*prob->n_comp);
+    for (int i = 0; i < prob->n_eq; i++) {
+        penalty_inds[i] = workspace->findValuePtrIndex(m_eq_inds[i], m_eq_inds[i]);
+    }
+    for (int i = 0; i < prob->n_ineq; i++) {
+       penalty_inds[prob->n_eq + i] = workspace->findValuePtrIndex(m_ineq_inds[i], m_ineq_inds[i]);
+    }
+    for (int i = 0; i < 2*prob->n_comp; i++) {
+        penalty_inds[prob->n_eq + prob->n_ineq + i] = workspace->findValuePtrIndex(m_comp_inds[i], m_comp_inds[i]);
+    }
+}
+
+void Solver::update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param) {
+    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
+    Vec d_p = retract_deriv(s_ineq, sqrt_relax_param);
+
+    // Use identity that retract_deriv(-s_ineq, sqrt_relax_param) = 1 - d_p
+    nzval(s_ineq_s_ineq_inds) = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p
+    nzval(s_ineq_m_ineq_inds) = -d_p;
+}
+
+// TODO: fix indexing into m_comp so that it can be a const reference
+void Solver::update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_param) {
+    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
+    Vec d_p = retract_deriv(s_comp, sqrt_relax_param);
+    Vec dd_p = retract_second_deriv(s_comp, sqrt_relax_param);
+
+    for (int i = 0; i < prob->n_comp; i++) {
+        // Derivative of -p'(s)*m1 + p'(-s)*m2 wrt s
+        // is -(p''(s)*m1 + p''(s)*m2) but p''(s) = p''(-s) so its -p''(s)*(m1 + m2)
+        nzval(s_comp_s_comp_inds[i]) = -dd_p[i]*(m_comp[2*i] + m_comp[2*i + 1]);
+
+        // Derivative wrt to m1 and m2 is just -d_p and -d_neg_p respectively
+        nzval(s_comp_m_comp_inds[2*i]) = -d_p[i];
+        nzval(s_comp_m_comp_inds[2*i + 1]) = (1 - d_p[i]); // d_neg_p = 1 - d_p
+    } 
+}
+
+void Solver::update_KKT_penalty(const double inv_penalty_param) {
+    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
+    nzval(penalty_inds) = -inv_penalty_param*Vec::Ones(prob->n_eq + prob->n_ineq + 2*prob->n_comp);
 }

@@ -74,6 +74,19 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             Vec p_deriv = solver.retract_deriv(to_eigen(s), sqrt_relax_param);
             return std::vector<double>(p_deriv.data(), p_deriv.data() + p_deriv.size());
         })
+        .method("retract_second_deriv", [](Solver& solver, jl_VecXd s, double sqrt_relax_param) {
+            Vec p_second_deriv = solver.retract_second_deriv(to_eigen(s), sqrt_relax_param);
+            return std::vector<double>(p_second_deriv.data(), p_second_deriv.data() + p_second_deriv.size());
+        })
+        .method("update_KKT_ineq", [](Solver& solver, jl_VecXd s_ineq, double sqrt_relax_param) {
+            solver.update_KKT_ineq(to_eigen(s_ineq), sqrt_relax_param);
+        })
+        .method("update_KKT_comp", [](Solver& solver, jl_VecXd s_comp, jl_VecXd m_comp, double sqrt_relax_param) {
+            solver.update_KKT_comp(to_eigen(s_comp), to_eigen(m_comp), sqrt_relax_param);
+        })
+        .method("update_KKT_penalty", [](Solver& solver, double inv_penalty_param) {
+            solver.update_KKT_penalty(inv_penalty_param);
+        })
         .method("set_problem", &Solver::set_problem)
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })

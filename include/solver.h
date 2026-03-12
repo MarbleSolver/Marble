@@ -43,14 +43,19 @@ public:
 
     
     /**
-     * Retraction map (vectorized)
+     * Retraction map (elementwise)
      */
     Vec retract(const Vec& s, double sqrt_relax_param);
 
     /**
-     * Retraction map derivative (vectorized)
+     * Retraction map derivative (elementwise)
      */
     Vec retract_deriv(const Vec& s, double sqrt_relax_param);
+
+    /**
+     * Retraction map second derivative (elementwise)
+     */
+    Vec retract_second_deriv(const Vec& s, double sqrt_relax_param);
 
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
@@ -68,6 +73,21 @@ public:
      * Construct and initialize KKT sparsity
      */
     void initialize_kkt_sparsity();
+
+    /**
+     * Update the KKT terms associated with s_ineq (no dependence on m_ineq)
+     */
+    void update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param);
+
+    /**
+     * Update the KKT terms associated with s_comp and m_comp
+     */
+    void update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_param);
+
+    /**
+     * Update the KKT penalty diagonal
+     */
+    void update_KKT_penalty(const double inv_penalty_param);
 
     /**
      * Returns the workspace used by the solver

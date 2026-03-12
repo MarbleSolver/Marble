@@ -49,6 +49,7 @@ rcqp = RCQP.Solver()
 s = randn(10)
 @assert norm(RCQP.retract(rcqp, s, 1e-2) - solver.r(s, 1e-2)) < 1e-10
 @assert norm(RCQP.retract_deriv(rcqp, s, 1e-2) - solver.d_r(s, 1e-2)) < 1e-10
+@assert norm(RCQP.retract_second_deriv(rcqp, s, 1e-2) - solver.dd_r(s, 1e-2)) < 1e-10
 
 # Get workspace
 workspace = RCQP.get_workspace(rcqp)
@@ -70,11 +71,16 @@ RCQP.m_eq_inds(rcqp) == solver.kkt_inds.λ .- 1
 RCQP.m_ineq_inds(rcqp) == solver.kkt_inds.μ .- 1
 RCQP.m_comp_inds(rcqp) == solver.kkt_inds.τ .- 1
 
+# Update ineq, comp and penalty terms
+iter = solver.iters[2]
+RCQP.update_KKT_ineq(rcqp, iter.v, sqrt(iter.κ))
+RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
+RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
 
 # Check KKT structure
 nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
 kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
-hess = lagrangian_hessian(solver, solver.iters[1])
+hess = lagrangian_hessian(solver, iter)
 hess_sparse = copy(hess)
 kkt_sparse = copy(kkt)
 hess_sparse.nzval .= 1
@@ -91,5 +97,21 @@ kkt_sparse.nzval[RCQP.s_comp_s_comp_inds(rcqp) .+ 1] = solver.kkt_inds.σ
 kkt_sparse.nzval[RCQP.s_comp_m_comp_inds(rcqp) .+ 1] =  vcat([[a; b] for (a, b) in zip(solver.kkt_inds.σ, -solver.kkt_inds.σ)]...)
 @assert norm(kkt_sparse[solver.kkt_inds.σ, solver.kkt_inds.τ] - kron(diagm(solver.kkt_inds.σ), [1 -1]), Inf) == 0
 
-# Check z stationarity row
-@assert norm(hess[1:solver.nz, :] - kkt[1:solver.nz, :], Inf) < 1e-10 
+# Check stationarity rows
+@assert norm(triu(hess)[solver.kkt_inds.z, :] - kkt[solver.kkt_inds.z, :], Inf) < 1e-10 
+@assert norm(triu(hess)[solver.kkt_inds.v, :] - kkt[solver.kkt_inds.v, :], Inf) < 1e-10 
+@assert norm(triu(hess)[solver.kkt_inds.σ, :] - kkt[solver.kkt_inds.σ, :], Inf) < 1e-10 
+
+# Check entire matrix
+@assert norm(triu(hess) - kkt, Inf) < 1e-10
+
+# Check across all iterates
+for iter in solver.iters
+    RCQP.update_KKT_ineq(rcqp, iter.v, sqrt(iter.κ))
+    RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
+    RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
+    hess = lagrangian_hessian(solver, iter)
+    nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
+    kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+    @assert norm(triu(hess) - kkt, Inf) < 1e-10
+end
