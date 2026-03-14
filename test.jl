@@ -15,7 +15,7 @@ module RCQP
   end
 end
 
-name = :simple_test
+name = :hopper
 
 problem = create_problem(name);
 solver_options = SolverOptions()
@@ -124,6 +124,9 @@ RCQP.s_comp(workspace) .= iter.σ
 RCQP.m_eq(workspace) .= iter.λ
 RCQP.m_ineq(workspace) .= iter.μ
 RCQP.m_comp(workspace) .= iter.τ
+RCQP.m_eq_est(workspace) .= iter.α
+RCQP.m_ineq_est(workspace) .= iter.β
+RCQP.m_comp_est(workspace) .= iter.γ
 RCQP.update_KKT_residual(rcqp, sqrt(iter.κ), 1/iter.ρ)
 RCQP.update_KKT_system(rcqp, sqrt(iter.κ), 1/iter.ρ)
 residual = RCQP.kkt_residual(workspace)
