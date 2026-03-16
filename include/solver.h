@@ -10,19 +10,36 @@
 class Solver {
 public:
     struct Options {
+        // KKT Inf norm must be less than this value for convergence
         double convergence_kkt_norm{1e-4};
+        // Equality constraint violation Inf norm must be less than this value for convergence
         double convergence_eq_violation{1e-4};
+        // Inequality constraint violation Inf norm must be less than this value for convergence
         double convergence_ineq_violation{1e-4};
+        // Complementarity constraint violation Inf norm must be less than this value for convergence
         double convergence_comp_violation{1e-4};
+        // KKT Inf norm must be less than this value to take an outer step in the algorithm
         double outer_step_kkt_norm{1e-6};
+        // Initial AL penalty parameter
         double penalty_initial{1.0};
+        // Maximum AL penalty parameter
         double penalty_max{1e6};
+        // AL penalty parameter scaling factor, multiplies current penalty parameter
         double penalty_scaling{10.0};
+        // Initial relaxation parameter for complementarity and inequality constraints
         double relaxation_initial{1e-1};
+        // Minimum relaxation parameter for complementarity and inequality constraints
         double relaxation_min{1e-7};
+        // Relaxation parameter scaling factor, multiplies current relaxation parameter
         double relaxation_scaling{0.5};
+        // Maximum number of iterations for the solver, iterations refers to outer + inner iterations
         int max_iters{1000};
+        // Maximum number of iterations for the filter linesearch
         int max_iters_linesearch{10};
+        // (Filter) Sufficient progress parameter for objective value decrease
+        double gamma_objective{1e-5};
+        // (Filter) Sufficient progress parameter for constraint violation decrease
+        double gamma_constraint{1e-5};
     };
 
     // Problem instance
@@ -54,19 +71,16 @@ public:
     Eigen::VectorXi regularizer_inds;
     
     // Filter for linesearch
-    // TODO: initialize filter with options
+    // TODO: initialize filter with options, should be private member of solver
     Filter filter;
 
-    /**
-     * Construct a solver instance
-     */
-    Solver() : options(Options()) {
-        workspace = std::make_shared<Workspace>();
-    }
+    Solver() : Solver(Options{}) {}
 
-    Solver(const Options& options) : options(options) {
-        workspace = std::make_shared<Workspace>();
-    }
+    Solver(const Options& options)
+        : options(options),
+          filter(Filter::Options{options.gamma_objective,
+                                 options.gamma_constraint}),
+          workspace(std::make_shared<Workspace>()) {}
     
     /**
      * Retraction map (elementwise)

@@ -335,7 +335,7 @@ bool Solver::solve(const Solver::Options &options) {
             }
 
             // Clear the filter 
-            filter = Filter();
+            filter.clear();
         } else {
             bool linesearch_succeeded = false;
             update_KKT_system(sqrt_relaxation_param, inv_penalty_param);
@@ -408,7 +408,7 @@ bool Solver::filter_linesearch(const Solver::Options &options, const Vec &newton
                                      pow(sqrt_relax_param, 2) * p_ineq.array().log().sum() +
                                      0.5 * inv_penalty_param * (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() +  workspace->m_comp.squaredNorm());
 
-        double candidate_constraint_violation = m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() + m_comp_primal_feas.lpNorm<1>();
+        double candidate_constraint_violation = (m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() + m_comp_primal_feas.lpNorm<1>()) / n_duals;
 
         const Filter::FilterEntry candidate(candidate_objective, candidate_constraint_violation);
 

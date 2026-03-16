@@ -4,7 +4,7 @@
 
 class Filter {
 public:
-    struct FilterOptions {
+    struct Options {
         // Sufficient progress parameter for objective value decrease
         double gamma_objective{1e-5};
         // Sufficient progress parameter for constraint violation decrease
@@ -28,7 +28,7 @@ public:
      * @brief Construct a new Filter object
      */
     Filter() = default;
-    Filter(const FilterOptions& options) : options(options) {}
+    Filter(const Options& options) : options(options) {}
 
     /**
      * @brief Determine if a candidate point makes sufficient progress with respect to constraint violation, objective value
@@ -78,11 +78,17 @@ public:
      * @param new_entry New filter entry to add
      */
     void update(const FilterEntry& new_entry);
+
+    /**
+     * @brief Clear all entries from the filter
+     */
+    void clear() {
+        entries.clear();
+    }
 private:
     // Filter options
-    const FilterOptions options{};
-    
+    const Options options{};
+
     // List of entries in the filter, maintained such that no entry is dominated by any other entry
     std::vector<FilterEntry> entries{};
-
 };
