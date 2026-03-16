@@ -4,35 +4,36 @@ Vec Solver::retract(const Vec& s, double sqrt_relax_param) {
     // Vectorized retraction map for both inequality and complementarity slacks
     // p(s) = sqrt(s^2 + relax_param)
     // Eigen::VectorXd p = 0.5*(s/sqrt_relax_param + (s.))
-    auto& s_arr = s.array()/sqrt_relax_param;
-    Vec p = 0.5*(s_arr + (s_arr.square() + 4.0).sqrt());
+    auto& s_arr = s.array() / sqrt_relax_param;
+    Vec p = 0.5 * (s_arr + (s_arr.square() + 4.0).sqrt());
     return sqrt_relax_param * p;
 }
 
 Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) {
     // Derivative of the vectorized retraction map above
-    auto& s_arr = s.array()/sqrt_relax_param;
-    Vec p_deriv = 0.5*(s_arr/sqrt(s_arr.square() + 4.0) + 1.0);
+    auto& s_arr = s.array() / sqrt_relax_param;
+    Vec p_deriv = 0.5 * (s_arr / sqrt(s_arr.square() + 4.0) + 1.0);
     return p_deriv;
 }
 
 Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) {
     // Second derivative of the vectorized retraction map above
-    auto& s_arr = s.array()/sqrt_relax_param;
-    Vec p_second_deriv = 2.0/(s_arr.square() + 4.0).pow(1.5);
-    return p_second_deriv/sqrt_relax_param;
+    auto& s_arr = s.array() / sqrt_relax_param;
+    Vec p_second_deriv = 2.0 / (s_arr.square() + 4.0).pow(1.5);
+    return p_second_deriv / sqrt_relax_param;
 }
 
 void Solver::set_problem(Problem& prob) {
     // Move problem
     this->prob = std::make_shared<Problem>(std::move(prob));
-    
+
     // TODO: (nit) Either use this->prob or passed prob consistently here
 
     // Define subproblem dimensions
-    n_primals = this->prob->nz + this->prob->n_ineq + this->prob->n_comp; // Primal variables include original and slacks
-    n_duals = this->prob->n_eq + this->prob->n_ineq + 2*this->prob->n_comp; // Dual variables for each constraint
-    n_vars = n_primals + n_duals; // Total variables
+    n_primals =
+        this->prob->nz + this->prob->n_ineq + this->prob->n_comp;  // Primal variables include original and slacks
+    n_duals = this->prob->n_eq + this->prob->n_ineq + 2 * this->prob->n_comp;  // Dual variables for each constraint
+    n_vars = n_primals + n_duals;                                              // Total variables
 
     // The inner subproblem solves for r(y) = 0 where r is the kkt residual
     // and y is the stacked vector of primal and dual variables.
@@ -48,8 +49,8 @@ void Solver::set_problem(Problem& prob) {
     total_inds += prob.n_eq;
     m_ineq_inds = Eigen::VectorXi::LinSpaced(prob.n_ineq, total_inds, total_inds + prob.n_ineq - 1);
     total_inds += prob.n_ineq;
-    m_comp_inds = Eigen::VectorXi::LinSpaced(2*prob.n_comp, total_inds, total_inds + 2*prob.n_comp - 1);
-    total_inds += 2*prob.n_comp;
+    m_comp_inds = Eigen::VectorXi::LinSpaced(2 * prob.n_comp, total_inds, total_inds + 2 * prob.n_comp - 1);
+    total_inds += 2 * prob.n_comp;
 
     // Allocate for solution vector, multiplier estimates, and KKT residual
     workspace->solution.resize(n_vars);
@@ -59,18 +60,18 @@ void Solver::set_problem(Problem& prob) {
     workspace->s_comp = workspace->solution.segment(s_comp_inds[0], prob.n_comp);
     workspace->m_eq = workspace->solution.segment(m_eq_inds[0], prob.n_eq);
     workspace->m_ineq = workspace->solution.segment(m_ineq_inds[0], prob.n_ineq);
-    workspace->m_comp = workspace->solution.segment(m_comp_inds[0], 2*prob.n_comp);
+    workspace->m_comp = workspace->solution.segment(m_comp_inds[0], 2 * prob.n_comp);
 
     workspace->m_eq_est.resize(prob.n_eq);
     workspace->m_ineq_est.resize(prob.n_ineq);
-    workspace->m_comp_est.resize(2*prob.n_comp);
+    workspace->m_comp_est.resize(2 * prob.n_comp);
 
     workspace->kkt_residual.resize(n_vars);
     workspace->newton_step.resize(n_vars);
 
     workspace->residual_eq.resize(prob.n_eq);
     workspace->residual_ineq.resize(prob.n_ineq);
-    workspace->residual_comp.resize(2*prob.n_comp);
+    workspace->residual_comp.resize(2 * prob.n_comp);
 
     // Initialize solution and multiplier estimates to 0
     workspace->solution.setZero();
@@ -79,9 +80,9 @@ void Solver::set_problem(Problem& prob) {
     workspace->m_comp_est.setZero();
 
     // Initialize workspace constraint residuals
-    workspace->residual_eq = prob.J_eq*workspace->z + prob.c_eq;
-    workspace->residual_ineq = prob.J_ineq*workspace->z + prob.c_ineq;
-    workspace->residual_comp = prob.J_comp*workspace->z + prob.c_comp;
+    workspace->residual_eq = prob.J_eq * workspace->z + prob.c_eq;
+    workspace->residual_ineq = prob.J_ineq * workspace->z + prob.c_ineq;
+    workspace->residual_comp = prob.J_comp * workspace->z + prob.c_comp;
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
@@ -94,7 +95,7 @@ void Solver::initialize_kkt_sparsity() {
     workspace->kkt_system = SMat(n_vars, n_vars);
     std::vector<Eigen::Triplet<double>> triplets;
 
-    // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + J_comp'*m_comp 
+    // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + J_comp'*m_comp
     workspace->appendBlockTriplets(triplets, prob->cost_hessian.triangularView<Eigen::Upper>(), z_inds[0], z_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_eq.transpose(), z_inds[0], m_eq_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_ineq.transpose(), z_inds[0], m_ineq_inds[0]);
@@ -118,8 +119,8 @@ void Solver::initialize_kkt_sparsity() {
         triplets.emplace_back(s_comp_inds[i], s_comp_inds[i], 1.0);
 
         // Derivative with respect to multipliers (n_comp by 2*n_comp)
-        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2], 1.0);
-        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2 + 1], 1.0);
+        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i * 2], 1.0);
+        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i * 2 + 1], 1.0);
     }
 
     // Populate AL regularizer for multipliers
@@ -129,7 +130,7 @@ void Solver::initialize_kkt_sparsity() {
     for (int i = 0; i < prob->n_ineq; i++) {
         triplets.emplace_back(m_ineq_inds[i], m_ineq_inds[i], 1.0);
     }
-    for (int i = 0; i < 2*prob->n_comp; i++) {
+    for (int i = 0; i < 2 * prob->n_comp; i++) {
         triplets.emplace_back(m_comp_inds[i], m_comp_inds[i], 1.0);
     }
 
@@ -156,20 +157,20 @@ void Solver::initialize_kkt_sparsity() {
         s_ineq_m_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], m_ineq_inds[i]);
     }
     s_comp_s_comp_inds.resize(prob->n_comp);
-    s_comp_m_comp_inds.resize(2*prob->n_comp);
+    s_comp_m_comp_inds.resize(2 * prob->n_comp);
     for (int i = 0; i < prob->n_comp; i++) {
         s_comp_s_comp_inds[i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
-        s_comp_m_comp_inds[i*2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2]);
-        s_comp_m_comp_inds[i*2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2 + 1]);
+        s_comp_m_comp_inds[i * 2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2]);
+        s_comp_m_comp_inds[i * 2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2 + 1]);
     }
-    penalty_inds.resize(prob->n_eq + prob->n_ineq + 2*prob->n_comp);
+    penalty_inds.resize(prob->n_eq + prob->n_ineq + 2 * prob->n_comp);
     for (int i = 0; i < prob->n_eq; i++) {
         penalty_inds[i] = workspace->findValuePtrIndex(m_eq_inds[i], m_eq_inds[i]);
     }
     for (int i = 0; i < prob->n_ineq; i++) {
         penalty_inds[prob->n_eq + i] = workspace->findValuePtrIndex(m_ineq_inds[i], m_ineq_inds[i]);
     }
-    for (int i = 0; i < 2*prob->n_comp; i++) {
+    for (int i = 0; i < 2 * prob->n_comp; i++) {
         penalty_inds[prob->n_eq + prob->n_ineq + i] = workspace->findValuePtrIndex(m_comp_inds[i], m_comp_inds[i]);
     }
 
@@ -195,10 +196,9 @@ void Solver::update_KKT_residual(double sqrt_relax_param, double inv_penalty_par
     workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
 
     // z stationarity
-    workspace->kkt_residual(z_inds) = prob->cost_hessian*workspace->z + prob->cost_gradient +
-                           prob->J_eq.transpose()*workspace->m_eq + 
-                           prob->J_ineq.transpose()*workspace->m_ineq + 
-                           prob->J_comp.transpose()*workspace->m_comp;
+    workspace->kkt_residual(z_inds) =
+        prob->cost_hessian * workspace->z + prob->cost_gradient + prob->J_eq.transpose() * workspace->m_eq +
+        prob->J_ineq.transpose() * workspace->m_ineq + prob->J_comp.transpose() * workspace->m_comp;
 
     // Inequality slack stationarity
     Vec p_neg_ineq = retract(-workspace->s_ineq, sqrt_relax_param);
@@ -208,30 +208,32 @@ void Solver::update_KKT_residual(double sqrt_relax_param, double inv_penalty_par
     // Complementarity slack stationarity
     Vec d_p_comp = retract_deriv(workspace->s_comp, sqrt_relax_param);
     for (int i = 0; i < prob->n_comp; i++) {
-        workspace->kkt_residual(s_comp_inds[i]) = -d_p_comp[i]*workspace->m_comp[2*i] + (1 - d_p_comp[i])*workspace->m_comp[2*i + 1];
+        workspace->kkt_residual(s_comp_inds[i]) =
+            -d_p_comp[i] * workspace->m_comp[2 * i] + (1 - d_p_comp[i]) * workspace->m_comp[2 * i + 1];
     }
 
     // Equality primal feasibility
-    workspace->kkt_residual(m_eq_inds) = workspace->residual_eq - 
-                                            inv_penalty_param*(workspace->m_eq - workspace->m_eq_est);
+    workspace->kkt_residual(m_eq_inds) =
+        workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
 
     // Inequality primal feasibility
-    workspace->kkt_residual(m_ineq_inds) = workspace->residual_ineq - 
-                                            (workspace->s_ineq + p_neg_ineq) - // p(s) - p(-s) = s
-                                            inv_penalty_param*(workspace->m_ineq - workspace->m_ineq_est);
+    workspace->kkt_residual(m_ineq_inds) = workspace->residual_ineq -
+                                           (workspace->s_ineq + p_neg_ineq) -  // p(s) - p(-s) = s
+                                           inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
 
     // Complementarity primal feasibility
     Vec p_comp = retract(workspace->s_comp, sqrt_relax_param);
-    workspace->kkt_residual(m_comp_inds) = workspace->residual_comp - 
-                                            inv_penalty_param*(workspace->m_comp - workspace->m_comp_est);
+    workspace->kkt_residual(m_comp_inds) =
+        workspace->residual_comp - inv_penalty_param * (workspace->m_comp - workspace->m_comp_est);
     for (int i = 0; i < prob->n_comp; i++) {
-        workspace->kkt_residual(m_comp_inds[2*i]) += -p_comp[i]; // p(s)
-        workspace->kkt_residual(m_comp_inds[2*i + 1]) += -(p_comp[i] - workspace->s_comp[i]); // p(s) - p(-s) = s
+        workspace->kkt_residual(m_comp_inds[2 * i]) += -p_comp[i];                               // p(s)
+        workspace->kkt_residual(m_comp_inds[2 * i + 1]) += -(p_comp[i] - workspace->s_comp[i]);  // p(s) - p(-s) = s
     }
 }
 
 void Solver::update_KKT_system(double sqrt_relax_param, double inv_penalty_param) {
-    // Update KKT system terms that depend on the solution, which are the nonlinear terms associated with the inequality and complementarity slacks and multipliers, as well as the penalty terms
+    // Update KKT system terms that depend on the solution, which are the nonlinear terms associated with the inequality
+    // and complementarity slacks and multipliers, as well as the penalty terms
     update_KKT_ineq(workspace->s_ineq, sqrt_relax_param);
     update_KKT_comp(workspace->s_comp, workspace->m_comp, sqrt_relax_param);
     update_KKT_penalty(inv_penalty_param);
@@ -242,7 +244,7 @@ void Solver::update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param) {
     Vec d_p = retract_deriv(s_ineq, sqrt_relax_param);
 
     // Use identity that retract_deriv(-s_ineq, sqrt_relax_param) = 1 - d_p
-    nzval(s_ineq_s_ineq_inds) = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p
+    nzval(s_ineq_s_ineq_inds) = -d_p.cwiseProduct(d_p) + d_p;  // -d_p*d_neg_p
     nzval(s_ineq_m_ineq_inds) = -d_p;
 }
 
@@ -255,12 +257,12 @@ void Solver::update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_pa
     for (int i = 0; i < prob->n_comp; i++) {
         // Derivative of -p'(s)*m1 + p'(-s)*m2 wrt s
         // is -(p''(s)*m1 + p''(s)*m2) but p''(s) = p''(-s) so its -p''(s)*(m1 + m2)
-        nzval(s_comp_s_comp_inds[i]) = -dd_p[i]*(m_comp[2*i] + m_comp[2*i + 1]);
+        nzval(s_comp_s_comp_inds[i]) = -dd_p[i] * (m_comp[2 * i] + m_comp[2 * i + 1]);
 
         // Derivative wrt to m1 and m2 is just -d_p and -d_neg_p respectively
-        nzval(s_comp_m_comp_inds[2*i]) = -d_p[i];
-        nzval(s_comp_m_comp_inds[2*i + 1]) = (1 - d_p[i]); // d_neg_p = 1 - d_p
-    } 
+        nzval(s_comp_m_comp_inds[2 * i]) = -d_p[i];
+        nzval(s_comp_m_comp_inds[2 * i + 1]) = (1 - d_p[i]);  // d_neg_p = 1 - d_p
+    }
 }
 
 void Solver::update_KKT_penalty(const double inv_penalty_param) {
@@ -273,28 +275,25 @@ void Solver::update_KKT_regularizer(const double regularizer) {
     nzval(regularizer_inds).setConstant(regularizer);
 }
 
-bool Solver::convergence(const Solver::Options &options) {
+bool Solver::convergence(const Solver::Options& options) {
     // KKT residual norm
     bool kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
-    
+
     // Primal feasibility
     bool eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
     bool ineq_violation = workspace->residual_ineq.cwiseMax(0).lpNorm<Eigen::Infinity>();
-    
+
     Eigen::VectorXi comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(prob->n_comp, 0, prob->n_comp - 1);
     Eigen::VectorXi comp_R_inds = comp_L_inds.array() + 1;
 
-    bool comp_violation = (
-        workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds))
-    ).lpNorm<Eigen::Infinity>();
+    bool comp_violation = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
+                              .lpNorm<Eigen::Infinity>();
 
-    return kkt_norm < options.convergence_kkt_norm && 
-           eq_violation < options.convergence_eq_violation &&
-           ineq_violation < options.convergence_ineq_violation &&
-           comp_violation < options.convergence_comp_violation;
+    return kkt_norm < options.convergence_kkt_norm && eq_violation < options.convergence_eq_violation &&
+           ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
 }
 
-bool Solver::solve(const Solver::Options &options) {
+bool Solver::solve(const Solver::Options& options) {
     bool converged = false;
 
     double penalty_param = options.penalty_initial;
@@ -306,7 +305,7 @@ bool Solver::solve(const Solver::Options &options) {
     for (int iter = 0; iter < options.max_iters; ++iter) {
         // Compute KKT residual and check convergence
         double sqrt_relaxation_param = sqrt(relax_param);
-        double inv_penalty_param = 1.0/penalty_param;
+        double inv_penalty_param = 1.0 / penalty_param;
 
         update_KKT_residual(sqrt_relaxation_param, inv_penalty_param);
 
@@ -316,9 +315,10 @@ bool Solver::solve(const Solver::Options &options) {
         }
 
         // Check if we are performing an inner or outer step based on KKT residual norm
-        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {
+        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() <
+            outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {
             // Outer step: update multiplier estimates and increase penalty
-            
+
             // TODO: check if we need to adjust `outer_step_kkt_norm_adjustment`
 
             if (penalty_param >= options.penalty_max) {
@@ -334,7 +334,7 @@ bool Solver::solve(const Solver::Options &options) {
                 penalty_param = std::min(penalty_param * options.penalty_scaling, options.penalty_max);
             }
 
-            // Clear the filter 
+            // Clear the filter
             filter.clear();
         } else {
             bool linesearch_succeeded = false;
@@ -343,12 +343,8 @@ bool Solver::solve(const Solver::Options &options) {
             for (double regularizer : kkt_system_regularizers) {
                 workspace->newton_step = compute_newton_step(regularizer);
 
-                linesearch_succeeded = filter_linesearch(
-                    options,
-                    workspace->newton_step,
-                    sqrt_relaxation_param,
-                    inv_penalty_param
-                );
+                linesearch_succeeded =
+                    filter_linesearch(options, workspace->newton_step, sqrt_relaxation_param, inv_penalty_param);
 
                 if (linesearch_succeeded) {
                     break;
@@ -369,48 +365,51 @@ Vec Solver::compute_newton_step(double kkt_system_regularizer) {
     update_KKT_regularizer(kkt_system_regularizer);
 
     // Solve for the Newton step direction
-    // TODO: implement efficient QDLDL solve 
+    // TODO: implement efficient QDLDL solve
     Vec newton_step = Vec::Zero(n_vars);
 
     return newton_step;
 }
 
-bool Solver::filter_linesearch(const Solver::Options &options, const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param) {
+bool Solver::filter_linesearch(const Solver::Options& options, const Vec& newton_step, const double sqrt_relax_param,
+                               const double inv_penalty_param) {
     double step_size = 1.0;
-    workspace->solution += newton_step; // Candidate solution for full step
+    workspace->solution += newton_step;  // Candidate solution for full step
 
     for (int i = 0; i < options.max_iters_linesearch; ++i) {
         // Equality primal feasibility
         workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
-        Vec m_eq_primal_feas = workspace->residual_eq - inv_penalty_param*(workspace->m_eq - workspace->m_eq_est);
+        Vec m_eq_primal_feas = workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
 
         // Inequality primal feasibility
         workspace->residual_ineq = prob->J_ineq * workspace->z + prob->c_ineq;
         Vec p_ineq = retract(workspace->s_ineq, sqrt_relax_param);
-        Vec m_ineq_primal_feas = workspace->residual_ineq - p_ineq - // p(s) - p(-s) = s
-                                 inv_penalty_param*(workspace->m_ineq - workspace->m_ineq_est);
+        Vec m_ineq_primal_feas = workspace->residual_ineq - p_ineq -  // p(s) - p(-s) = s
+                                 inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
 
         // Complementarity primal feasibility
         workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
-        
+
         Vec p_comp = retract(workspace->s_comp, sqrt_relax_param);
-        Vec m_comp_primal_feas = workspace->residual_comp - 
-                                 inv_penalty_param*(workspace->m_comp - workspace->m_comp_est);
-        
+        Vec m_comp_primal_feas =
+            workspace->residual_comp - inv_penalty_param * (workspace->m_comp - workspace->m_comp_est);
+
         for (int i = 0; i < prob->n_comp; i++) {
-            m_comp_primal_feas(m_comp_inds[2*i]) += -p_comp[i]; // p(s)
-            m_comp_primal_feas(m_comp_inds[2*i + 1]) += -(p_comp[i] - workspace->s_comp[i]); // p(s) - p(-s) = s
+            m_comp_primal_feas(m_comp_inds[2 * i]) += -p_comp[i];                               // p(s)
+            m_comp_primal_feas(m_comp_inds[2 * i + 1]) += -(p_comp[i] - workspace->s_comp[i]);  // p(s) - p(-s) = s
         }
 
-        // Compute the candidate point and filter criteria (objective, constraint violation)
-        double candidate_objective = 0.5 * workspace->z.transpose() * prob->cost_hessian * workspace->z + 
-                                     prob->cost_gradient.dot(workspace->z) - 
-                                     pow(sqrt_relax_param, 2) * p_ineq.array().log().sum() +
-                                     0.5 * inv_penalty_param * (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() +  workspace->m_comp.squaredNorm());
+        // Compute the candidate point and filter criteria (constraint violation, objective value)
+        double candidate_constraint_violation =
+            (m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() + m_comp_primal_feas.lpNorm<1>()) / n_duals;
 
-        double candidate_constraint_violation = (m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() + m_comp_primal_feas.lpNorm<1>()) / n_duals;
+        double candidate_objective =
+            0.5 * workspace->z.transpose() * prob->cost_hessian * workspace->z + prob->cost_gradient.dot(workspace->z) -
+            pow(sqrt_relax_param, 2) * p_ineq.array().log().sum() +
+            0.5 * inv_penalty_param *
+                (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() + workspace->m_comp.squaredNorm());
 
-        const Filter::FilterEntry candidate(candidate_objective, candidate_constraint_violation);
+        const Filter::Entry candidate(candidate_constraint_violation, candidate_objective);
 
         if (filter.acceptable(candidate)) {
             filter.update(candidate);

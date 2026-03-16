@@ -36,9 +36,9 @@ public:
         int max_iters{1000};
         // Maximum number of iterations for the filter linesearch
         int max_iters_linesearch{10};
-        // (Filter) Sufficient progress parameter for objective value decrease
+        // (filter) Sufficient progress parameter for objective value decrease
         double gamma_objective{1e-5};
-        // (Filter) Sufficient progress parameter for constraint violation decrease
+        // (filter) Sufficient progress parameter for constraint violation decrease
         double gamma_constraint{1e-5};
     };
 
