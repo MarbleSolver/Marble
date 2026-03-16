@@ -1,6 +1,6 @@
 #include <filter.h>
 
-std::pair<double, double> Filter::sufficient_progress(const Filter::FilterEntry& candidate, const Filter::FilterEntry& entry) const {
+std::pair<bool, bool> Filter::sufficient_progress(const Filter::FilterEntry& candidate, const Filter::FilterEntry& entry) const {
     bool violation_progress = candidate.constraint_violation <= (1 - options.gamma_constraint) * entry.constraint_violation;
     bool objective_progress = candidate.objective_value <= entry.objective_value - options.gamma_objective * entry.constraint_violation;
 
@@ -25,8 +25,14 @@ bool Filter::acceptable(const Filter::FilterEntry& candidate) {
 
 void Filter::update(const Filter::FilterEntry& new_entry) {
     // Remove any entries that are dominated by the new entry
-    entries.erase(std::remove_if(entries.begin(), entries.end(),
-        [&](const Filter::FilterEntry& entry) { return candidate_dominated(entry, new_entry); }), entries.end());
+    entries.erase(
+        std::remove_if(
+            entries.begin(), entries.end(),
+            [&](const Filter::FilterEntry& entry) {
+                return candidate_dominated(entry, new_entry); 
+            }
+        ), entries.end()
+    );
 
     // Add new entry to filter
     entries.push_back(new_entry);

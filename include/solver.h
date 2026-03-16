@@ -54,10 +54,11 @@ public:
     Eigen::VectorXi regularizer_inds;
     
     // Filter for linesearch
+    // TODO: initialize filter with options
     Filter filter;
 
     /**
-     * Construct a solver instanc
+     * Construct a solver instance
      */
     Solver() : options(Options()) {
         workspace = std::make_shared<Workspace>();
@@ -174,9 +175,4 @@ private:
      * Compute a search direction
      */
     Vec compute_newton_step(double kkt_system_regularizer);
-
-    /**
-     * Apply a scaled step to the current iterate 
-     */
-    void apply_step(const Vec &newton_step, double step_size);
 };
