@@ -70,46 +70,9 @@ void Solver::set_problem(Problem& prob) {
 }
 
 void Solver::initialize_kkt_sparsity() {
-    // Determine indices into valuePtr for updating of nonlinear and penalty terms
-    s_ineq_s_ineq_inds.resize(prob->n_ineq);
-    s_ineq_m_ineq_inds.resize(prob->n_ineq);
-    for (int i = 0; i < prob->n_ineq; i++) {
-        s_ineq_s_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], s_ineq_inds[i]);
-        s_ineq_m_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], m_ineq_inds[i]);
-    }
-    s_comp_s_comp_inds.resize(prob->n_comp);
-    s_comp_m_comp_inds.resize(2*prob->n_comp);
-    for (int i = 0; i < prob->n_comp; i++) {
-        s_comp_s_comp_inds[i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
-        s_comp_m_comp_inds[i*2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2]);
-        s_comp_m_comp_inds[i*2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2 + 1]);
-    }
-    
-    penalty_inds.resize(prob->n_eq + prob->n_ineq + 2*prob->n_comp);
-    for (int i = 0; i < prob->n_eq; i++) {
-        penalty_inds[i] = workspace->findValuePtrIndex(m_eq_inds[i], m_eq_inds[i]);
-    }
-    for (int i = 0; i < prob->n_ineq; i++) {
-       penalty_inds[prob->n_eq + i] = workspace->findValuePtrIndex(m_ineq_inds[i], m_ineq_inds[i]);
-    }
-    for (int i = 0; i < 2*prob->n_comp; i++) {
-        penalty_inds[prob->n_eq + prob->n_ineq + i] = workspace->findValuePtrIndex(m_comp_inds[i], m_comp_inds[i]);
-    }
-
-    regularizer_inds.resize(prob->nz + prob->n_ineq + prob->n_comp);
-    for (int i = 0; i < prob->nz; i++) {
-        regularizer_inds[i] = workspace->findValuePtrIndex(z_inds[i], z_inds[i]);
-    }
-    for (int i = 0; i < prob->n_ineq; i++) {
-        regularizer_inds[prob->nz + i] = workspace->findValuePtrIndex(s_ineq_inds[i], s_ineq_inds[i]);
-    }
-    for (int i = 0; i < prob->n_comp; i++) {
-        regularizer_inds[prob->nz + prob->n_ineq + i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
-    }
-
     // Construct the general KKT matrix using the indices above to populate each block
     // Once the KKT matrix sparsity structure is established, we extract indicies into
-    // valuePtr so that it can be efficiently updated
+    // valuePtr so that it can be efficiently update
     workspace->kkt_system = SMat(n_vars, n_vars);
     std::vector<Eigen::Triplet<double>> triplets;
 
@@ -166,6 +129,42 @@ void Solver::initialize_kkt_sparsity() {
     // Build sparse matrix
     workspace->kkt_system.setFromTriplets(triplets.begin(), triplets.end());
     workspace->kkt_system.makeCompressed();
+
+    // Determine indices into valuePtr for updating of nonlinear and penalty terms
+    s_ineq_s_ineq_inds.resize(prob->n_ineq);
+    s_ineq_m_ineq_inds.resize(prob->n_ineq);
+    for (int i = 0; i < prob->n_ineq; i++) {
+        s_ineq_s_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], s_ineq_inds[i]);
+        s_ineq_m_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], m_ineq_inds[i]);
+    }
+    s_comp_s_comp_inds.resize(prob->n_comp);
+    s_comp_m_comp_inds.resize(2*prob->n_comp);
+    for (int i = 0; i < prob->n_comp; i++) {
+        s_comp_s_comp_inds[i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
+        s_comp_m_comp_inds[i*2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2]);
+        s_comp_m_comp_inds[i*2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i*2 + 1]);
+    }
+    penalty_inds.resize(prob->n_eq + prob->n_ineq + 2*prob->n_comp);
+    for (int i = 0; i < prob->n_eq; i++) {
+        penalty_inds[i] = workspace->findValuePtrIndex(m_eq_inds[i], m_eq_inds[i]);
+    }
+    for (int i = 0; i < prob->n_ineq; i++) {
+        penalty_inds[prob->n_eq + i] = workspace->findValuePtrIndex(m_ineq_inds[i], m_ineq_inds[i]);
+    }
+    for (int i = 0; i < 2*prob->n_comp; i++) {
+        penalty_inds[prob->n_eq + prob->n_ineq + i] = workspace->findValuePtrIndex(m_comp_inds[i], m_comp_inds[i]);
+    }
+
+    regularizer_inds.resize(prob->nz + prob->n_ineq + prob->n_comp);
+    for (int i = 0; i < prob->nz; i++) {
+        regularizer_inds[i] = workspace->findValuePtrIndex(z_inds[i], z_inds[i]);
+    }
+    for (int i = 0; i < prob->n_ineq; i++) {
+        regularizer_inds[prob->nz + i] = workspace->findValuePtrIndex(s_ineq_inds[i], s_ineq_inds[i]);
+    }
+    for (int i = 0; i < prob->n_comp; i++) {
+        regularizer_inds[prob->nz + prob->n_ineq + i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
+    }
 }
 
 void Solver::update_KKT_residual(double sqrt_relax_param, double inv_penalty_param) {
@@ -400,8 +399,8 @@ bool Solver::filter_linesearch(const Solver::Options &options, const Vec &newton
 
 
         // Compute the candidate point and filter criteria (objective, constraint violation)
-        double candidate_objective = 0.5 * workspace->x->z.transpose() * prob->cost_hessian * workspace->x->z + 
-                                     prob->cost_gradient.dot(workspace->x->z) - 
+        double candidate_objective = 0.5 * workspace->x_candidate->z.transpose() * prob->cost_hessian * workspace->x_candidate->z + 
+                                     prob->cost_gradient.dot(workspace->x_candidate->z) - 
                                      pow(sqrt_relax_param, 2) * p_ineq.array().log().sum() +
                                      0.5 * inv_penalty_param * (workspace->x_candidate->m_eq.squaredNorm() + workspace->x_candidate->m_ineq.squaredNorm() +  workspace->x_candidate->m_comp.squaredNorm());
 
