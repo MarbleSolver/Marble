@@ -5,9 +5,26 @@
 #include <Eigen/Sparse>
 #include "problem.h"
 #include "workspace.h"
+#include "filter.h"
 
 class Solver {
 public:
+    struct Options {
+        double convergence_kkt_norm{1e-4};
+        double convergence_eq_violation{1e-4};
+        double convergence_ineq_violation{1e-4};
+        double convergence_comp_violation{1e-4};
+        double outer_step_kkt_norm{1e-6};
+        double penalty_initial{1.0};
+        double penalty_max{1e6};
+        double penalty_scaling{10.0};
+        double relaxation_initial{1e-1};
+        double relaxation_min{1e-7};
+        double relaxation_scaling{0.5};
+        int max_iters{1000};
+        int max_iters_linesearch{10};
+    };
+
     // Problem instance
     std::shared_ptr<Problem> prob;
 
@@ -34,13 +51,21 @@ public:
     Eigen::VectorXi s_comp_s_comp_inds; // Diagonal matrix
     Eigen::VectorXi s_comp_m_comp_inds;  
     Eigen::VectorXi penalty_inds;
+    Eigen::VectorXi regularizer_inds;
+    
+    // Filter for linesearch
+    Filter filter;
 
     /**
-     * Construct a solver instance
-     * TODO: take in options
+     * Construct a solver instanc
      */
-    Solver(); 
+    Solver() : options(Options()) {
+        workspace = std::make_shared<Workspace>();
+    }
 
+    Solver(const Options& options) : options(options) {
+        workspace = std::make_shared<Workspace>();
+    }
     
     /**
      * Retraction map (elementwise)
@@ -100,9 +125,58 @@ public:
     void update_KKT_penalty(const double inv_penalty_param);
 
     /**
+     * @brief Update the KKT regularization terms on the first `n_vars` diagonal entries
+     * 
+     * @param regularizer Positive regularizer
+     */
+    void update_KKT_regularizer(const double regularizer);
+
+    /**
      * Returns the workspace used by the solver
      */
     Workspace& get_workspace() {
         return *workspace;
     }
+
+    /**
+     * @brief Perform backtracking filter linesearch given a step direction
+     * 
+     * @param options Solver options
+     * @param newton_step Search direction from Newton solve
+     * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
+     * @param inv_penalty_param Inverse of the AL penalty parameter
+     * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
+     * @return false Linesearch failed
+     */
+    bool filter_linesearch(const Options &options, const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param);
+
+    /**
+     * Solve the current probem instance 
+     */
+    bool solve(const Options &options);
+
+private:
+    // Solver options
+    const Options options;
+
+    // KKT system regularizers to try in Newton step
+    const std::vector<double> kkt_system_regularizers = {
+        0, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0,
+        1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8
+    };
+
+    /**
+     * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
+     */
+    bool convergence(const Options &options);
+
+    /**
+     * Compute a search direction
+     */
+    Vec compute_newton_step(double kkt_system_regularizer);
+
+    /**
+     * Apply a scaled step to the current iterate 
+     */
+    void apply_step(const Vec &newton_step, double step_size);
 };

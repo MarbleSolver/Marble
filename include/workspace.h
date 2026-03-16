@@ -4,16 +4,27 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include "problem.h"
+#include <cstring>
 
 class Workspace {
 public:
     // Current solution vectors
-    Vec z;
-    Vec s_ineq;
-    Vec s_comp;
-    Vec m_eq;
-    Vec m_ineq;
-    Vec m_comp;
+    struct Solution {
+        Vec z;
+        Vec s_ineq;
+        Vec s_comp;
+        Vec m_eq;
+        Vec m_ineq;
+        Vec m_comp;
+    };
+
+    Solution _sol_a;
+    Solution _sol_b;
+
+    Solution *x = &_sol_a;
+    Solution *x_candidate = &_sol_b;
+
+    Vec newton_step;
 
     // Current multiplier estimates for AL
     Vec m_eq_est;
@@ -23,6 +34,11 @@ public:
     // KKT residual, driven to 0 in each subproblem solve
     Vec kkt_residual;
 
+    // Constraint evaluations
+    Vec residual_eq;
+    Vec residual_ineq;
+    Vec residual_comp;
+
     /**
      * KKT system matrix, stored in sparse format with the structure intended to be fixed
      * after it is initialize by Solver::set_problem.
@@ -30,7 +46,7 @@ public:
     SMat kkt_system;
 
     // Empty constructor
-    Workspace();
+    Workspace() = default;
 
     /**
      * Inserts a sparse block matrix into a sparse matrix represented as a 
@@ -57,4 +73,6 @@ public:
      * @param col col_index
      */
     int findValuePtrIndex(int row, int col);
+
+    void apply_delta(const Vec &newton_step);
 };

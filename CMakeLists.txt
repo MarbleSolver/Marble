@@ -34,6 +34,7 @@ add_library(rcqp SHARED
   ${CMAKE_CURRENT_SOURCE_DIR}/src/solver.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/problem.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/workspace.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/filter.cpp
 )
 
 target_include_directories(rcqp
