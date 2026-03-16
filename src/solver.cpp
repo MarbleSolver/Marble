@@ -156,6 +156,7 @@ void Solver::initialize_kkt_sparsity() {
         s_ineq_s_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], s_ineq_inds[i]);
         s_ineq_m_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], m_ineq_inds[i]);
     }
+    
     s_comp_s_comp_inds.resize(prob->n_comp);
     s_comp_m_comp_inds.resize(2 * prob->n_comp);
     for (int i = 0; i < prob->n_comp; i++) {
@@ -163,6 +164,7 @@ void Solver::initialize_kkt_sparsity() {
         s_comp_m_comp_inds[i * 2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2]);
         s_comp_m_comp_inds[i * 2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2 + 1]);
     }
+
     penalty_inds.resize(prob->n_eq + prob->n_ineq + 2 * prob->n_comp);
     for (int i = 0; i < prob->n_eq; i++) {
         penalty_inds[i] = workspace->findValuePtrIndex(m_eq_inds[i], m_eq_inds[i]);
@@ -272,7 +274,7 @@ void Solver::update_KKT_penalty(const double inv_penalty_param) {
 
 void Solver::update_KKT_regularizer(const double regularizer) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    nzval(regularizer_inds).setConstant(regularizer);
+    nzval(regularizer_inds).array() += regularizer;
 }
 
 bool Solver::convergence(const Solver::Options& options) {
@@ -361,12 +363,15 @@ bool Solver::solve(const Solver::Options& options) {
 }
 
 Vec Solver::compute_newton_step(double kkt_system_regularizer) {
-    // Update the KKT system regularizer
+    // Update the KKT system regularizer (add regularizer to relevant part of diagonal)
     update_KKT_regularizer(kkt_system_regularizer);
 
     // Solve for the Newton step direction
     // TODO: implement efficient QDLDL solve
     Vec newton_step = Vec::Zero(n_vars);
+
+    // Revert the KKT system regularizer back to 0 for the next iteration
+    update_KKT_regularizer(-kkt_system_regularizer);
 
     return newton_step;
 }
