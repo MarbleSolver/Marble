@@ -66,6 +66,14 @@ void Solver::set_problem(Problem& prob) {
     workspace->m_comp_est.resize(2*prob.n_comp);
     workspace->kkt_residual.resize(n_vars);
 
+    // Allocate for linear system solve
+    workspace->etree.resize(n_vars);
+    workspace->Lnz.resize(n_vars);
+    workspace->iwork.resize(3 * n_vars);
+    workspace->bwork.resize(n_vars);
+    workspace->fwork.resize(n_vars);
+    workspace->Lp.resize(n_vars + 1);
+
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
 }
@@ -114,6 +122,11 @@ void Solver::initialize_kkt_sparsity() {
     }
     for (int i = 0; i < 2*prob->n_comp; i++) {
         triplets.emplace_back(m_comp_inds[i], m_comp_inds[i], 1.0);
+    }
+
+    // TODO: more efficient way to make sure that every diagonal element exists
+    for (int i = 0; i < n_vars; i++) {
+        triplets.emplace_back(i, i, 0.0);
     }
 
     // Build sparse matrix
@@ -219,4 +232,15 @@ void Solver::update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_pa
 void Solver::update_KKT_penalty(const double inv_penalty_param) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     nzval(penalty_inds) = -inv_penalty_param*Vec::Ones(prob->n_eq + prob->n_ineq + 2*prob->n_comp);
+}
+
+void Solver::analytical_factorization() {
+    const QDLDL_int* Ap = workspace->kkt_system.outerIndexPtr();
+    const QDLDL_int* Ai = workspace->kkt_system.innerIndexPtr();
+
+    workspace->sum_Lnz = QDLDL_etree(n_vars, Ap, Ai, workspace->iwork.data(), workspace->Lnz.data(), workspace->etree.data());
+
+    if (workspace->sum_Lnz < 0) {
+            std::cerr << "Error: Matrix A is not properly formatted (must be upper triangular CSC)." << std::endl;
+    }
 }

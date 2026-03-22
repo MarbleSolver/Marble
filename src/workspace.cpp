@@ -2,8 +2,8 @@
 #include <algorithm>
 
 Workspace::Workspace() {
-
-};
+    // Empty constructor
+}
 
 void Workspace::appendBlockTriplets(std::vector<Eigen::Triplet<double>>& triplets, const SMat& block, int row_start, int col_start) {
     for (int k=0; k<block.outerSize(); ++k) {
@@ -22,8 +22,8 @@ int Workspace::findValuePtrIndex(int row, int col) {
     int col_end = kkt_system.outerIndexPtr()[col + 1];
 
     // Search over the row for the row index
-    const int* inner = kkt_system.innerIndexPtr(); // This is like rowval in CSC format
-    const int* it = std::lower_bound(inner + col_start, inner + col_end, row);
+    const QDLDL_int* inner = kkt_system.innerIndexPtr(); // This is like rowval in CSC format
+    const QDLDL_int* it = std::lower_bound(inner + col_start, inner + col_end, row);
     if (it != inner + col_end && *it == row) {
         return it - inner;
     }

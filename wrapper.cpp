@@ -64,10 +64,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("m_comp_est", [](Workspace& w) { return to_julia(w.m_comp_est); })
         .method("kkt_residual", [](Workspace& w) { return to_julia(w.kkt_residual); })
         .method("kkt_system", [](Workspace& w) {
-            Eigen::SparseMatrix<double>& kkt = w.kkt_system;
+            SMat& kkt = w.kkt_system;
             kkt.makeCompressed(); 
-            jl_VecXi colptr = jlcxx::make_julia_array(kkt.outerIndexPtr(), kkt.outerSize() + 1);
-            jl_VecXi rowval = jlcxx::make_julia_array(kkt.innerIndexPtr(), kkt.nonZeros());
+            jlcxx::ArrayRef<QDLDL_int, 1> colptr = jlcxx::make_julia_array(kkt.outerIndexPtr(), kkt.outerSize() + 1);
+            jlcxx::ArrayRef<QDLDL_int, 1> rowval = jlcxx::make_julia_array(kkt.innerIndexPtr(), kkt.nonZeros());
             jl_VecXd nzval = jlcxx::make_julia_array(kkt.valuePtr(), kkt.nonZeros());
 
             return std::make_tuple(kkt.rows(), kkt.cols(), colptr, rowval, nzval); 
@@ -99,6 +99,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("update_KKT_penalty", [](Solver& solver, double inv_penalty_param) {
             solver.update_KKT_penalty(inv_penalty_param);
         })
+        .method("analytical_factorization", &Solver::analytical_factorization)
         .method("set_problem", &Solver::set_problem)
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })

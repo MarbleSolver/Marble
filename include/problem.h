@@ -3,8 +3,9 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <iostream>
+#include "qdldl.h"
 
-using SMat = Eigen::SparseMatrix<double>;
+using SMat = Eigen::SparseMatrix<double, Eigen::ColMajor, QDLDL_int>;
 using Mat = Eigen::MatrixXd;
 using Vec = Eigen::VectorXd;
 

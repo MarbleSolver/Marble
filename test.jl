@@ -81,11 +81,11 @@ RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
 nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
 kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
 hess = lagrangian_hessian(solver, iter)
-hess_sparse = copy(hess)
-kkt_sparse = copy(kkt)
-hess_sparse.nzval .= 1
-kkt_sparse.nzval .= 1
-@assert norm((triu(hess_sparse) .!= 0) - (kkt_sparse .!= 0), Inf) == 0
+# hess_sparse = copy(hess) # can't compare now that kkt has all diag elements in structure
+# kkt_sparse = copy(kkt)
+# hess_sparse.nzval .= 1
+# kkt_sparse.nzval .= 1
+# @assert norm((triu(hess_sparse) .!= 0) - (kkt_sparse .!= 0), Inf) == 0
 
 # Check indices into nzval (can't compare against solver one because we only use upper triangular form)
 kkt_sparse.nzval[RCQP.s_ineq_s_ineq_inds(rcqp) .+ 1] = solver.kkt_inds.v
@@ -161,3 +161,5 @@ for iter in solver.iters
     @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
     @assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
 end
+
+RCQP.analytical_factorization(rcqp)

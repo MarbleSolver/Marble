@@ -4,6 +4,7 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include "problem.h"
+#include "qdldl.h"
 
 class Workspace {
 public:
@@ -28,6 +29,20 @@ public:
      * after it is initialize by Solver::set_problem.
      */
     SMat kkt_system;
+
+    // Work arrays for QDLDL
+    // Workspace arrays required by QDLDL
+    std::vector<QDLDL_int> etree;
+    std::vector<QDLDL_int> Lnz;
+    std::vector<QDLDL_int> iwork;
+    std::vector<QDLDL_bool> bwork;
+    std::vector<QDLDL_float> fwork;
+    std::vector<QDLDL_int> Lp;
+    std::vector<QDLDL_int> Li;
+    std::vector<QDLDL_float> Lx;
+    std::vector<QDLDL_float> D;
+    std::vector<QDLDL_float> Dinv;
+    QDLDL_int sum_Lnz;
 
     // Empty constructor
     Workspace();

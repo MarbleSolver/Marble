@@ -100,6 +100,11 @@ public:
     void update_KKT_penalty(const double inv_penalty_param);
 
     /**
+     * Perform an analytical factorization of the KKT system using QDLDL
+     */
+    void analytical_factorization();
+
+    /**
      * Returns the workspace used by the solver
      */
     Workspace& get_workspace() {
