@@ -103,7 +103,18 @@ public:
     /**
      * Perform an analytical factorization of the KKT system using QDLDL
      */
-    void analytical_factorization();
+    bool analytical_factorization();
+
+    /**
+     * Perform an numerical factorization of the KKT system using QDLDL
+     */
+    bool numerical_factorization();
+
+    /**
+     * Solve the KKT system using the factorized matrix, populating the solution
+     * in workspace->newton_step.
+     */
+    void backsolve();
 
     /**
      * Returns the workspace used by the solver

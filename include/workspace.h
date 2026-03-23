@@ -30,6 +30,9 @@ public:
      */
     SMat kkt_system;
 
+    // KKT step
+    Vec newton_step;
+
     // Work arrays for QDLDL
     // Workspace arrays required by QDLDL
     std::vector<QDLDL_int> etree;

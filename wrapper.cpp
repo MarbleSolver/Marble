@@ -71,7 +71,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             jl_VecXd nzval = jlcxx::make_julia_array(kkt.valuePtr(), kkt.nonZeros());
 
             return std::make_tuple(kkt.rows(), kkt.cols(), colptr, rowval, nzval); 
-        });
+        })
+        .method("newton_step", [](Workspace& w) { return to_julia(w.newton_step); })
+        .method("D", [](Workspace& w) { return w.D; });
 
     // Solver class bindings
     mod.add_type<Solver>("Solver")
@@ -100,6 +102,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             solver.update_KKT_penalty(inv_penalty_param);
         })
         .method("analytical_factorization", &Solver::analytical_factorization)
+        .method("numerical_factorization", &Solver::numerical_factorization)
+        .method("backsolve", &Solver::backsolve)
         .method("set_problem", &Solver::set_problem)
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })

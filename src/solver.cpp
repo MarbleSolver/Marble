@@ -65,6 +65,7 @@ void Solver::set_problem(Problem& prob) {
     workspace->m_ineq_est.resize(prob.n_ineq);
     workspace->m_comp_est.resize(2*prob.n_comp);
     workspace->kkt_residual.resize(n_vars);
+    workspace->newton_step.resize(n_vars);
 
     // Allocate for linear system solve
     workspace->etree.resize(n_vars);
@@ -73,6 +74,8 @@ void Solver::set_problem(Problem& prob) {
     workspace->bwork.resize(n_vars);
     workspace->fwork.resize(n_vars);
     workspace->Lp.resize(n_vars + 1);
+    workspace->D.resize(n_vars);
+    workspace->Dinv.resize(n_vars);
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
@@ -238,7 +241,12 @@ void Solver::update_KKT_penalty(const double inv_penalty_param) {
     nzval(penalty_inds) = -inv_penalty_param*Vec::Ones(prob->n_eq + prob->n_ineq + 2*prob->n_comp);
 }
 
-void Solver::analytical_factorization() {
+void Solver::update_KKT_primal_regularizer(const double reg) {
+    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
+    nzval(z_z_inds) = reg*Vec::Ones(prob->nz);
+}
+
+bool Solver::analytical_factorization() {
     const QDLDL_int* Ap = workspace->kkt_system.outerIndexPtr();
     const QDLDL_int* Ai = workspace->kkt_system.innerIndexPtr();
 
@@ -246,5 +254,100 @@ void Solver::analytical_factorization() {
 
     if (workspace->sum_Lnz < 0) {
             std::cerr << "Error: Matrix A is not properly formatted (must be upper triangular CSC)." << std::endl;
+            return false;
     }
+
+    // Allocate memory for numerical values
+    // TODO: upperbound this and re-use?
+    workspace->Li.resize(workspace->sum_Lnz);
+    workspace->Lx.resize(workspace->sum_Lnz);
+
+    return true;
+}
+
+bool Solver::numerical_factorization() {
+    // Extract raw CSC pointers
+    const QDLDL_int* Ap = workspace->kkt_system.outerIndexPtr();
+    const QDLDL_int* Ai = workspace->kkt_system.innerIndexPtr();
+    const QDLDL_float* Ax = workspace->kkt_system.valuePtr();
+
+    // Perform numerical factorization
+    QDLDL_int factor_status = QDLDL_factor(n_vars, Ap, Ai, Ax,
+                        workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
+                        workspace->D.data(), workspace->Dinv.data(), workspace->Lnz.data(),
+                        workspace->etree.data(), 
+                        workspace->bwork.data(), workspace->iwork.data(), workspace->fwork.data());
+
+    // Check factor_status TODO: return/use
+    if (factor_status == -1) {
+        std::cerr << "Factorization failed, matrix is not quasidefinite" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+
+void print_line(void) {
+    printf("--------------------------\n");
+}
+
+void print_arrayi(const QDLDL_int* data, QDLDL_int n, char* varName) {
+    QDLDL_int i;
+    printf("%s = [", varName);
+
+    for(i = 0; i < n; i++) {
+        printf("%i,", (int) data[i]);
+    }
+    printf("]\n");
+}
+
+void print_arrayf(const QDLDL_float* data, QDLDL_int n, char* varName) {
+    QDLDL_int i;
+    printf("%s = [", varName);
+
+    for(i = 0; i < n; i++) {
+        printf("%.3g,", data[i]);
+    }
+    printf("]\n");
+}
+
+void Solver::backsolve() {
+    workspace->newton_step = workspace->kkt_residual; // Solve is in-place
+    std::cout << "RHS norm: " << workspace->newton_step.norm() << " " << n_vars << std::endl;
+    QDLDL_solve(n_vars, workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
+                workspace->Dinv.data(),  workspace->newton_step.data());
+    std::cout << "Output norm: " << workspace->newton_step.norm() << std::endl;
+
+    printf("\n");
+    printf("A (CSC format):\n");
+    print_line();
+    print_arrayi(workspace->kkt_system.outerIndexPtr(), workspace->kkt_system.outerSize() + 1, "A.p");
+    print_arrayi(workspace->kkt_system.innerIndexPtr(), workspace->kkt_system.outerIndexPtr()[workspace->kkt_system.outerSize()], "A.i");
+    print_arrayf(workspace->kkt_system.valuePtr(), workspace->kkt_system.outerIndexPtr()[workspace->kkt_system.outerSize()], "A.x");
+    printf("\n\n");
+
+    printf("elimination tree:\n");
+    print_line();
+    print_arrayi(workspace->etree.data(), workspace->Lnz.size(), "etree");
+    print_arrayi(workspace->Lnz.data(), workspace->Lnz.size(), "Lnz");
+    printf("\n\n");
+
+    printf("L (CSC format):\n");
+    print_line();
+    print_arrayi(workspace->Lp.data(), n_vars + 1, "L.p");
+    print_arrayi(workspace->Li.data(), workspace->Lp.data()[n_vars], "L.i");
+    print_arrayf(workspace->Lx.data(), workspace->Lp.data()[n_vars], "L.x");
+    printf("\n\n");
+
+    printf("D:\n");
+    print_line();
+    print_arrayf(workspace->D.data(), workspace->D.size(), "diag(D)     ");
+    print_arrayf(workspace->Dinv.data(), workspace->Dinv.size(), "diag(D^{-1})");
+    printf("\n\n");
+
+    printf("solve results:\n");
+    print_line();
+    print_arrayf(workspace->kkt_residual.data(), workspace->kkt_residual.size(), "b");
+    print_arrayf(workspace->newton_step.data(), workspace->newton_step.size(), "A\\b");
+    printf("\n\n");
 }

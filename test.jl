@@ -15,7 +15,7 @@ module RCQP
   end
 end
 
-name = :hopper
+name = :simple_test
 
 problem = create_problem(name);
 solver_options = SolverOptions()
@@ -78,8 +78,11 @@ RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
 RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
 
 # Check KKT structure
-nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+function get_kkt(rcqp)
+    nr, nc, colptr, rowval, nzval = RCQP.kkt_system(RCQP.get_workspace(rcqp))
+    return SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+end
+kkt = get_kkt(rcqp)
 hess = lagrangian_hessian(solver, iter)
 hess_sparse = copy(hess) # can't compare now that kkt has all diag elements in structure
 kkt_sparse = copy(kkt)
@@ -113,55 +116,53 @@ for iter in solver.iters
     RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
     RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
     hess = lagrangian_hessian(solver, iter)
-    nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-    kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+    kkt = get_kkt(rcqp)
     @assert norm(triu(hess) - kkt, Inf) < 1e-10
 end
 
 # Check writing to workspace
-iter = solver.iters[2]
-RCQP.z(workspace) .= iter.z
-RCQP.s_ineq(workspace) .= iter.v
-RCQP.s_comp(workspace) .= iter.σ
-RCQP.m_eq(workspace) .= iter.λ
-RCQP.m_ineq(workspace) .= iter.μ
-RCQP.m_comp(workspace) .= iter.τ
-RCQP.m_eq_est(workspace) .= iter.α
-RCQP.m_ineq_est(workspace) .= iter.β
-RCQP.m_comp_est(workspace) .= iter.γ
-RCQP.update_KKT_residual(rcqp, sqrt(iter.κ), 1/iter.ρ)
-RCQP.update_KKT_system(rcqp, sqrt(iter.κ), 1/iter.ρ)
-residual = RCQP.kkt_residual(workspace)
-nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
-@assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
-@assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
-
-# Check across all iteraters
-for iter in solver.iters
-    # Write current solution guess
+function set_from_iter(rcqp, iter)
+    workspace = RCQP.get_workspace(rcqp)
     RCQP.z(workspace) .= iter.z
     RCQP.s_ineq(workspace) .= iter.v
     RCQP.s_comp(workspace) .= iter.σ
     RCQP.m_eq(workspace) .= iter.λ
     RCQP.m_ineq(workspace) .= iter.μ
     RCQP.m_comp(workspace) .= iter.τ
-
-    # Write current multiplier estimaters
     RCQP.m_eq_est(workspace) .= iter.α
     RCQP.m_ineq_est(workspace) .= iter.β
     RCQP.m_comp_est(workspace) .= iter.γ
-
-    # Compute KKT residual and system
     RCQP.update_KKT_residual(rcqp, sqrt(iter.κ), 1/iter.ρ)
     RCQP.update_KKT_system(rcqp, sqrt(iter.κ), 1/iter.ρ)
+end
+set_from_iter(rcqp, solver.iters[2])
+residual = RCQP.kkt_residual(workspace)
+kkt = get_kkt(rcqp)
+@assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
+@assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
+
+# Check across all iteraters
+for iter in solver.iters
+    # Write current solution guess
+    set_from_iter(rcqp, iter)
 
     # Check against iterate
     residual = RCQP.kkt_residual(workspace)
-    nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-    kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+    kkt = get_kkt(rcqp)
     @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
     @assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
 end
 
+# Test factorization and solve
+iter = solver.iters[1]
+set_from_iter(rcqp, iter)
+hess = lagrangian_hessian(solver, iter)
+res = RCQP.kkt_residual(RCQP.get_workspace(rcqp))
+
 RCQP.analytical_factorization(rcqp)
+RCQP.numerical_factorization(rcqp)
+RCQP.backsolve(rcqp)
+qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
+
+@assert norm(lagrangian_gradient(solver, iter) - res, Inf) < 1e-10
+@assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
