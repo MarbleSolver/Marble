@@ -101,6 +101,11 @@ public:
     void update_KKT_penalty(const double inv_penalty_param);
 
     /**
+     * Update the KKT regularizer
+     */
+    void update_KKT_primal_regularizer(const double reg);
+
+    /**
      * Perform an analytical factorization of the KKT system using QDLDL
      */
     bool analytical_factorization();

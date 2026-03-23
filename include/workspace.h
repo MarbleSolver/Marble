@@ -24,6 +24,11 @@ public:
     // KKT residual, driven to 0 in each subproblem solve
     Vec kkt_residual;
 
+    // Diagonal terms for s_ineq and s_comp stationarity, stored
+    // to allow for updating primal regularizer cheaply
+    Vec s_ineq_stationarity;
+    Vec s_comp_stationarity;
+
     /**
      * KKT system matrix, stored in sparse format with the structure intended to be fixed
      * after it is initialize by Solver::set_problem.

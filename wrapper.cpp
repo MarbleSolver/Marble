@@ -101,6 +101,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("update_KKT_penalty", [](Solver& solver, double inv_penalty_param) {
             solver.update_KKT_penalty(inv_penalty_param);
         })
+        .method("update_KKT_primal_regularizer", &Solver::update_KKT_primal_regularizer)
         .method("analytical_factorization", &Solver::analytical_factorization)
         .method("numerical_factorization", &Solver::numerical_factorization)
         .method("backsolve", &Solver::backsolve)

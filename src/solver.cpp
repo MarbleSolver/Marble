@@ -65,6 +65,8 @@ void Solver::set_problem(Problem& prob) {
     workspace->m_ineq_est.resize(prob.n_ineq);
     workspace->m_comp_est.resize(2*prob.n_comp);
     workspace->kkt_residual.resize(n_vars);
+    workspace->s_comp_stationarity.resize(prob.n_comp);
+    workspace->s_ineq_stationarity.resize(prob.n_ineq);
     workspace->newton_step.resize(n_vars);
 
     // Allocate for linear system solve
@@ -215,7 +217,8 @@ void Solver::update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param) {
     Vec d_p = retract_deriv(s_ineq, sqrt_relax_param);
 
     // Use identity that retract_deriv(-s_ineq, sqrt_relax_param) = 1 - d_p
-    nzval(s_ineq_s_ineq_inds) = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p
+    workspace->s_ineq_stationarity = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p (stored for diag updating)
+    nzval(s_ineq_s_ineq_inds) = workspace->s_ineq_stationarity; // -d_p*d_neg_p
     nzval(s_ineq_m_ineq_inds) = -d_p;
 }
 
@@ -228,7 +231,8 @@ void Solver::update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_pa
     for (int i = 0; i < prob->n_comp; i++) {
         // Derivative of -p'(s)*m1 + p'(-s)*m2 wrt s
         // is -(p''(s)*m1 + p''(s)*m2) but p''(s) = p''(-s) so its -p''(s)*(m1 + m2)
-        nzval(s_comp_s_comp_inds[i]) = -dd_p[i]*(m_comp[2*i] + m_comp[2*i + 1]);
+        workspace->s_comp_stationarity[i] = -dd_p[i]*(m_comp[2*i] + m_comp[2*i + 1]); // stored for diag updating
+        nzval(s_comp_s_comp_inds[i]) = workspace->s_comp_stationarity[i];
 
         // Derivative wrt to m1 and m2 is just -d_p and -d_neg_p respectively
         nzval(s_comp_m_comp_inds[2*i]) = -d_p[i];
@@ -243,7 +247,9 @@ void Solver::update_KKT_penalty(const double inv_penalty_param) {
 
 void Solver::update_KKT_primal_regularizer(const double reg) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    nzval(z_z_inds) = reg*Vec::Ones(prob->nz);
+    nzval(z_z_inds) = prob->cost_hessian_diag.array() + reg;
+    nzval(s_ineq_s_ineq_inds) = workspace->s_ineq_stationarity.array() + reg;
+    nzval(s_comp_s_comp_inds) = workspace->s_comp_stationarity.array() + reg;
 }
 
 bool Solver::analytical_factorization() {

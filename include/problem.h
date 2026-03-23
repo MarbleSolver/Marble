@@ -19,6 +19,7 @@ public:
 
     // Quadratic cost definition
     SMat cost_hessian;
+    Vec cost_hessian_diag; // Needed for regularizer updating
     Vec cost_gradient;
 
     // Constraint definitions, all of the form Jx + c = 0

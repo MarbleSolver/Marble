@@ -17,7 +17,7 @@ end
 
 name = :simple_test
 
-problem = create_problem(name);
+problem = create_problem(name, eq = 1, comp = 1, ineq = 1);
 solver_options = SolverOptions()
 solver_options.verbose = true
 solver_options.max_iters = 10_000
@@ -153,16 +153,27 @@ for iter in solver.iters
     @assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
 end
 
+# Check regularizer updating
+kkt = copy(get_kkt(rcqp))
+RCQP.update_KKT_primal_regularizer(rcqp, 1e-4)
+kkt_reg = copy(get_kkt(rcqp))
+@assert norm((kkt_reg - kkt) - 1e-4*solver.reg_mat, Inf) < 1e-14
+RCQP.update_KKT_primal_regularizer(rcqp, 1.23e-7)
+kkt_reg = copy(get_kkt(rcqp))
+@assert norm((kkt_reg - kkt) - 1.23e-7*solver.reg_mat, Inf) < 1e-14
+RCQP.update_KKT_primal_regularizer(rcqp, 0.0)
+kkt_reg = copy(get_kkt(rcqp))
+@assert norm(kkt_reg - kkt, Inf) < 1e-14
+
 # Test factorization and solve
-iter = solver.iters[1]
+iter = solver.iters[2]
 set_from_iter(rcqp, iter)
 hess = lagrangian_hessian(solver, iter)
 res = RCQP.kkt_residual(RCQP.get_workspace(rcqp))
+RCQP.update_KKT_primal_regularizer(rcqp, 1e-9)
 
 RCQP.analytical_factorization(rcqp)
 RCQP.numerical_factorization(rcqp)
 RCQP.backsolve(rcqp)
 qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
-
-@assert norm(lagrangian_gradient(solver, iter) - res, Inf) < 1e-10
-@assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
+@assert(norm((hess + 1e-9*solver.reg_mat)*qdldl_soln - res, Inf) < 1e-6)
