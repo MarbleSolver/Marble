@@ -108,6 +108,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("m_eq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_eq_inds); })
         .method("m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_ineq_inds); })
         .method("m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_comp_inds); })
+        .method("z_z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_z_inds); })
         .method("s_ineq_s_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_s_ineq_inds); })
         .method("s_ineq_m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_m_ineq_inds); })
         .method("s_comp_s_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_s_comp_inds); })

@@ -29,6 +29,7 @@ public:
 
     // Indices into the sparse KKT matrix valuePtr for jacobians of the KKT residual that are updated
     // based on the nonlinear terms (s_ineq, s_comp, relaxation_param, and penalty_param)
+    Eigen::VectorXi z_z_inds; // Diagonal matrix only for regularizer updates
     Eigen::VectorXi s_ineq_s_ineq_inds; // Diagonal matrix
     Eigen::VectorXi s_ineq_m_ineq_inds; // Diagonal matrix
     Eigen::VectorXi s_comp_s_comp_inds; // Diagonal matrix

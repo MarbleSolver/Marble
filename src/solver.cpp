@@ -134,6 +134,10 @@ void Solver::initialize_kkt_sparsity() {
     workspace->kkt_system.makeCompressed();
 
     // Determine indices into valuePtr for updating of nonlinear and penalty terms
+    z_z_inds.resize(prob->nz);
+    for (int i = 0; i < prob->nz; i++) {
+        z_z_inds[i] = workspace->findValuePtrIndex(z_inds[i], z_inds[i]);
+    }   
     s_ineq_s_ineq_inds.resize(prob->n_ineq);
     s_ineq_m_ineq_inds.resize(prob->n_ineq);
     for (int i = 0; i < prob->n_ineq; i++) {
