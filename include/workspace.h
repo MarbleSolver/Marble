@@ -43,16 +43,16 @@ public:
 
     // Work arrays for QDLDL
     // Workspace arrays required by QDLDL
-    std::vector<QDLDL_int> etree;
-    std::vector<QDLDL_int> Lnz;
-    std::vector<QDLDL_int> iwork;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> etree;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Lnz;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> iwork;
     std::vector<QDLDL_bool> bwork;
-    std::vector<QDLDL_float> fwork;
-    std::vector<QDLDL_int> Lp;
-    std::vector<QDLDL_int> Li;
-    std::vector<QDLDL_float> Lx;
-    std::vector<QDLDL_float> D;
-    std::vector<QDLDL_float> Dinv;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> fwork;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Lp;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Li;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> Lx;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> D;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> Dinv;
     QDLDL_int sum_Lnz;
 
     // Empty constructor

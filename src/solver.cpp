@@ -303,71 +303,20 @@ bool Solver::numerical_factorization() {
     return true;
 }
 
-
-void print_line(void) {
-    printf("--------------------------\n");
-}
-
-void print_arrayi(const QDLDL_int* data, QDLDL_int n, char* varName) {
-    QDLDL_int i;
-    printf("%s = [", varName);
-
-    for(i = 0; i < n; i++) {
-        printf("%i,", (int) data[i]);
-    }
-    printf("]\n");
-}
-
-void print_arrayf(const QDLDL_float* data, QDLDL_int n, char* varName) {
-    QDLDL_int i;
-    printf("%s = [", varName);
-
-    for(i = 0; i < n; i++) {
-        printf("%.3g,", data[i]);
-    }
-    printf("]\n");
+bool Solver::check_inertia() {
+    return (workspace->D.array() > 1e-10).count() == n_primals && (workspace->D.array() < -1e-10).count() == n_duals;
 }
 
 void Solver::backsolve() {
+    // Initialize step as -residual, permuted using AMD ordering
     workspace->newton_step = -workspace->kkt_residual(workspace->amd_perm_vec); // Solve is in-place
-    std::cout << "RHS norm: " << workspace->newton_step.norm() << " " << n_vars << std::endl;
+
+    // Solve system
     QDLDL_solve(n_vars, workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
                 workspace->Dinv.data(),  workspace->newton_step.data());
-    workspace->newton_step = workspace->newton_step(workspace->amd_iperm_vec).eval(); // Permute back to original ordering
-    std::cout << "Output norm: " << workspace->newton_step.norm() << std::endl;
 
-    // printf("\n");
-    // printf("A (CSC format):\n");
-    // print_line();
-    // print_arrayi(workspace->kkt_system.outerIndexPtr(), workspace->kkt_system.outerSize() + 1, "A.p");
-    // print_arrayi(workspace->kkt_system.innerIndexPtr(), workspace->kkt_system.outerIndexPtr()[workspace->kkt_system.outerSize()], "A.i");
-    // print_arrayf(workspace->kkt_system.valuePtr(), workspace->kkt_system.outerIndexPtr()[workspace->kkt_system.outerSize()], "A.x");
-    // printf("\n\n");
-
-    // printf("elimination tree:\n");
-    // print_line();
-    // print_arrayi(workspace->etree.data(), workspace->Lnz.size(), "etree");
-    // print_arrayi(workspace->Lnz.data(), workspace->Lnz.size(), "Lnz");
-    // printf("\n\n");
-
-    // printf("L (CSC format):\n");
-    // print_line();
-    // print_arrayi(workspace->Lp.data(), n_vars + 1, "L.p");
-    // print_arrayi(workspace->Li.data(), workspace->Lp.data()[n_vars], "L.i");
-    // print_arrayf(workspace->Lx.data(), workspace->Lp.data()[n_vars], "L.x");
-    // printf("\n\n");
-
-    // printf("D:\n");
-    // print_line();
-    // print_arrayf(workspace->D.data(), workspace->D.size(), "diag(D)     ");
-    // print_arrayf(workspace->Dinv.data(), workspace->Dinv.size(), "diag(D^{-1})");
-    // printf("\n\n");
-
-    // printf("solve results:\n");
-    // print_line();
-    // print_arrayf(workspace->kkt_residual.data(), workspace->kkt_residual.size(), "b");
-    // print_arrayf(workspace->newton_step.data(), workspace->newton_step.size(), "A\\b");
-    // printf("\n\n");
+    // Unpermute solution 
+    workspace->newton_step = workspace->newton_step(workspace->amd_iperm_vec).eval();
 }
 
 void Solver::compute_amd_ordering() {

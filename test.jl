@@ -180,6 +180,7 @@ qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
 @assert(norm(kkt*qdldl_soln + res, Inf) < 1e-9)
 
 # Test for each iter
+using QDLDL
 for iter in solver.iters
     if iter.type == :AL
         continue
@@ -194,11 +195,14 @@ for iter in solver.iters
     # Solve C++ system
     @assert RCQP.analytical_factorization(rcqp)
     @assert RCQP.numerical_factorization(rcqp)
+    @assert RCQP.check_inertia(rcqp)
     RCQP.backsolve(rcqp)
     qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
 
     # Check against Julia
     hess = lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat
     grad = lagrangian_gradient(solver, iter)
+    F = QDLDL.qdldl(hess)
+    qdldl_soln_julia = QDLDL.solve(F, -grad)
     @assert norm(hess*qdldl_soln + grad, Inf) < 1e-5 norm(hess*qdldl_soln + grad, Inf)
 end

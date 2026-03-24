@@ -116,6 +116,13 @@ public:
     bool numerical_factorization();
 
     /**
+     * The KKT system should define a saddle point, with n_primal positive and n_dual negative eigenvalues
+     * We can check this (called the inertia) after numerical_factorization() by checking the number of
+     * positive and negative elements of D because LDLt factorizations preserve inertia
+     */
+    bool check_inertia();
+
+    /**
      * Solve the KKT system using the factorized matrix, populating the solution
      * in workspace->newton_step.
      */
