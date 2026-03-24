@@ -14,20 +14,12 @@ public:
     struct Entry {
         double constraint_violation{__DBL_MAX__};
         double objective_value{__DBL_MAX__};
-
-        /**
-         * @brief Construct a new Filter Entry object
-         */
-        Entry() = default;
-        Entry(double constraint_violation, double objective_value)
-            : constraint_violation(constraint_violation),
-              objective_value(objective_value) {}
     };
 
     /**
      * @brief Construct a new Filter object
      */
-    Filter() = default;
+    Filter() : Filter(Options()) {}
     Filter(const Options& options) : options(options) {}
 
     /**

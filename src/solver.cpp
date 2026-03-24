@@ -413,7 +413,7 @@ bool Solver::filter_linesearch(const Vec& newton_step, const double sqrt_relax_p
             0.5 * inv_penalty_param *
                 (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() + workspace->m_comp.squaredNorm());
 
-        const Filter::Entry candidate(candidate_constraint_violation, candidate_objective);
+        const Filter::Entry candidate{candidate_constraint_violation, candidate_objective};
 
         if (filter->acceptable(candidate)) {
             filter->update(candidate);
