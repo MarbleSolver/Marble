@@ -84,6 +84,4 @@ public:
      * @param col col_index
      */
     int findValuePtrIndex(int row, int col);
-
-    void apply_delta(const Vec &newton_step);
 };

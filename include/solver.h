@@ -80,8 +80,7 @@ public:
 
     Solver(const Options& options)
         : options(options),
-          filter(std::make_shared<Filter>(Filter::Options{options.gamma_objective,
-                                                          options.gamma_constraint})),
+          filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)),
           workspace(std::make_shared<Workspace>()) {}
     
     /**

@@ -4,23 +4,13 @@
 
 class Filter {
 public:
-    struct Options {
-        // Sufficient progress parameter for objective value decrease
-        double gamma_objective{1e-5};
-        // Sufficient progress parameter for constraint violation decrease
-        double gamma_constraint{1e-5};
-    };
-
-    struct Entry {
-        double constraint_violation{__DBL_MAX__};
-        double objective_value{__DBL_MAX__};
-    };
+    typedef std::pair<double, double> Entry;
 
     /**
      * @brief Construct a new Filter object
      */
-    Filter() : Filter(Options()) {}
-    Filter(const Options& options) : options(options) {}
+    Filter() : Filter(1e-5, 1e-5) {}
+    Filter(const double gamma_objective, const double gamma_constraint) : gamma_objective(gamma_objective), gamma_constraint(gamma_constraint), entries(std::vector<Entry>()) {}
 
     /**
      * @brief Determine if a candidate point makes sufficient progress with respect to constraint violation, objective value
@@ -77,8 +67,9 @@ public:
     void clear();
 private:
     // Filter options
-    const Options options{};
+    const double gamma_objective{1e-5};
+    const double gamma_constraint{1e-5};
 
     // List of entries in the filter, maintained such that no entry is dominated by any other entry
-    std::vector<Entry> entries{};
+    std::vector<Entry> entries;
 };
