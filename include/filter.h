@@ -82,9 +82,7 @@ public:
     /**
      * @brief Clear all entries from the filter
      */
-    void clear() {
-        entries.clear();
-    }
+    void clear();
 private:
     // Filter options
     const Options options{};

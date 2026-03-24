@@ -111,8 +111,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_ineq_m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_m_ineq_inds); })
         .method("s_comp_s_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_s_comp_inds); })
         .method("s_comp_m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_m_comp_inds); })
-        .method("get_workspace", &Solver::get_workspace);
-
+        .method("get_workspace", &Solver::get_workspace)
+        .method("get_filter", &Solver::get_filter);
+    
+    mod.add_type<Filter>("Filter")
+        .constructor();
 
     mod.method("test_array", [](jlcxx::ArrayRef<double, 1> arr) {
         std::cout << "here" << std::endl;

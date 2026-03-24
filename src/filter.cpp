@@ -37,3 +37,7 @@ void Filter::update(const Filter::Entry& new_entry) {
     // Add new entry to filter
     entries.push_back(new_entry);
 }
+
+void Filter::clear() {
+    entries.clear();
+}

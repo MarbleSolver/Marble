@@ -74,14 +74,14 @@ public:
     
     // Filter for linesearch
     // TODO: initialize filter with options, should be private member of solver
-    Filter filter;
+    std::shared_ptr<Filter> filter;
 
     Solver() : Solver(Options()) {}
 
     Solver(const Options& options)
         : options(options),
-          filter(Filter::Options{options.gamma_objective,
-                                 options.gamma_constraint}),
+          filter(std::make_shared<Filter>(Filter::Options{options.gamma_objective,
+                                                          options.gamma_constraint})),
           workspace(std::make_shared<Workspace>()) {}
     
     /**
@@ -156,16 +156,24 @@ public:
     }
 
     /**
+     * @brief Get the filter object
+     * 
+     * @return Filter& Filter object used for linesearch in the solver
+     */
+    Filter& get_filter() {
+        return *filter;
+    }
+
+    /**
      * @brief Perform backtracking filter linesearch given a step direction
      * 
-     * @param options Solver options
      * @param newton_step Search direction from Newton solve
      * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
      * @param inv_penalty_param Inverse of the AL penalty parameter
      * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
      * @return false Linesearch failed
      */
-    bool filter_linesearch(const Options &options, const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param);
+    bool filter_linesearch(const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param);
 
     /**
      * Solve the current probem instance 

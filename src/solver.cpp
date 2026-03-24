@@ -337,7 +337,7 @@ bool Solver::solve(const Solver::Options& options) {
             }
 
             // Clear the filter
-            filter.clear();
+            filter->clear();
         } else {
             bool linesearch_succeeded = false;
             update_KKT_system(sqrt_relaxation_param, inv_penalty_param);
@@ -346,7 +346,7 @@ bool Solver::solve(const Solver::Options& options) {
                 workspace->newton_step = compute_newton_step(regularizer);
 
                 linesearch_succeeded =
-                    filter_linesearch(options, workspace->newton_step, sqrt_relaxation_param, inv_penalty_param);
+                    filter_linesearch(workspace->newton_step, sqrt_relaxation_param, inv_penalty_param);
 
                 if (linesearch_succeeded) {
                     break;
@@ -376,7 +376,7 @@ Vec Solver::compute_newton_step(double kkt_system_regularizer) {
     return newton_step;
 }
 
-bool Solver::filter_linesearch(const Solver::Options& options, const Vec& newton_step, const double sqrt_relax_param,
+bool Solver::filter_linesearch(const Vec& newton_step, const double sqrt_relax_param,
                                const double inv_penalty_param) {
     double step_size = 1.0;
     workspace->solution += newton_step;  // Candidate solution for full step
@@ -415,8 +415,8 @@ bool Solver::filter_linesearch(const Solver::Options& options, const Vec& newton
 
         const Filter::Entry candidate(candidate_constraint_violation, candidate_objective);
 
-        if (filter.acceptable(candidate)) {
-            filter.update(candidate);
+        if (filter->acceptable(candidate)) {
+            filter->update(candidate);
             return true;
         }
 
