@@ -131,12 +131,13 @@ function set_from_iter(rcqp, iter)
     RCQP.m_comp_est(workspace) .= iter.γ
     RCQP.update_KKT_residual(rcqp, sqrt(iter.κ), 1/iter.ρ)
     RCQP.update_KKT_system(rcqp, sqrt(iter.κ), 1/iter.ρ)
+    RCQP.update_KKT_primal_regularizer(rcqp, iter.reg)
 end
 set_from_iter(rcqp, solver.iters[2])
 residual = RCQP.kkt_residual(workspace)
 kkt = get_kkt(rcqp)
 @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
-@assert norm(triu(lagrangian_hessian(solver, iter)[perm, perm]) - kkt, Inf) < 1e-10
+@assert norm(triu((lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat)[perm, perm]) - kkt, Inf) < 1e-10
 
 # Check across all iteraters
 for iter in solver.iters
@@ -147,10 +148,11 @@ for iter in solver.iters
     residual = RCQP.kkt_residual(workspace)
     kkt = get_kkt(rcqp)
     @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
-    @assert norm(triu(lagrangian_hessian(solver, iter)[perm, perm]) - kkt, Inf) < 1e-10
+@assert norm(triu((lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat)[perm, perm]) - kkt, Inf) < 1e-10
 end
 
 # Check regularizer updating
+RCQP.update_KKT_primal_regularizer(rcqp, 0.0)
 kkt = get_kkt(rcqp)
 RCQP.update_KKT_primal_regularizer(rcqp, 1e-4)
 kkt_reg = get_kkt(rcqp)
@@ -165,14 +167,38 @@ kkt_reg = copy(get_kkt(rcqp))
 # Test factorization and solve
 iter = solver.iters[5]
 set_from_iter(rcqp, iter)
-res = RCQP.kkt_residual(RCQP.get_workspace(rcqp))
+res = copy(RCQP.kkt_residual(RCQP.get_workspace(rcqp)))
 reg = 1e-7
 RCQP.update_KKT_primal_regularizer(rcqp, reg)
-kkt = get_kkt(rcqp)
+kkt = get_kkt(rcqp)[iperm, iperm] # Unpermuted
 kkt = (kkt + kkt' - spdiagm(diag(kkt)))
 
-RCQP.analytical_factorization(rcqp)
-RCQP.numerical_factorization(rcqp)
+@assert RCQP.analytical_factorization(rcqp)
+@assert RCQP.numerical_factorization(rcqp)
 RCQP.backsolve(rcqp)
 qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
-@assert(norm(kkt*qdldl_soln - res, Inf) < 1e-9)
+@assert(norm(kkt*qdldl_soln + res, Inf) < 1e-9)
+
+# Test for each iter
+for iter in solver.iters
+    if iter.type == :AL
+        continue
+    end
+    set_from_iter(rcqp, iter)
+
+    # Get C++ terms
+    res = copy(RCQP.kkt_residual(RCQP.get_workspace(rcqp)))
+    kkt = get_kkt(rcqp)[iperm, iperm] # Unpermuted
+    kkt = (kkt + kkt' - spdiagm(diag(kkt)))
+
+    # Solve C++ system
+    @assert RCQP.analytical_factorization(rcqp)
+    @assert RCQP.numerical_factorization(rcqp)
+    RCQP.backsolve(rcqp)
+    qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
+
+    # Check against Julia
+    hess = lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat
+    grad = lagrangian_gradient(solver, iter)
+    @assert norm(hess*qdldl_soln + grad, Inf) < 1e-5 norm(hess*qdldl_soln + grad, Inf)
+end
