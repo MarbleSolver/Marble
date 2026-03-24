@@ -39,39 +39,39 @@ void Solver::set_problem(Problem& prob) {
     // and y is the stacked vector of primal and dual variables.
     // Here we construct indices of where each set of variables is in y
     int total_inds = 0;
-    z_inds = Eigen::VectorXi::LinSpaced(prob.nz, 0, prob.nz - 1);
-    total_inds += prob.nz;
-    s_ineq_inds = Eigen::VectorXi::LinSpaced(prob.n_ineq, total_inds, total_inds + prob.n_ineq - 1);
-    total_inds += prob.n_ineq;
-    s_comp_inds = Eigen::VectorXi::LinSpaced(prob.n_comp, total_inds, total_inds + prob.n_comp - 1);
-    total_inds += prob.n_comp;
-    m_eq_inds = Eigen::VectorXi::LinSpaced(prob.n_eq, total_inds, total_inds + prob.n_eq - 1);
-    total_inds += prob.n_eq;
-    m_ineq_inds = Eigen::VectorXi::LinSpaced(prob.n_ineq, total_inds, total_inds + prob.n_ineq - 1);
-    total_inds += prob.n_ineq;
-    m_comp_inds = Eigen::VectorXi::LinSpaced(2 * prob.n_comp, total_inds, total_inds + 2 * prob.n_comp - 1);
-    total_inds += 2 * prob.n_comp;
+    z_inds = Eigen::VectorXi::LinSpaced(this->prob->nz, 0, this->prob->nz - 1);
+    total_inds += this->prob->nz;
+    s_ineq_inds = Eigen::VectorXi::LinSpaced(this->prob->n_ineq, total_inds, total_inds + this->prob->n_ineq - 1);
+    total_inds += this->prob->n_ineq;
+    s_comp_inds = Eigen::VectorXi::LinSpaced(this->prob->n_comp, total_inds, total_inds + this->prob->n_comp - 1);
+    total_inds += this->prob->n_comp;
+    m_eq_inds = Eigen::VectorXi::LinSpaced(this->prob->n_eq, total_inds, total_inds + this->prob->n_eq - 1);
+    total_inds += this->prob->n_eq;
+    m_ineq_inds = Eigen::VectorXi::LinSpaced(this->prob->n_ineq, total_inds, total_inds + this->prob->n_ineq - 1);
+    total_inds += this->prob->n_ineq;
+    m_comp_inds = Eigen::VectorXi::LinSpaced(2 * this->prob->n_comp, total_inds, total_inds + 2 * this->prob->n_comp - 1);
+    total_inds += 2 * this->prob->n_comp;
 
     // Allocate for solution vector, multiplier estimates, and KKT residual
     workspace->solution.resize(n_vars);
 
-    workspace->z = workspace->solution.segment(z_inds[0], prob.nz);
-    workspace->s_ineq = workspace->solution.segment(s_ineq_inds[0], prob.n_ineq);
-    workspace->s_comp = workspace->solution.segment(s_comp_inds[0], prob.n_comp);
-    workspace->m_eq = workspace->solution.segment(m_eq_inds[0], prob.n_eq);
-    workspace->m_ineq = workspace->solution.segment(m_ineq_inds[0], prob.n_ineq);
-    workspace->m_comp = workspace->solution.segment(m_comp_inds[0], 2 * prob.n_comp);
+    workspace->z = workspace->solution.segment(z_inds[0], this->prob->nz);
+    workspace->s_ineq = workspace->solution.segment(s_ineq_inds[0], this->prob->n_ineq);
+    workspace->s_comp = workspace->solution.segment(s_comp_inds[0], this->prob->n_comp);
+    workspace->m_eq = workspace->solution.segment(m_eq_inds[0], this->prob->n_eq);
+    workspace->m_ineq = workspace->solution.segment(m_ineq_inds[0], this->prob->n_ineq);
+    workspace->m_comp = workspace->solution.segment(m_comp_inds[0], 2 * this->prob->n_comp);
 
-    workspace->m_eq_est.resize(prob.n_eq);
-    workspace->m_ineq_est.resize(prob.n_ineq);
-    workspace->m_comp_est.resize(2 * prob.n_comp);
+    workspace->m_eq_est.resize(this->prob->n_eq);
+    workspace->m_ineq_est.resize(this->prob->n_ineq);
+    workspace->m_comp_est.resize(2 * this->prob->n_comp);
 
     workspace->kkt_residual.resize(n_vars);
     workspace->newton_step.resize(n_vars);
 
-    workspace->residual_eq.resize(prob.n_eq);
-    workspace->residual_ineq.resize(prob.n_ineq);
-    workspace->residual_comp.resize(2 * prob.n_comp);
+    workspace->residual_eq.resize(this->prob->n_eq);
+    workspace->residual_ineq.resize(this->prob->n_ineq);
+    workspace->residual_comp.resize(2 * this->prob->n_comp);
 
     // Initialize solution and multiplier estimates to 0
     workspace->solution.setZero();
@@ -80,9 +80,9 @@ void Solver::set_problem(Problem& prob) {
     workspace->m_comp_est.setZero();
 
     // Initialize workspace constraint residuals
-    workspace->residual_eq = prob.J_eq * workspace->z + prob.c_eq;
-    workspace->residual_ineq = prob.J_ineq * workspace->z + prob.c_ineq;
-    workspace->residual_comp = prob.J_comp * workspace->z + prob.c_comp;
+    workspace->residual_eq   = this->prob->J_eq * workspace->z + this->prob->c_eq;
+    workspace->residual_ineq = this->prob->J_ineq * workspace->z + this->prob->c_ineq;
+    workspace->residual_comp = this->prob->J_comp * workspace->z + this->prob->c_comp;
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
@@ -394,7 +394,6 @@ bool Solver::filter_linesearch(const Solver::Options& options, const Vec& newton
 
         // Complementarity primal feasibility
         workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
-
         Vec p_comp = retract(workspace->s_comp, sqrt_relax_param);
         Vec m_comp_primal_feas =
             workspace->residual_comp - inv_penalty_param * (workspace->m_comp - workspace->m_comp_est);

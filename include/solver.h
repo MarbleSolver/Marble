@@ -40,6 +40,8 @@ public:
         double gamma_objective{1e-5};
         // (filter) Sufficient progress parameter for constraint violation decrease
         double gamma_constraint{1e-5};
+
+        Options() = default;
     };
 
     // Problem instance
@@ -74,7 +76,7 @@ public:
     // TODO: initialize filter with options, should be private member of solver
     Filter filter;
 
-    Solver() : Solver(Options{}) {}
+    Solver() : Solver(Options()) {}
 
     Solver(const Options& options)
         : options(options),
