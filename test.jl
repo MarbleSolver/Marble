@@ -15,9 +15,9 @@ module RCQP
   end
 end
 
-name = :simple_test
+name = :hopper
 
-problem = create_problem(name, eq = 1, comp = 1, ineq = 1);
+problem = create_problem(name)#, eq = 1, ineq = 1, comp = 1);
 solver_options = SolverOptions()
 solver_options.verbose = true
 solver_options.max_iters = 10_000
@@ -71,38 +71,35 @@ RCQP.m_eq_inds(rcqp) == solver.kkt_inds.λ .- 1
 RCQP.m_ineq_inds(rcqp) == solver.kkt_inds.μ .- 1
 RCQP.m_comp_inds(rcqp) == solver.kkt_inds.τ .- 1
 
+# Check KKT structure
+function get_kkt(rcqp)
+    nr, nc, colptr, rowval, nzval = RCQP.kkt_system(RCQP.get_workspace(rcqp))
+    return copy(SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval))
+end
+kkt_sparse = get_kkt(rcqp)
+perm = RCQP.amd_perm_vec(workspace) .+ 1
+iperm = RCQP.amd_iperm_vec(workspace) .+ 1
+
+# Check indices into nzval (can't compare against solver one because we only use upper triangular form)
+# Also the matrix is permuted, so we have to check against permuted indices
+kkt_sparse.nzval[:] = 1:length(kkt_sparse.nzval)
+kkt_full = (kkt_sparse + kkt_sparse' - spdiagm(diag(kkt_sparse)))[iperm, iperm] # Unpermuted version
+
+norm(diagm(kkt_sparse.nzval[RCQP.z_z_inds(rcqp) .+ 1]) - kkt_full[solver.kkt_inds.z, solver.kkt_inds.z], Inf)
+norm(diagm(kkt_sparse.nzval[RCQP.s_ineq_s_ineq_inds(rcqp) .+ 1]) - kkt_full[solver.kkt_inds.v, solver.kkt_inds.v], Inf)
+norm(diagm(kkt_sparse.nzval[RCQP.s_ineq_m_ineq_inds(rcqp) .+ 1]) - kkt_full[solver.kkt_inds.v, solver.kkt_inds.μ], Inf)
+norm(diagm(kkt_sparse.nzval[RCQP.s_comp_s_comp_inds(rcqp) .+ 1]) - kkt_full[solver.kkt_inds.σ, solver.kkt_inds.σ], Inf)
+norm(kkt_sparse.nzval[RCQP.s_comp_m_comp_inds(rcqp) .+ 1]  - kkt_full[solver.kkt_inds.σ, solver.kkt_inds.τ].nzval, Inf)
+
 # Update ineq, comp and penalty terms
 iter = solver.iters[2]
 RCQP.update_KKT_ineq(rcqp, iter.v, sqrt(iter.κ))
 RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
 RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
-
-# Check KKT structure
-function get_kkt(rcqp)
-    nr, nc, colptr, rowval, nzval = RCQP.kkt_system(RCQP.get_workspace(rcqp))
-    return SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
-end
 kkt = get_kkt(rcqp)
-hess = lagrangian_hessian(solver, iter)
-hess_sparse = copy(hess) # can't compare now that kkt has all diag elements in structure
-kkt_sparse = copy(kkt)
-hess_sparse.nzval .= 1
-kkt_sparse.nzval .= 1
-# @assert norm((triu(hess_sparse) .!= 0) - (kkt_sparse .!= 0), Inf) == 0
-
-# Check indices into nzval (can't compare against solver one because we only use upper triangular form)
-kkt_sparse.nzval[RCQP.z_z_inds(rcqp) .+ 1] = solver.kkt_inds.z
-@assert norm(diag(kkt_sparse[solver.kkt_inds.z, solver.kkt_inds.z]) - solver.kkt_inds.z, Inf) == 0
-kkt_sparse.nzval[RCQP.s_ineq_s_ineq_inds(rcqp) .+ 1] = solver.kkt_inds.v
-@assert norm(kkt_sparse[solver.kkt_inds.v, solver.kkt_inds.v] - diagm(solver.kkt_inds.v), Inf) == 0
-kkt_sparse.nzval[RCQP.s_ineq_m_ineq_inds(rcqp) .+ 1] = solver.kkt_inds.v*2
-@assert norm(kkt_sparse[solver.kkt_inds.v, solver.kkt_inds.μ] - 2*diagm(solver.kkt_inds.v), Inf) == 0
-kkt_sparse.nzval[RCQP.s_comp_s_comp_inds(rcqp) .+ 1] = solver.kkt_inds.σ
-@assert norm(kkt_sparse[solver.kkt_inds.σ, solver.kkt_inds.σ] - diagm(solver.kkt_inds.σ), Inf) == 0
-kkt_sparse.nzval[RCQP.s_comp_m_comp_inds(rcqp) .+ 1] =  vcat([[a; b] for (a, b) in zip(solver.kkt_inds.σ, -solver.kkt_inds.σ)]...)
-@assert norm(kkt_sparse[solver.kkt_inds.σ, solver.kkt_inds.τ] - kron(diagm(solver.kkt_inds.σ), [1 -1]), Inf) == 0
 
 # Check stationarity rows
+hess = lagrangian_hessian(solver, iter)[perm, perm]
 @assert norm(triu(hess)[solver.kkt_inds.z, :] - kkt[solver.kkt_inds.z, :], Inf) < 1e-10 
 @assert norm(triu(hess)[solver.kkt_inds.v, :] - kkt[solver.kkt_inds.v, :], Inf) < 1e-10 
 @assert norm(triu(hess)[solver.kkt_inds.σ, :] - kkt[solver.kkt_inds.σ, :], Inf) < 1e-10 
@@ -115,7 +112,7 @@ for iter in solver.iters
     RCQP.update_KKT_ineq(rcqp, iter.v, sqrt(iter.κ))
     RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
     RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
-    hess = lagrangian_hessian(solver, iter)
+    hess = lagrangian_hessian(solver, iter)[perm, perm]
     kkt = get_kkt(rcqp)
     @assert norm(triu(hess) - kkt, Inf) < 1e-10
 end
@@ -139,7 +136,7 @@ set_from_iter(rcqp, solver.iters[2])
 residual = RCQP.kkt_residual(workspace)
 kkt = get_kkt(rcqp)
 @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
-@assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
+@assert norm(triu(lagrangian_hessian(solver, iter)[perm, perm]) - kkt, Inf) < 1e-10
 
 # Check across all iteraters
 for iter in solver.iters
@@ -150,30 +147,32 @@ for iter in solver.iters
     residual = RCQP.kkt_residual(workspace)
     kkt = get_kkt(rcqp)
     @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
-    @assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
+    @assert norm(triu(lagrangian_hessian(solver, iter)[perm, perm]) - kkt, Inf) < 1e-10
 end
 
 # Check regularizer updating
-kkt = copy(get_kkt(rcqp))
+kkt = get_kkt(rcqp)
 RCQP.update_KKT_primal_regularizer(rcqp, 1e-4)
-kkt_reg = copy(get_kkt(rcqp))
-@assert norm((kkt_reg - kkt) - 1e-4*solver.reg_mat, Inf) < 1e-14
+kkt_reg = get_kkt(rcqp)
+@assert norm((kkt_reg - kkt) - 1e-4*solver.reg_mat[perm, perm], Inf) < 1e-12
 RCQP.update_KKT_primal_regularizer(rcqp, 1.23e-7)
 kkt_reg = copy(get_kkt(rcqp))
-@assert norm((kkt_reg - kkt) - 1.23e-7*solver.reg_mat, Inf) < 1e-14
+@assert norm((kkt_reg - kkt) - 1.23e-7*solver.reg_mat[perm, perm], Inf) < 1e-12
 RCQP.update_KKT_primal_regularizer(rcqp, 0.0)
 kkt_reg = copy(get_kkt(rcqp))
 @assert norm(kkt_reg - kkt, Inf) < 1e-14
 
 # Test factorization and solve
-iter = solver.iters[2]
+iter = solver.iters[5]
 set_from_iter(rcqp, iter)
-hess = lagrangian_hessian(solver, iter)
 res = RCQP.kkt_residual(RCQP.get_workspace(rcqp))
-RCQP.update_KKT_primal_regularizer(rcqp, 1e-9)
+reg = 1e-7
+RCQP.update_KKT_primal_regularizer(rcqp, reg)
+kkt = get_kkt(rcqp)
+kkt = (kkt + kkt' - spdiagm(diag(kkt)))
 
 RCQP.analytical_factorization(rcqp)
 RCQP.numerical_factorization(rcqp)
 RCQP.backsolve(rcqp)
 qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
-@assert(norm((hess + 1e-9*solver.reg_mat)*qdldl_soln - res, Inf) < 1e-6)
+@assert(norm(kkt*qdldl_soln - res, Inf) < 1e-9)

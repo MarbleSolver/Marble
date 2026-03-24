@@ -73,7 +73,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             return std::make_tuple(kkt.rows(), kkt.cols(), colptr, rowval, nzval); 
         })
         .method("newton_step", [](Workspace& w) { return to_julia(w.newton_step); })
-        .method("D", [](Workspace& w) { return w.D; });
+        .method("D", [](Workspace& w) { return w.D; })
+        .method("amd_perm_vec", [](Workspace& w) { return to_julia(w.amd_perm_vec); })
+        .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); });
+        // .method("amd_perm", [](Workspace& w) { return to_julia(w.amd_perm.toDense()); })
 
     // Solver class bindings
     mod.add_type<Solver>("Solver")
@@ -105,6 +108,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("analytical_factorization", &Solver::analytical_factorization)
         .method("numerical_factorization", &Solver::numerical_factorization)
         .method("backsolve", &Solver::backsolve)
+        .method("compute_amd_ordering", &Solver::compute_amd_ordering)
         .method("set_problem", &Solver::set_problem)
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })

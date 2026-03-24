@@ -34,6 +34,9 @@ public:
      * after it is initialize by Solver::set_problem.
      */
     SMat kkt_system;
+    Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, QDLDL_int> amd_perm; // AMD permutation for KKT system, reduces in-fill
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> amd_perm_vec; // AMD permutation for KKT system, reduces in-fill
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> amd_iperm_vec; // Inverse AMD permutation for KKT system
 
     // KKT step
     Vec newton_step;

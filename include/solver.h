@@ -122,6 +122,11 @@ public:
     void backsolve();
 
     /**
+     * Compute AMD ordering
+     */
+    void compute_amd_ordering();
+
+    /**
      * Returns the workspace used by the solver
      */
     Workspace& get_workspace() {

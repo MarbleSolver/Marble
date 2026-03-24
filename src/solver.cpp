@@ -91,10 +91,13 @@ void Solver::initialize_kkt_sparsity() {
     std::vector<Eigen::Triplet<double>> triplets;
 
     // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + J_comp'*m_comp 
-    workspace->appendBlockTriplets(triplets, prob->cost_hessian.triangularView<Eigen::Upper>(), z_inds[0], z_inds[0]);
+    workspace->appendBlockTriplets(triplets, prob->cost_hessian, z_inds[0], z_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_eq.transpose(), z_inds[0], m_eq_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_ineq.transpose(), z_inds[0], m_ineq_inds[0]);
     workspace->appendBlockTriplets(triplets, prob->J_comp.transpose(), z_inds[0], m_comp_inds[0]);
+    workspace->appendBlockTriplets(triplets, prob->J_eq, m_eq_inds[0], z_inds[0]);
+    workspace->appendBlockTriplets(triplets, prob->J_ineq, m_ineq_inds[0], z_inds[0]);
+    workspace->appendBlockTriplets(triplets, prob->J_comp, m_comp_inds[0], z_inds[0]);
 
     // Populate stationarity for inequality slacks with dummy variables
     // -p'(s_ineq)*(p(-s_ineq) - m_ineq))
@@ -102,6 +105,7 @@ void Solver::initialize_kkt_sparsity() {
     for (int i = 0; i < prob->n_ineq; i++) {
         triplets.emplace_back(s_ineq_inds[i], s_ineq_inds[i], 1.0);
         triplets.emplace_back(s_ineq_inds[i], m_ineq_inds[i], 1.0);
+        triplets.emplace_back(m_ineq_inds[i], s_ineq_inds[i], 1.0);
     }
 
     // Populate stationarity for complementarity slacks with dummy variables
@@ -116,6 +120,8 @@ void Solver::initialize_kkt_sparsity() {
         // Derivative with respect to multipliers (n_comp by 2*n_comp)
         triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2], 1.0);
         triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2 + 1], 1.0);
+        triplets.emplace_back(m_comp_inds[i*2], s_comp_inds[i], 1.0);
+        triplets.emplace_back(m_comp_inds[i*2 + 1], s_comp_inds[i], 1.0);
     }
 
     // Populate AL regularizer for multipliers
@@ -136,6 +142,11 @@ void Solver::initialize_kkt_sparsity() {
 
     // Build sparse matrix
     workspace->kkt_system.setFromTriplets(triplets.begin(), triplets.end());
+
+    // Compute AMD ordering permutation to reduce fill-in during factorization
+    compute_amd_ordering();
+    SMat temp = workspace->amd_perm.transpose()*workspace->kkt_system*workspace->amd_perm; // Need temp to prevent aliasing
+    workspace->kkt_system = temp.triangularView<Eigen::Upper>(); // QDLDL requires upper triangular storage
     workspace->kkt_system.makeCompressed();
 
     // Determine indices into valuePtr for updating of nonlinear and penalty terms
@@ -356,4 +367,14 @@ void Solver::backsolve() {
     print_arrayf(workspace->kkt_residual.data(), workspace->kkt_residual.size(), "b");
     print_arrayf(workspace->newton_step.data(), workspace->newton_step.size(), "A\\b");
     printf("\n\n");
+}
+
+void Solver::compute_amd_ordering() {
+    Eigen::AMDOrdering<QDLDL_int> amd_ordering;
+    amd_ordering(workspace->kkt_system, workspace->amd_perm);
+    workspace->amd_perm_vec = workspace->amd_perm.indices();
+    workspace->amd_iperm_vec.resize(n_vars);
+    for (int i = 0; i < n_vars; ++i) {
+        workspace->amd_iperm_vec[workspace->amd_perm_vec[i]] = i; 
+    }
 }

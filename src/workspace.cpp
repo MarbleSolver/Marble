@@ -17,6 +17,12 @@ void Workspace::appendBlockTriplets(std::vector<Eigen::Triplet<double>>& triplet
 }
 
 int Workspace::findValuePtrIndex(int row, int col) {
+    // Map into permuted matrix
+    row = amd_iperm_vec[row];
+    col = amd_iperm_vec[col];
+    if (row > col) {
+        std::swap(row, col); // Ensure we are in the upper triangular part of the matrix, since it's symmetric
+    }
     // Get indices for the start and end of the column
     int col_start = kkt_system.outerIndexPtr()[col];
     int col_end = kkt_system.outerIndexPtr()[col + 1];
