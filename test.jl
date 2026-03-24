@@ -8,7 +8,7 @@ using LinearAlgebra
 
 module RCQP
   using CxxWrap
-  @wrapmodule(() -> joinpath(@__DIR__, "submodules/RCQP/build/librcqp_wrapper.so"))
+  @wrapmodule(() -> joinpath(@__DIR__, "submodules/RCQP/build/librcqp_wrapper"))
 
   function __init__()
     @initcxx
@@ -16,6 +16,7 @@ module RCQP
 end
 
 name = :hopper
+##
 
 problem = create_problem(name);
 solver_options = SolverOptions()
@@ -31,11 +32,11 @@ println(RCQP.test_matrix(arr, 2, 2))
 println(arr)
 
 # Set up problem and check sizes
-H, g = Matrix(solver.cost_hess), solver.cost_grad
+H, g, f0 = Matrix(solver.cost_hess), solver.cost_grad, solver.cost_const
 J_eq, J_ineq, J_comp = Matrix(solver.conjac[solver.eq_inds, :]), Matrix(solver.conjac[solver.ineq_inds, :]), Matrix(solver.conjac[solver.comp_inds, :])
 c_eq, c_ineq, c_comp = solver.conrhs[solver.eq_inds], solver.conrhs[solver.ineq_inds], solver.conrhs[solver.comp_inds]
 
-prob = RCQP.Problem(H, g, J_eq, c_eq, J_ineq, c_ineq, 
+prob = RCQP.Problem(H, g, f0, J_eq, c_eq, J_ineq, c_ineq, 
             J_comp, c_comp)
 @assert RCQP.nz(prob) == solver.nz
 @assert RCQP.n_eq(prob) == solver.n_eq
@@ -79,7 +80,7 @@ RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
 
 # Check KKT structure
 nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+kkt = SparseMatrixCSC(Int(nr), Int(nc), colptr.+1, rowval.+1, nzval)
 hess = lagrangian_hessian(solver, iter)
 hess_sparse = copy(hess)
 kkt_sparse = copy(kkt)
@@ -112,7 +113,7 @@ for iter in solver.iters
     RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
     hess = lagrangian_hessian(solver, iter)
     nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-    kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+    kkt = SparseMatrixCSC(Int(nr), Int(nc), colptr.+1, rowval.+1, nzval)
     @assert norm(triu(hess) - kkt, Inf) < 1e-10
 end
 
@@ -131,7 +132,7 @@ RCQP.update_KKT_residual(rcqp, sqrt(iter.κ), 1/iter.ρ)
 RCQP.update_KKT_system(rcqp, sqrt(iter.κ), 1/iter.ρ)
 residual = RCQP.kkt_residual(workspace)
 nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+kkt = SparseMatrixCSC(Int(nr), Int(nc), colptr.+1, rowval.+1, nzval)
 @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
 @assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
 
@@ -157,7 +158,16 @@ for iter in solver.iters
     # Check against iterate
     residual = RCQP.kkt_residual(workspace)
     nr, nc, colptr, rowval, nzval = RCQP.kkt_system(workspace)
-    kkt = SparseMatrixCSC(nr, nc, colptr.+1, rowval.+1, nzval)
+    kkt = SparseMatrixCSC(Int(nr), Int(nc), colptr.+1, rowval.+1, nzval)
     @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
     @assert norm(triu(lagrangian_hessian(solver, iter)) - kkt, Inf) < 1e-10
+
+    # Check iterate passes filter
+    rcqp_filter_viol, rcqp_filter_obj = RCQP.entry_from_solution(rcqp, sqrt(iter.κ), 1/iter.ρ)
+    iter_filter_obj, iter_filter_viol = filter_criteria(solver, iter)
+
+    @assert abs(rcqp_filter_viol - iter_filter_viol) < 1e-10
+    @assert abs(rcqp_filter_obj - iter_filter_obj) < 1e-10
 end
+
+println("All tests passed!")

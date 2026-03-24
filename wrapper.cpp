@@ -33,14 +33,14 @@ Eigen::VectorXd eigen_vec = Eigen::VectorXd::Random(5);
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // Problem class bindings
     mod.add_type<Problem>("Problem")
-        .constructor([](jl_MatXd cost_hessian, jl_VecXd cost_gradient,
+        .constructor([](jl_MatXd cost_hessian, jl_VecXd cost_gradient, double cost_const,
                     jl_MatXd J_eq, jl_VecXd c_eq, jl_MatXd J_ineq, jl_VecXd c_ineq,
                     jl_MatXd J_comp, jl_VecXd c_comp) {
         int nz = cost_gradient.size();
         int n_eq = c_eq.size();
         int n_ineq = c_ineq.size();
         int n_comp = c_comp.size();
-        return new Problem(to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient),
+        return new Problem(to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient), cost_const,
                            to_eigen(J_eq, n_eq, nz), to_eigen(c_eq), 
                            to_eigen(J_ineq, n_ineq, nz), to_eigen(c_ineq),
                            to_eigen(J_comp, n_comp, nz), to_eigen(c_comp));
@@ -49,6 +49,29 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("n_eq", [](Problem& p) -> const int { return p.n_eq; })
         .method("n_ineq", [](Problem& p) -> const int { return p.n_ineq; })
         .method("n_comp", [](Problem& p) -> const int { return p.n_comp; });
+
+    mod.add_type<Solver::Options>("SolverOptions")
+        .constructor()
+        .method("convergence_kkt_norm!", [](Solver::Options& o, double v) { o.convergence_kkt_norm = v; })
+        .method("convergence_eq_violation!", [](Solver::Options& o, double v) { o.convergence_eq_violation = v; })
+        .method("convergence_ineq_violation!", [](Solver::Options& o, double v) { o.convergence_ineq_violation = v; })
+        .method("convergence_comp_violation!", [](Solver::Options& o, double v) { o.convergence_comp_violation = v; })
+        .method("outer_step_kkt_norm!", [](Solver::Options& o, double v) { o.outer_step_kkt_norm = v; })
+        .method("penalty_initial!", [](Solver::Options& o, double v) { o.penalty_initial = v; })
+        .method("penalty_max!", [](Solver::Options& o, double v) { o.penalty_max = v; })
+        .method("penalty_scaling!", [](Solver::Options& o, double v) { o.penalty_scaling = v; })
+        .method("relaxation_initial!", [](Solver::Options& o, double v) { o.relaxation_initial = v; })
+        .method("relaxation_min!", [](Solver::Options& o, double v) { o.relaxation_min = v; })
+        .method("relaxation_scaling!", [](Solver::Options& o, double v) { o.relaxation_scaling = v; })
+        .method("max_iters!", [](Solver::Options& o, int v) { o.max_iters = v; })
+        .method("max_iters_linesearch!", [](Solver::Options& o, int v) { o.max_iters_linesearch = v; })
+        .method("gamma_objective!", [](Solver::Options& o, double v) { o.gamma_objective = v; })
+        .method("gamma_constraint!", [](Solver::Options& o, double v) { o.gamma_constraint = v; });
+
+    // Filter class bindings
+    mod.add_type<Filter>("Filter")
+        .constructor()
+        .method("clear", &Filter::clear);
 
     // Workspace class bindings
     mod.add_type<Workspace>("Workspace")
@@ -111,12 +134,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_ineq_m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_m_ineq_inds); })
         .method("s_comp_s_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_s_comp_inds); })
         .method("s_comp_m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_m_comp_inds); })
+        .method("filter_linesearch", [](Solver& solver, jl_VecXd newton_step, double sqrt_relax_param, double inv_penalty_param, int max_iters) {
+            return solver.filter_linesearch(to_eigen(newton_step), sqrt_relax_param, inv_penalty_param, max_iters);
+        })
+        .method("entry_from_solution", [](Solver& solver, double sqrt_relax_param, double inv_penalty_param) {
+            Filter::Entry entry = solver.entry_from_solution(sqrt_relax_param, inv_penalty_param);
+            return std::make_tuple(entry.first, entry.second);
+        })
         .method("get_workspace", &Solver::get_workspace)
         .method("get_filter", &Solver::get_filter);
     
-    mod.add_type<Filter>("Filter")
-        .constructor();
-
     mod.method("test_array", [](jlcxx::ArrayRef<double, 1> arr) {
         std::cout << "here" << std::endl;
         eigen_vec = to_eigen(arr);
