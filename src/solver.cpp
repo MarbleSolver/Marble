@@ -52,6 +52,10 @@ void Solver::set_problem(Problem& prob) {
     m_comp_inds = Eigen::VectorXi::LinSpaced(2 * this->prob->n_comp, total_inds, total_inds + 2 * this->prob->n_comp - 1);
     total_inds += 2 * this->prob->n_comp;
 
+    // Indices into the complementarity residual for extracting the comp residual violation for filter evaluation
+    comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(this->prob->n_comp, 0, this->prob->n_comp - 1);
+    comp_R_inds = comp_L_inds.array() + 1;
+
     // Allocate for solution vector, multiplier estimates, and KKT residual
     workspace->solution.resize(n_vars);
 
@@ -198,8 +202,7 @@ void Solver::update_KKT_residual(double sqrt_relax_param, double inv_penalty_par
     workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
 
     // z stationarity
-    workspace->kkt_residual(z_inds) =
-        prob->cost_hessian * workspace->z + prob->cost_gradient + prob->J_eq.transpose() * workspace->m_eq +
+    workspace->kkt_residual(z_inds) = prob->cost_hessian * workspace->z + prob->cost_gradient + prob->J_eq.transpose() * workspace->m_eq +
         prob->J_ineq.transpose() * workspace->m_ineq + prob->J_comp.transpose() * workspace->m_comp;
 
     // Inequality slack stationarity
@@ -285,9 +288,6 @@ bool Solver::convergence(const Solver::Options& options) {
     bool eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
     bool ineq_violation = workspace->residual_ineq.cwiseMax(0).lpNorm<Eigen::Infinity>();
 
-    Eigen::VectorXi comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(prob->n_comp, 0, prob->n_comp - 1);
-    Eigen::VectorXi comp_R_inds = comp_L_inds.array() + 1;
-
     bool comp_violation = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
                               .lpNorm<Eigen::Infinity>();
 
@@ -301,7 +301,7 @@ bool Solver::solve(const Solver::Options& options) {
     double penalty_param = options.penalty_initial;
     double relax_param = options.relaxation_initial;
 
-    // TODO: is this ever used in practice?
+    int last_outer_step_iter = -1;
     double outer_step_kkt_norm_adjustment = 1.0;
 
     for (int iter = 0; iter < options.max_iters; ++iter) {
@@ -317,11 +317,14 @@ bool Solver::solve(const Solver::Options& options) {
         }
 
         // Check if we are performing an inner or outer step based on KKT residual norm
-        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() <
-            outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {
+        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {
             // Outer step: update multiplier estimates and increase penalty
-
-            // TODO: check if we need to adjust `outer_step_kkt_norm_adjustment`
+            
+            // Check if we need to decrease the outer step KKT norm requirement, which is done only if
+            // there have been 2 consecutive outer steps without an inner step in between
+            if (iter > 0 && last_outer_step_iter == iter - 1 && relax_param <= options.relaxation_min) {
+                outer_step_kkt_norm_adjustment /= 10.0;
+            }
 
             if (penalty_param >= options.penalty_max) {
                 // If we are at the maximum penalty, we can just update multiplier estimates without increasing penalty
@@ -338,6 +341,7 @@ bool Solver::solve(const Solver::Options& options) {
 
             // Clear the filter
             filter->clear();
+            last_outer_step_iter = iter;
         } else {
             bool linesearch_succeeded = false;
             update_KKT_system(sqrt_relaxation_param, inv_penalty_param);

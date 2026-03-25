@@ -63,6 +63,10 @@ public:
     Eigen::VectorXi m_ineq_inds; // Inequality multipliers
     Eigen::VectorXi m_comp_inds; // Complementarity multipliers
 
+    // Indices into the complementarity residual for extracting the comp residual violation for filter evaluation
+    Eigen::VectorXi comp_L_inds;
+    Eigen::VectorXi comp_R_inds;
+
     // Indices into the sparse KKT matrix valuePtr for jacobians of the KKT residual that are updated
     // based on the nonlinear terms (s_ineq, s_comp, relaxation_param, and penalty_param)
     Eigen::VectorXi s_ineq_s_ineq_inds; // Diagonal matrix
