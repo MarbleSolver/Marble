@@ -19,6 +19,7 @@ public:
     // Quadratic cost definition
     SMat cost_hessian;
     Vec cost_gradient;
+    double cost_const{0.0}; // Constant term in the cost, not needed for optimization but useful for comparisons
 
     // Constraint definitions, all of the form Jx + c = 0
     SMat J_eq;
@@ -32,7 +33,7 @@ public:
      * Construct a new Problem given problem data
      * TODO: support empty variables
      */
-    Problem(SMat cost_hessian, Vec cost_gradient,
+    Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
             SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
             SMat J_comp, Vec c_comp);
 
@@ -40,7 +41,7 @@ public:
      * Construct a new Problem given problem data
      * TODO: support empty variables
      */
-    Problem(Mat cost_hessian, Vec cost_gradient,
+    Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
             Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
             Mat J_comp, Vec c_comp);
 };

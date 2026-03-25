@@ -84,24 +84,23 @@ public:
 
     Solver(const Options& options)
         : options(options),
-          filter(std::make_shared<Filter>(Filter::Options{options.gamma_objective,
-                                                          options.gamma_constraint})),
+          filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)),
           workspace(std::make_shared<Workspace>()) {}
     
     /**
      * Retraction map (elementwise)
      */
-    Vec retract(const Vec& s, double sqrt_relax_param);
+    Vec retract(const Vec& s, double sqrt_relax_param) const;
 
     /**
      * Retraction map derivative (elementwise)
      */
-    Vec retract_deriv(const Vec& s, double sqrt_relax_param);
+    Vec retract_deriv(const Vec& s, double sqrt_relax_param) const;
 
     /**
      * Retraction map second derivative (elementwise)
      */
-    Vec retract_second_deriv(const Vec& s, double sqrt_relax_param);
+    Vec retract_second_deriv(const Vec& s, double sqrt_relax_param) const;
 
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
@@ -168,19 +167,23 @@ public:
         return *filter;
     }
 
+    Filter::Entry entry_from_solution(double sqrt_relax_param, double inv_penalty_param) const;
+
     /**
      * @brief Perform backtracking filter linesearch given a step direction
      * 
      * @param newton_step Search direction from Newton solve
      * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
      * @param inv_penalty_param Inverse of the AL penalty parameter
+     * @param max_iters Maximum number of iterations for the linesearch
+     * @warning This function modifies the workspace solution to store the candidate solution, and updates the constraint residuals based on the candidate solution, which are used to evaluate the filter conditions. If the linesearch fails, the workspace solution is left at the last candidate solution evaluated.
      * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
      * @return false Linesearch failed
      */
-    bool filter_linesearch(const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param);
+    bool filter_linesearch(const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
 
     /**
-     * Solve the current probem instance 
+     * Solve the current problem instance 
      */
     bool solve(const Options &options);
 
