@@ -407,6 +407,11 @@ bool Solver::filter_linesearch(const Vec& newton_step, double sqrt_relax_param, 
     double step_size = 1.0;
     workspace->solution += step_size * newton_step;  // Candidate solution for full step
 
+    // TODO: this can be done much more efficiently due to the linearity
+    // we should compute a delta for each constraint and the cost from the newton_step
+    // and use those scaled vectors to assembly the feasibility candidates
+    // We should also re-use the terms in the bottom half of the KKT residual
+    
     for (int i = 0; i < max_iters; ++i) {
         // Update constraint residuals from candidate solution
         workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
