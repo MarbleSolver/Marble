@@ -27,8 +27,6 @@ void Solver::set_problem(Problem& prob) {
     // Move problem
     this->prob = std::make_shared<Problem>(std::move(prob));
 
-    // TODO: (nit) Either use this->prob or passed prob consistently here
-
     // Define subproblem dimensions
     n_primals =
         this->prob->nz + this->prob->n_ineq + this->prob->n_comp;  // Primal variables include original and slacks
@@ -138,18 +136,6 @@ void Solver::initialize_kkt_sparsity() {
         triplets.emplace_back(m_comp_inds[i], m_comp_inds[i], 1.0);
     }
 
-    // TODO: populate regularization triplets, this was causing mismatch in the Julia hessian comparisons
-    // // Populate KKT system regularizer for primal variables
-    // for (int i = 0; i < prob->nz; i++) {
-    //     triplets.emplace_back(z_inds[i], z_inds[i], 0.0);
-    // }
-    // for (int i = 0; i < prob->n_ineq; i++) {
-    //     triplets.emplace_back(s_ineq_inds[i], s_ineq_inds[i], 0.0);
-    // }
-    // for (int i = 0; i < prob->n_comp; i++) {
-    //     triplets.emplace_back(s_comp_inds[i], s_comp_inds[i], 0.0);
-    // }
-
     // Build sparse matrix
     workspace->kkt_system.setFromTriplets(triplets.begin(), triplets.end());
     workspace->kkt_system.makeCompressed();
@@ -203,8 +189,10 @@ void Solver::update_KKT_residual(double sqrt_relax_param, double inv_penalty_par
     workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
 
     // z stationarity
-    workspace->kkt_residual(z_inds) = prob->cost_hessian * workspace->z + prob->cost_gradient + prob->J_eq.transpose() * workspace->m_eq +
-        prob->J_ineq.transpose() * workspace->m_ineq + prob->J_comp.transpose() * workspace->m_comp;
+    workspace->kkt_residual(z_inds) = prob->cost_hessian * workspace->z + prob->cost_gradient + 
+                        prob->J_eq.transpose() * workspace->m_eq +
+                        prob->J_ineq.transpose() * workspace->m_ineq + 
+                        prob->J_comp.transpose() * workspace->m_comp;
 
     // Inequality slack stationarity
     Vec p_neg_ineq = retract(-workspace->s_ineq, sqrt_relax_param);

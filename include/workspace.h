@@ -8,22 +8,6 @@
 
 class Workspace {
 public:
-    // Current solution vectors
-    // struct Solution {
-    //     Vec z;
-    //     Vec s_ineq;
-    //     Vec s_comp;
-    //     Vec m_eq;
-    //     Vec m_ineq;
-    //     Vec m_comp;
-    // };
-
-    // Solution _sol_a;
-    // Solution _sol_b;
-
-    // Solution *x = &_sol_a;
-    // Solution *x_candidate = &_sol_b;
-
     // Stacked solution vector [z; s_ineq; s_comp; m_eq; m_ineq; m_comp]
     Vec solution;
 

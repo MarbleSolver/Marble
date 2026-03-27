@@ -11,7 +11,8 @@ public:
      * @brief Construct a new Filter object
      */
     Filter() : Filter(1e-5, 1e-5) {}
-    Filter(const double gamma_objective, const double gamma_constraint) : gamma_objective(gamma_objective), gamma_constraint(gamma_constraint), entries(std::vector<Entry>()) {}
+    Filter(const double gamma_objective, const double gamma_constraint) : gamma_objective(gamma_objective), 
+                                                gamma_constraint(gamma_constraint), entries(std::vector<Entry>()) {}
 
     /**
      * @brief Determine if a candidate point makes sufficient progress with respect to constraint violation, objective value
@@ -21,7 +22,7 @@ public:
      * @param entry Existing filter entry to compare against
      * @return std::pair<bool, bool> Pair indicating whether sufficient progress is made in constraint violation, objective value decrease, respectively
      */
-    std::pair<bool, bool> sufficient_progress(const Filter::Entry& candidate, const Filter::Entry& entry) const;
+    std::pair<bool, bool> sufficient_progress(const Entry& candidate, const Entry& entry) const;
 
     /**
      * @brief Determine if a candidate point is acceptable compared to an existing entry in the filter. Defined as making either
