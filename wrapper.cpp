@@ -76,6 +76,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // Workspace class bindings
     mod.add_type<Workspace>("Workspace")
         .constructor()
+        .method("solution", [](Workspace& w) { return to_julia(w.solution); })
         .method("z", [](Workspace& w) { return to_julia(w.z); })
         .method("s_ineq", [](Workspace& w) { return to_julia(w.s_ineq); })
         .method("s_comp", [](Workspace& w) { return to_julia(w.s_comp); })
@@ -133,6 +134,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("backsolve", &Solver::backsolve)
         .method("check_inertia", &Solver::check_inertia)
         .method("compute_amd_ordering", &Solver::compute_amd_ordering)
+        .method("solve", &Solver::solve)
         .method("set_problem", &Solver::set_problem)
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })
@@ -146,9 +148,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_ineq_m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_m_ineq_inds); })
         .method("s_comp_s_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_s_comp_inds); })
         .method("s_comp_m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_comp_m_comp_inds); })
-        .method("filter_linesearch", [](Solver& solver, jl_VecXd newton_step, double sqrt_relax_param, double inv_penalty_param, int max_iters) {
-            return solver.filter_linesearch(to_eigen(newton_step), sqrt_relax_param, inv_penalty_param, max_iters);
-        })
+        .method("filter_linesearch", &Solver::filter_linesearch)
         .method("entry_from_solution", [](Solver& solver, double sqrt_relax_param, double inv_penalty_param) {
             Filter::Entry entry = solver.entry_from_solution(sqrt_relax_param, inv_penalty_param);
             return std::make_tuple(entry.feas, entry.merit);

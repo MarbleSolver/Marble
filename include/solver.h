@@ -199,7 +199,6 @@ public:
     /**
      * @brief Perform backtracking filter linesearch given a step direction
      * 
-     * @param newton_step Search direction from Newton solve
      * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
      * @param inv_penalty_param Inverse of the AL penalty parameter
      * @param max_iters Maximum number of iterations for the linesearch
@@ -207,7 +206,7 @@ public:
      * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
      * @return false Linesearch failed
      */
-    bool filter_linesearch(const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
+    bool filter_linesearch(const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
 
     /**
      * Solve the current problem instance 

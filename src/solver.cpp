@@ -168,6 +168,9 @@ void Solver::initialize_kkt_sparsity() {
     workspace->kkt_system = temp.triangularView<Eigen::Upper>(); // QDLDL requires upper triangular storage
     workspace->kkt_system.makeCompressed();
 
+    // Perform an analytical factorization
+    analytical_factorization();
+
     // Determine indices into valuePtr for updating of nonlinear and penalty terms
     z_z_inds.resize(prob->nz);
     for (int i = 0; i < prob->nz; i++) {
@@ -448,7 +451,7 @@ bool Solver::solve(const Solver::Options& options) {
                 backsolve(); // Computes Newton step
 
                 linesearch_succeeded =
-                    filter_linesearch(workspace->newton_step, sqrt_relaxation_param, inv_penalty_param, options.max_iters_linesearch);
+                    filter_linesearch(sqrt_relaxation_param, inv_penalty_param, options.max_iters_linesearch);
 
                 if (linesearch_succeeded) {
                     break;
@@ -498,9 +501,9 @@ Filter::Entry Solver::entry_from_solution(double sqrt_relax_param, double inv_pe
     };
 }
 
-bool Solver::filter_linesearch(const Vec& newton_step, double sqrt_relax_param, double inv_penalty_param, int max_iters) {
+bool Solver::filter_linesearch(double sqrt_relax_param, double inv_penalty_param, int max_iters) {
     double step_size = 1.0;
-    workspace->solution += step_size * newton_step;  // Candidate solution for full step
+    workspace->solution += step_size * workspace->newton_step;  // Candidate solution for full step
 
     // TODO: this can be done much more efficiently due to the linearity
     // we should compute a delta for each constraint and the cost from the newton_step
@@ -522,7 +525,7 @@ bool Solver::filter_linesearch(const Vec& newton_step, double sqrt_relax_param, 
 
         // If not acceptable, shrink step size and try again
         step_size *= 0.5;
-        workspace->solution -= step_size * newton_step;
+        workspace->solution -= step_size * workspace->newton_step;
     }
 
     return false;
