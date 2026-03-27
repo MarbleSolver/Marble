@@ -8,7 +8,7 @@ using LinearAlgebra
 
 module RCQP
   using CxxWrap
-  @wrapmodule(() -> joinpath(@__DIR__, "submodules/RCQP/build/librcqp_wrapper.so"))
+  @wrapmodule(() -> joinpath(@__DIR__, "submodules/RCQP/build/librcqp_wrapper"))
 
   function __init__()
     @initcxx
@@ -16,6 +16,7 @@ module RCQP
 end
 
 name = :hopper
+##
 
 problem = create_problem(name)#, eq = 1, ineq = 1, comp = 1);
 solver_options = SolverOptions()
@@ -31,11 +32,11 @@ println(RCQP.test_matrix(arr, 2, 2))
 println(arr)
 
 # Set up problem and check sizes
-H, g = Matrix(solver.cost_hess), solver.cost_grad
+H, g, f0 = Matrix(solver.cost_hess), solver.cost_grad, solver.cost_const
 J_eq, J_ineq, J_comp = Matrix(solver.conjac[solver.eq_inds, :]), Matrix(solver.conjac[solver.ineq_inds, :]), Matrix(solver.conjac[solver.comp_inds, :])
 c_eq, c_ineq, c_comp = solver.conrhs[solver.eq_inds], solver.conrhs[solver.ineq_inds], solver.conrhs[solver.comp_inds]
 
-prob = RCQP.Problem(H, g, J_eq, c_eq, J_ineq, c_ineq, 
+prob = RCQP.Problem(H, g, f0, J_eq, c_eq, J_ineq, c_ineq, 
             J_comp, c_comp)
 @assert RCQP.nz(prob) == solver.nz
 @assert RCQP.n_eq(prob) == solver.n_eq
@@ -205,4 +206,13 @@ for iter in solver.iters
     F = QDLDL.qdldl(hess)
     qdldl_soln_julia = QDLDL.solve(F, -grad)
     @assert norm(hess*qdldl_soln + grad, Inf) < 1e-5 norm(hess*qdldl_soln + grad, Inf)
+
+    # Check iterate passes filter
+    rcqp_filter_viol, rcqp_filter_obj = RCQP.entry_from_solution(rcqp, sqrt(iter.κ), 1/iter.ρ)
+    iter_filter_obj, iter_filter_viol = filter_criteria(solver, iter)
+
+    @assert abs(rcqp_filter_viol - iter_filter_viol) < 1e-10
+    @assert abs(rcqp_filter_obj - iter_filter_obj) < 1e-10
 end
+
+println("All tests passed!")

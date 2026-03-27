@@ -4,11 +4,14 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include "problem.h"
-#include "qdldl.h"
+#include <cstring>
 
 class Workspace {
 public:
-    // Current solution vectors
+    // Stacked solution vector [z; s_ineq; s_comp; m_eq; m_ineq; m_comp]
+    Vec solution;
+
+    // Views into the solution vector
     Vec z;
     Vec s_ineq;
     Vec s_comp;
@@ -28,6 +31,11 @@ public:
     // to allow for updating primal regularizer cheaply
     Vec s_ineq_stationarity;
     Vec s_comp_stationarity;
+
+    // Constraint evaluations
+    Vec residual_eq;
+    Vec residual_ineq;
+    Vec residual_comp;
 
     /**
      * KKT system matrix, stored in sparse format with the structure intended to be fixed
@@ -56,7 +64,7 @@ public:
     QDLDL_int sum_Lnz;
 
     // Empty constructor
-    Workspace();
+    Workspace() = default;
 
     /**
      * Inserts a sparse block matrix into a sparse matrix represented as a 
