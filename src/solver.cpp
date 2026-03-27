@@ -55,48 +55,8 @@ void Solver::set_problem(Problem& prob) {
     comp_R_inds = comp_L_inds.array() + 1;
 
     // Allocate for solution vector, multiplier estimates, and KKT residual
-    workspace->solution.resize(n_vars);
-
-    workspace->z = workspace->solution.segment(z_inds[0], this->prob->nz);
-    workspace->s_ineq = workspace->solution.segment(s_ineq_inds[0], this->prob->n_ineq);
-    workspace->s_comp = workspace->solution.segment(s_comp_inds[0], this->prob->n_comp);
-    workspace->m_eq = workspace->solution.segment(m_eq_inds[0], this->prob->n_eq);
-    workspace->m_ineq = workspace->solution.segment(m_ineq_inds[0], this->prob->n_ineq);
-    workspace->m_comp = workspace->solution.segment(m_comp_inds[0], 2 * this->prob->n_comp);
-
-    workspace->m_eq_est.resize(this->prob->n_eq);
-    workspace->m_ineq_est.resize(this->prob->n_ineq);
-    workspace->m_comp_est.resize(2 * this->prob->n_comp);
-
-    workspace->kkt_residual.resize(n_vars);
-    workspace->s_comp_stationarity.resize(prob.n_comp);
-    workspace->s_ineq_stationarity.resize(prob.n_ineq);
-    workspace->newton_step.resize(n_vars);
-
-    workspace->residual_eq.resize(this->prob->n_eq);
-    workspace->residual_ineq.resize(this->prob->n_ineq);
-    workspace->residual_comp.resize(2 * this->prob->n_comp);
-
-    // Initialize solution and multiplier estimates to 0
-    workspace->solution.setZero();
-    workspace->m_eq_est.setZero();
-    workspace->m_ineq_est.setZero();
-    workspace->m_comp_est.setZero();
-
-    // Initialize workspace constraint residuals
-    workspace->residual_eq   = this->prob->J_eq * workspace->z + this->prob->c_eq;
-    workspace->residual_ineq = this->prob->J_ineq * workspace->z + this->prob->c_ineq;
-    workspace->residual_comp = this->prob->J_comp * workspace->z + this->prob->c_comp;
-
-    // Allocate for linear system solve
-    workspace->etree.resize(n_vars);
-    workspace->Lnz.resize(n_vars);
-    workspace->iwork.resize(3 * n_vars);
-    workspace->bwork.resize(n_vars);
-    workspace->fwork.resize(n_vars);
-    workspace->Lp.resize(n_vars + 1);
-    workspace->D.resize(n_vars);
-    workspace->Dinv.resize(n_vars);
+    // Init workspace
+    workspace = std::make_shared<Workspace>(*this->prob);
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
@@ -376,13 +336,13 @@ void Solver::compute_amd_ordering() {
 
 bool Solver::convergence(const Solver::Options& options) {
     // KKT residual norm
-    bool kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
+    double kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
 
     // Primal feasibility
-    bool eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
-    bool ineq_violation = workspace->residual_ineq.cwiseMax(0).lpNorm<Eigen::Infinity>();
+    double eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
+    double ineq_violation = workspace->residual_ineq.cwiseMax(0).lpNorm<Eigen::Infinity>();
 
-    bool comp_violation = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
+    double comp_violation = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
                               .lpNorm<Eigen::Infinity>();
 
     return kkt_norm < options.convergence_kkt_norm && eq_violation < options.convergence_eq_violation &&
@@ -397,6 +357,8 @@ bool Solver::solve(const Solver::Options& options) {
 
     int last_outer_step_iter = -1;
     double outer_step_kkt_norm_adjustment = 1.0;
+
+    workspace->solution.setZero(); // TODO: warm-starting options
 
     for (int iter = 0; iter < options.max_iters; ++iter) {
         // Compute KKT residual and check convergence

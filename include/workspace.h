@@ -12,12 +12,12 @@ public:
     Vec solution;
 
     // Views into the solution vector
-    Vec z;
-    Vec s_ineq;
-    Vec s_comp;
-    Vec m_eq;
-    Vec m_ineq;
-    Vec m_comp;
+    Eigen::Map<Vec> z;
+    Eigen::Map<Vec> s_ineq;
+    Eigen::Map<Vec> s_comp;
+    Eigen::Map<Vec> m_eq;
+    Eigen::Map<Vec> m_ineq;
+    Eigen::Map<Vec> m_comp;
 
     // Current multiplier estimates for AL
     Vec m_eq_est;
@@ -64,7 +64,7 @@ public:
     QDLDL_int sum_Lnz;
 
     // Empty constructor
-    Workspace() = default;
+    Workspace(const Problem& prob);
 
     /**
      * Inserts a sparse block matrix into a sparse matrix represented as a 

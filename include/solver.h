@@ -85,8 +85,7 @@ public:
 
     Solver(const Options& options)
         : options(options),
-          filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)),
-          workspace(std::make_shared<Workspace>()) {}
+          filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)) {}
     
     /**
      * Retraction map (elementwise)

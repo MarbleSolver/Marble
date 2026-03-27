@@ -23,6 +23,11 @@ jlcxx::ArrayRef<T, 1> to_julia(Eigen::Matrix<T, Eigen::Dynamic, 1>& vec) {
 }
 
 template <typename T>
+jlcxx::ArrayRef<T, 1> to_julia(Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>>& vec) {
+    return jlcxx::make_julia_array(vec.data(), vec.size());
+}
+
+template <typename T>
 jlcxx::ArrayRef<T, 2> to_julia(Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>& mat) {
     return jlcxx::make_julia_array(mat.data(), mat.rows(), mat.cols());
 }
@@ -75,7 +80,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
 
     // Workspace class bindings
     mod.add_type<Workspace>("Workspace")
-        .constructor()
+        .constructor([](const Problem& prob) { return new Workspace(prob); })
         .method("solution", [](Workspace& w) { return to_julia(w.solution); })
         .method("z", [](Workspace& w) { return to_julia(w.z); })
         .method("s_ineq", [](Workspace& w) { return to_julia(w.s_ineq); })
@@ -87,6 +92,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("m_ineq_est", [](Workspace& w) { return to_julia(w.m_ineq_est); })
         .method("m_comp_est", [](Workspace& w) { return to_julia(w.m_comp_est); })
         .method("kkt_residual", [](Workspace& w) { return to_julia(w.kkt_residual); })
+        .method("residual_eq", [](Workspace& w) { return to_julia(w.residual_eq); })
+        .method("residual_ineq", [](Workspace& w) { return to_julia(w.residual_ineq); })
+        .method("residual_comp", [](Workspace& w) { return to_julia(w.residual_comp); })
         .method("kkt_system", [](Workspace& w) {
             SMat& kkt = w.kkt_system;
             kkt.makeCompressed(); 
@@ -143,6 +151,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("m_eq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_eq_inds); })
         .method("m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_ineq_inds); })
         .method("m_comp_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.m_comp_inds); })
+        .method("comp_L_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.comp_L_inds); })
+        .method("comp_R_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.comp_R_inds); })
         .method("z_z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_z_inds); })
         .method("s_ineq_s_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_s_ineq_inds); })
         .method("s_ineq_m_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_m_ineq_inds); })
@@ -153,6 +163,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             Filter::Entry entry = solver.entry_from_solution(sqrt_relax_param, inv_penalty_param);
             return std::make_tuple(entry.feas, entry.merit);
         })
+        .method("convergence", &Solver::convergence)
         .method("get_workspace", &Solver::get_workspace)
         .method("get_filter", &Solver::get_filter);
     
