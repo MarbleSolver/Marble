@@ -21,6 +21,12 @@ if(NOT QDLDL_FOUND)
     # If the fetched project provides a target, use it; otherwise adjust below.
 endif()
 
+# Create alias if needed for consistent naming
+if(NOT TARGET qdldl::qdldl)
+    if(TARGET qdldl)
+        add_library(qdldl::qdldl ALIAS qdldl)
+    endif()
+endif()
 
 find_package(JlCxx)
 get_target_property(JlCxx_location JlCxx::cxxwrap_julia LOCATION)
@@ -55,5 +61,5 @@ target_link_libraries(rcqp_wrapper
 target_link_libraries(rcqp
   PUBLIC
     Eigen3::Eigen
-    qdldl::qdldl          
+    qdldl      
 )
