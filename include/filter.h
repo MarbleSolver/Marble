@@ -5,7 +5,10 @@
 
 class Filter {
 public:
-    typedef std::pair<double, double> Entry;
+    struct Entry {
+        double feas;
+        double merit;
+    };
 
     /**
      * @brief Construct a new Filter object
@@ -15,18 +18,18 @@ public:
                                                 gamma_constraint(gamma_constraint), entries(std::vector<Entry>()) {}
 
     /**
-     * @brief Determine if a candidate point makes sufficient progress with respect to constraint violation, objective value
+     * @brief Determine if a candidate point makes sufficient progress with respect to feasibility and merit
      * decrease compared to an entry in the filter
      * 
      * @param candidate Candidate filter entry 
      * @param entry Existing filter entry to compare against
-     * @return std::pair<bool, bool> Pair indicating whether sufficient progress is made in constraint violation, objective value decrease, respectively
+     * @return std::pair<bool, bool> Pair indicating whether sufficient progress is made in feasibility, merit decrease, respectively
      */
     std::pair<bool, bool> sufficient_progress(const Entry& candidate, const Entry& entry) const;
 
     /**
      * @brief Determine if a candidate point is acceptable compared to an existing entry in the filter. Defined as making either
-     * sufficient constraint violation progress or sufficient objective value decrease compared to any entry in the filter.
+     * sufficient feasibility progress or sufficient merit decrease compared to any entry in the filter.
      * 
      * @param candidate Candidate filter entry
      * @param entry Existing filter entry to compare against
@@ -37,7 +40,7 @@ public:
 
     /**
      * @brief Determine if a candidate point is dominated by an existing entry in the filter. Defined as not making sufficient
-     * progress in either constraint violation or objective value decrease compared to the existing entry.
+     * progress in either feasibility or merit decrease compared to the existing entry.
      * 
      * @param candidate Candidate filter entry
      * @param entry Existing filter entry to compare against
@@ -48,7 +51,7 @@ public:
 
     /**
      * @brief Determine if a candidate point is acceptable compared to any entry in the filter. Defined as making either
-     * sufficient constraint violation progress or sufficient objective value decrease compared to any entry in the filter.
+     * sufficient feasibility progress or sufficient merit decrease compared to any entry in the filter.
      * 
      * @param candidate Candidate filter entry
      * @return true Candidate is acceptable

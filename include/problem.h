@@ -24,7 +24,7 @@ public:
     // Constraint definitions, all of the form Jx + c = 0
     SMat J_eq;
     Vec c_eq;
-    SMat J_ineq;
+SMat J_ineq;
     Vec c_ineq;
     SMat J_comp;
     Vec c_comp;

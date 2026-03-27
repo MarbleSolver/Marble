@@ -1,10 +1,11 @@
 #include <filter.h>
 
 std::pair<bool, bool> Filter::sufficient_progress(const Filter::Entry& candidate, const Filter::Entry& entry) const {
-    auto [constraint_violation, objective_value] = candidate;
+    auto feas = candidate.feas;
+    auto merit = candidate.merit;
     
-    bool violation_progress = constraint_violation <= (1 - gamma_constraint) * entry.first;
-    bool objective_progress = objective_value <= entry.second - gamma_objective * entry.first;
+    bool violation_progress = feas <= (1 - gamma_constraint) * entry.feas;
+    bool objective_progress = merit <= entry.merit - gamma_objective * entry.feas;
 
     return {violation_progress, objective_progress};
 }

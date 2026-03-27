@@ -139,7 +139,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         })
         .method("entry_from_solution", [](Solver& solver, double sqrt_relax_param, double inv_penalty_param) {
             Filter::Entry entry = solver.entry_from_solution(sqrt_relax_param, inv_penalty_param);
-            return std::make_tuple(entry.first, entry.second);
+            return std::make_tuple(entry.feas, entry.merit);
         })
         .method("get_workspace", &Solver::get_workspace)
         .method("get_filter", &Solver::get_filter);
