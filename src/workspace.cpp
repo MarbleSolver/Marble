@@ -1,10 +1,6 @@
 #include "workspace.h"
 #include <algorithm>
 
-Workspace::Workspace() {
-
-};
-
 void Workspace::appendBlockTriplets(std::vector<Eigen::Triplet<double>>& triplets, const SMat& block, int row_start, int col_start) {
     for (int k=0; k<block.outerSize(); ++k) {
         for (SMat::InnerIterator it(block, k); it; ++it) {
