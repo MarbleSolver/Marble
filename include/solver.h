@@ -105,7 +105,7 @@ public:
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
      */
-    void set_problem(Problem& prob);
+    void set_problem(Problem& prob, Vec scaling);
 
     /**
      * Returns the problem currently set for the solver

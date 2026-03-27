@@ -52,12 +52,13 @@ s = randn(10)
 @assert norm(RCQP.retract_deriv(rcqp, s, 1e-2) - solver.d_r(s, 1e-2)) < 1e-10
 @assert norm(RCQP.retract_second_deriv(rcqp, s, 1e-2) - solver.dd_r(s, 1e-2)) < 1e-10
 
+# Set problem
+scaling = Vector(diag(solver.ruiz_mat))
+RCQP.set_problem(rcqp, prob, scaling)
+prob = RCQP.get_problem(rcqp)
+
 # Get workspace
 workspace = RCQP.get_workspace(rcqp)
-
-# Set problem
-RCQP.set_problem(rcqp, prob)
-prob = RCQP.get_problem(rcqp)
 
 @assert RCQP.nz(prob) == solver.nz
 @assert RCQP.n_eq(prob) == solver.n_eq
@@ -97,23 +98,25 @@ iter = solver.iters[2]
 RCQP.update_KKT_ineq(rcqp, iter.v, sqrt(iter.κ))
 RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
 RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
-kkt = get_kkt(rcqp)
+kkt = get_kkt(rcqp)[iperm, iperm] # Unpermuted
+kkt = (kkt + kkt' - spdiagm(diag(kkt)))
 
 # Check stationarity rows
-hess = lagrangian_hessian(solver, iter)[perm, perm]
-@assert norm(triu(hess)[solver.kkt_inds.z, :] - kkt[solver.kkt_inds.z, :], Inf) < 1e-10 
-@assert norm(triu(hess)[solver.kkt_inds.v, :] - kkt[solver.kkt_inds.v, :], Inf) < 1e-10 
-@assert norm(triu(hess)[solver.kkt_inds.σ, :] - kkt[solver.kkt_inds.σ, :], Inf) < 1e-10 
+scaling = spdiagm(scaling)
+hess = scaling*lagrangian_hessian(solver, iter)*scaling
+@assert norm(hess[solver.kkt_inds.z, :] - kkt[solver.kkt_inds.z, :], Inf) < 1e-10 
+@assert norm(hess[solver.kkt_inds.v, :] - kkt[solver.kkt_inds.v, :], Inf) < 1e-10 
+@assert norm(hess[solver.kkt_inds.σ, :] - kkt[solver.kkt_inds.σ, :], Inf) < 1e-10 
 
 # Check entire matrix
-@assert norm(triu(hess) - kkt, Inf) < 1e-10
+@assert norm(hess - kkt, Inf) < 1e-10
 
 # Check across all iterates
 for iter in solver.iters
     RCQP.update_KKT_ineq(rcqp, iter.v, sqrt(iter.κ))
     RCQP.update_KKT_comp(rcqp, iter.σ, iter.τ, sqrt(iter.κ))
     RCQP.update_KKT_penalty(rcqp, 1/iter.ρ)
-    hess = lagrangian_hessian(solver, iter)[perm, perm]
+    hess = (scaling*lagrangian_hessian(solver, iter)*scaling)[perm, perm]
     kkt = get_kkt(rcqp)
     @assert norm(triu(hess) - kkt, Inf) < 1e-10
 end
@@ -138,7 +141,7 @@ set_from_iter(rcqp, solver.iters[2])
 residual = RCQP.kkt_residual(workspace)
 kkt = get_kkt(rcqp)
 @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
-@assert norm(triu((lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat)[perm, perm]) - kkt, Inf) < 1e-10
+@assert norm(triu((scaling*(lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat)*scaling)[perm, perm]) - kkt, Inf) < 1e-10
 
 # Check across all iteraters
 for iter in solver.iters
@@ -149,7 +152,7 @@ for iter in solver.iters
     residual = RCQP.kkt_residual(workspace)
     kkt = get_kkt(rcqp)
     @assert norm(lagrangian_gradient(solver, iter) - residual, Inf) < 1e-10
-@assert norm(triu((lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat)[perm, perm]) - kkt, Inf) < 1e-10
+    @assert norm(triu((scaling*(lagrangian_hessian(solver, iter) + iter.reg*solver.reg_mat)*scaling)[perm, perm]) - kkt, Inf) < 1e-10
 end
 
 # Check regularizer updating
@@ -157,10 +160,10 @@ RCQP.update_KKT_primal_regularizer(rcqp, 0.0)
 kkt = get_kkt(rcqp)
 RCQP.update_KKT_primal_regularizer(rcqp, 1e-4)
 kkt_reg = get_kkt(rcqp)
-@assert norm((kkt_reg - kkt) - 1e-4*solver.reg_mat[perm, perm], Inf) < 1e-12
+@assert norm((kkt_reg - kkt) - 1e-4*(scaling*solver.reg_mat*scaling)[perm, perm], Inf) < 1e-12
 RCQP.update_KKT_primal_regularizer(rcqp, 1.23e-7)
 kkt_reg = copy(get_kkt(rcqp))
-@assert norm((kkt_reg - kkt) - 1.23e-7*solver.reg_mat[perm, perm], Inf) < 1e-12
+@assert norm((kkt_reg - kkt) - 1.23e-7*(scaling*solver.reg_mat*scaling)[perm, perm], Inf) < 1e-12
 RCQP.update_KKT_primal_regularizer(rcqp, 0.0)
 kkt_reg = copy(get_kkt(rcqp))
 @assert norm(kkt_reg - kkt, Inf) < 1e-14
@@ -178,7 +181,7 @@ kkt = (kkt + kkt' - spdiagm(diag(kkt)))
 @assert RCQP.numerical_factorization(rcqp)
 RCQP.backsolve(rcqp)
 qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
-@assert(norm(kkt*qdldl_soln + res, Inf) < 1e-9)
+@assert(norm(kkt*(scaling \ qdldl_soln) + (scaling*res), Inf) < 1e-9)
 
 # Test for each iter
 using QDLDL
@@ -205,7 +208,7 @@ for iter in solver.iters
     grad = lagrangian_gradient(solver, iter)
     F = QDLDL.qdldl(hess)
     qdldl_soln_julia = QDLDL.solve(F, -grad)
-    @assert norm(hess*qdldl_soln + grad, Inf) < 1e-5 norm(hess*qdldl_soln + grad, Inf)
+    @assert norm(hess*qdldl_soln + grad, Inf) < 1e-5
 
     # Check iterate passes filter
     rcqp_filter_viol, rcqp_filter_obj = RCQP.entry_from_solution(rcqp, sqrt(iter.κ), 1/iter.ρ)

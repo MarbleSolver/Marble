@@ -143,7 +143,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("check_inertia", &Solver::check_inertia)
         .method("compute_amd_ordering", &Solver::compute_amd_ordering)
         .method("solve", &Solver::solve)
-        .method("set_problem", &Solver::set_problem)
+        .method("set_problem", [](Solver& solver, Problem& prob, jl_VecXd scaling) {
+            solver.set_problem(prob, to_eigen(scaling));
+        })
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })
         .method("s_ineq_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.s_ineq_inds); })

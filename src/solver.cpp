@@ -23,7 +23,7 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
-void Solver::set_problem(Problem& prob) {
+void Solver::set_problem(Problem& prob, Vec scaling) {
     // Move problem
     this->prob = std::make_shared<Problem>(std::move(prob));
 
@@ -57,6 +57,7 @@ void Solver::set_problem(Problem& prob) {
     // Allocate for solution vector, multiplier estimates, and KKT residual
     // Init workspace
     workspace = std::make_shared<Workspace>(*this->prob);
+    workspace->scaling = std::move(scaling);
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
@@ -121,6 +122,13 @@ void Solver::initialize_kkt_sparsity() {
 
     // Build sparse matrix
     workspace->kkt_system.setFromTriplets(triplets.begin(), triplets.end());
+
+    // Apply diagonal scaling D*K*D to the KKT system
+    for (int c = 0; c < workspace->kkt_system.outerSize(); c++) {
+        for (typename SMat::InnerIterator it(workspace->kkt_system, c); it; ++it) {
+            it.valueRef() = workspace->scaling[it.row()] * it.value() * workspace->scaling[it.col()];
+        }
+    }
 
     // Compute AMD ordering permutation to reduce fill-in during factorization
     compute_amd_ordering();
@@ -230,17 +238,21 @@ void Solver::update_KKT_system(double sqrt_relax_param, double inv_penalty_param
 
 void Solver::update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
+    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_ineq, sqrt_relax_param);
 
     // Use identity that retract_deriv(-s_ineq, sqrt_relax_param) = 1 - d_p
     workspace->s_ineq_stationarity = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p (stored for diag updating)
-    nzval(s_ineq_s_ineq_inds) = workspace->s_ineq_stationarity; // -d_p*d_neg_p
-    nzval(s_ineq_m_ineq_inds) = -d_p;
+    for (int i = 0; i < prob->n_ineq; i++) {
+        nzval(s_ineq_s_ineq_inds[i]) = scaling(s_ineq_inds[i]) * workspace->s_ineq_stationarity[i] * scaling(s_ineq_inds[i]);
+        nzval(s_ineq_m_ineq_inds[i]) = scaling(s_ineq_inds[i]) * -d_p[i] * scaling(m_ineq_inds[i]);
+    }
 }
 
 // TODO: fix indexing into m_comp so that it can be a const reference
 void Solver::update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_param) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
+    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_comp, sqrt_relax_param);
     Vec dd_p = retract_second_deriv(s_comp, sqrt_relax_param);
 
@@ -248,24 +260,34 @@ void Solver::update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_pa
         // Derivative of -p'(s)*m1 + p'(-s)*m2 wrt s
         // is -(p''(s)*m1 + p''(s)*m2) but p''(s) = p''(-s) so its -p''(s)*(m1 + m2)
         workspace->s_comp_stationarity[i] = -dd_p[i]*(m_comp[2*i] + m_comp[2*i + 1]); // stored for diag updating
-        nzval(s_comp_s_comp_inds[i]) = workspace->s_comp_stationarity[i];
+        nzval(s_comp_s_comp_inds[i]) = scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
 
         // Derivative wrt to m1 and m2 is just -d_p and -d_neg_p respectively
-        nzval(s_comp_m_comp_inds[2 * i]) = -d_p[i];
-        nzval(s_comp_m_comp_inds[2 * i + 1]) = (1 - d_p[i]);  // d_neg_p = 1 - d_p
+        nzval(s_comp_m_comp_inds[2 * i]) = scaling(s_comp_inds[i]) * -d_p[i] * scaling(m_comp_inds[2 * i]);
+        nzval(s_comp_m_comp_inds[2 * i + 1]) = scaling(s_comp_inds[i]) * (1 - d_p[i]) * scaling(m_comp_inds[2 * i + 1]);  // d_neg_p = 1 - d_p
     }
 }
 
 void Solver::update_KKT_penalty(const double inv_penalty_param) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    nzval(penalty_inds).setConstant(-inv_penalty_param);
+    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
+    for (int k = 0; k < penalty_inds.size(); k++) {
+        nzval(penalty_inds[k]) = -inv_penalty_param * scaling(n_primals + k) * scaling(n_primals + k);
+    }
 }
 
 void Solver::update_KKT_primal_regularizer(const double reg) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    nzval(z_z_inds) = prob->cost_hessian_diag.array() + reg;
-    nzval(s_ineq_s_ineq_inds) = workspace->s_ineq_stationarity.array() + reg;
-    nzval(s_comp_s_comp_inds) = workspace->s_comp_stationarity.array() + reg;
+    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
+    for (int k = 0; k < prob->nz; k++) {
+        nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
+    }
+    for (int k = 0; k < prob->n_ineq; k++) {
+        nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
+    }
+    for (int k = 0; k < prob->n_comp; k++) {
+        nzval(s_comp_s_comp_inds[k]) = (workspace->s_comp_stationarity[k] + reg) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
+    }
 }
 
 bool Solver::analytical_factorization() {
@@ -314,7 +336,9 @@ bool Solver::check_inertia() {
 
 void Solver::backsolve() {
     // Initialize step as -residual, permuted using AMD ordering
-    workspace->newton_step = -workspace->kkt_residual(workspace->amd_perm_vec); // Solve is in-place
+    for (int k = 0; k < n_vars; k++) {
+        workspace->newton_step[k] = -workspace->kkt_residual(workspace->amd_perm_vec[k])*workspace->scaling(workspace->amd_perm_vec[k]); // Need to apply scaling to the residual for the backsolve
+    }
 
     // Solve system
     QDLDL_solve(n_vars, workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
@@ -322,6 +346,7 @@ void Solver::backsolve() {
 
     // Unpermute solution 
     workspace->newton_step = workspace->newton_step(workspace->amd_iperm_vec).eval();
+    workspace->newton_step = workspace->newton_step.cwiseProduct(workspace->scaling).eval(); // Need to unscale the step after the backsolve
 }
 
 void Solver::compute_amd_ordering() {
