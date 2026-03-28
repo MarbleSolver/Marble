@@ -10,6 +10,9 @@ public:
         double merit;
     };
 
+    // List of entries in the filter, maintained such that no entry is dominated by any other entry
+    std::vector<Entry> entries;
+
     /**
      * @brief Construct a new Filter object
      */
@@ -74,7 +77,4 @@ private:
     // Filter options
     const double gamma_objective{1e-5};
     const double gamma_constraint{1e-5};
-
-    // List of entries in the filter, maintained such that no entry is dominated by any other entry
-    std::vector<Entry> entries;
 };

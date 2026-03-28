@@ -76,7 +76,17 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // Filter class bindings
     mod.add_type<Filter>("Filter")
         .constructor()
-        .method("clear", &Filter::clear);
+        .method("filter_clear", &Filter::clear)
+        .method("filter_size", []( Filter& f ) { return f.entries.size(); })
+        .method("filter_entries", [](Filter& f) {
+            std::vector<double> entries;
+            entries.reserve(f.entries.size() * 2);
+            for (const auto& entry : f.entries) {
+                entries.push_back(entry.feas);
+                entries.push_back(entry.merit);
+            }
+            return entries;
+        });
 
     // Workspace class bindings
     mod.add_type<Workspace>("Workspace")
@@ -95,6 +105,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("residual_eq", [](Workspace& w) { return to_julia(w.residual_eq); })
         .method("residual_ineq", [](Workspace& w) { return to_julia(w.residual_ineq); })
         .method("residual_comp", [](Workspace& w) { return to_julia(w.residual_comp); })
+        .method("relax_param", [](Workspace& w) { return w.relax_param; })
+        .method("penalty_param", [](Workspace& w) { return w.penalty_param; })
         .method("kkt_system", [](Workspace& w) {
             SMat& kkt = w.kkt_system;
             kkt.makeCompressed(); 

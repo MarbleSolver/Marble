@@ -365,7 +365,7 @@ bool Solver::convergence(const Solver::Options& options) {
 
     // Primal feasibility
     double eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
-    double ineq_violation = workspace->residual_ineq.cwiseMax(0).lpNorm<Eigen::Infinity>();
+    double ineq_violation = workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>();
 
     double comp_violation = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
                               .lpNorm<Eigen::Infinity>();
@@ -377,8 +377,8 @@ bool Solver::convergence(const Solver::Options& options) {
 bool Solver::solve(const Solver::Options& options) {
     bool converged = false;
 
-    double penalty_param = options.penalty_initial;
-    double relax_param = options.relaxation_initial;
+    workspace->relax_param = options.relaxation_initial;
+    workspace->penalty_param = options.penalty_initial;
 
     int last_outer_step_iter = -1;
     double outer_step_kkt_norm_adjustment = 1.0;
@@ -387,8 +387,8 @@ bool Solver::solve(const Solver::Options& options) {
 
     for (int iter = 0; iter < options.max_iters; ++iter) {
         // Compute KKT residual and check convergence
-        double sqrt_relaxation_param = sqrt(relax_param);
-        double inv_penalty_param = 1.0 / penalty_param;
+        double sqrt_relaxation_param = sqrt(workspace->relax_param);
+        double inv_penalty_param = 1.0 / workspace->penalty_param;
 
         update_KKT_residual(sqrt_relaxation_param, inv_penalty_param);
 
@@ -403,21 +403,21 @@ bool Solver::solve(const Solver::Options& options) {
             
             // Check if we need to decrease the outer step KKT norm requirement, which is done only if
             // there have been 2 consecutive outer steps without an inner step in between
-            if (iter > 0 && last_outer_step_iter == iter - 1 && relax_param <= options.relaxation_min) {
+            if (iter > 0 && last_outer_step_iter == iter - 1 && workspace->relax_param <= options.relaxation_min) {
                 outer_step_kkt_norm_adjustment /= 10.0;
             }
 
-            if (penalty_param >= options.penalty_max) {
+            if (workspace->penalty_param >= options.penalty_max) {
                 // If we are at the maximum penalty, we can just update multiplier estimates without increasing penalty
                 workspace->m_eq_est = workspace->m_eq;
                 workspace->m_ineq_est = workspace->m_ineq;
                 workspace->m_comp_est = workspace->m_comp;
 
                 // Scale relaxation parameter
-                relax_param = std::max(relax_param * options.relaxation_scaling, options.relaxation_min);
+                workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
             } else {
                 // Otherwise, increase penalty and update multiplier estimates with scaling
-                penalty_param = std::min(penalty_param * options.penalty_scaling, options.penalty_max);
+                workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
             }
 
             // Clear the filter

@@ -23,7 +23,7 @@ bool Filter::candidate_dominated(const Filter::Entry& candidate, const Filter::E
 // TODO: the `sufficient_progress` function is currently being called twice per entry in the filter, which is "inefficient"
 // can just call it once and use the results for both acceptable and dominated checks
 bool Filter::acceptable(const Filter::Entry& candidate) {
-    return entries.empty() || std::any_of(entries.begin(), entries.end(), [&](const Filter::Entry& entry) { return candidate_acceptable(candidate, entry); });
+    return entries.empty() || std::all_of(entries.begin(), entries.end(), [&](const Filter::Entry& entry) { return candidate_acceptable(candidate, entry); });
 }
 
 void Filter::update(const Filter::Entry& new_entry) {

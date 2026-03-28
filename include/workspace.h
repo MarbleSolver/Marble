@@ -37,6 +37,10 @@ public:
     Vec residual_ineq;
     Vec residual_comp;
 
+    // Relaxation and penalty parameters
+    double relax_param;
+    double penalty_param;
+
     /**
      * KKT system matrix, stored in sparse format with the structure intended to be fixed
      * after it is initialize by Solver::set_problem.

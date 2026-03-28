@@ -21,7 +21,7 @@ public:
         // KKT Inf norm must be less than this value to take an outer step in the algorithm
         double outer_step_kkt_norm{1e-6};
         // Initial AL penalty parameter
-        double penalty_initial{1.0};
+        double penalty_initial{10.0};
         // Maximum AL penalty parameter
         double penalty_max{1e6};
         // AL penalty parameter scaling factor, multiplies current penalty parameter
