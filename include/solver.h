@@ -18,7 +18,7 @@ public:
         // Inequality constraint violation Inf norm must be less than this value for convergence
         double convergence_ineq_violation{1e-4};
         // Complementarity constraint violation Inf norm must be less than this value for convergence
-        double convergence_comp_violation{1e-4};
+        double convergence_comp_violation{1e-5};
         // KKT Inf norm must be less than this value to take an outer step in the algorithm
         double outer_step_kkt_norm{1e-6};
         // Initial AL penalty parameter

@@ -532,5 +532,8 @@ bool Solver::filter_linesearch(double sqrt_relax_param, double inv_penalty_param
         workspace->solution -= step_size * workspace->newton_step;
     }
 
+    // Restore original solution before returning failure
+    workspace->solution -= step_size * workspace->newton_step;
+
     return false;
 }
