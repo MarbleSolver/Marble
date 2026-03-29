@@ -457,16 +457,16 @@ bool Solver::solve(const Solver::Options& options) {
         }
     }
 
-    // Output final solution and solve information to JSON
-    nlohmann::json output_json;
-    output_json["converged"] = converged;
-    output_json["n_iter_outer"] = n_iter_outer;
-    output_json["n_iter_inner"] = n_iter_inner;
-    output_json["n_iter"] = n_iter_outer + n_iter_inner;
+    // // Output final solution and solve information to JSON
+    // nlohmann::json output_json;
+    // output_json["converged"] = converged;
+    // output_json["n_iter_outer"] = n_iter_outer;
+    // output_json["n_iter_inner"] = n_iter_inner;
+    // output_json["n_iter"] = n_iter_outer + n_iter_inner;
     
-    output_json["x_opt"] = std::vector<double>(workspace->z.data(), workspace->z.data() + prob->nz);
-    std::ofstream f(options.output_dir / "output.json");
-    f << output_json.dump(4);
+    // output_json["x_opt"] = std::vector<double>(workspace->z.data(), workspace->z.data() + prob->nz);
+    // std::ofstream f(options.output_dir / "output.json");
+    // f << output_json.dump(4);
 
     return converged;
 }
