@@ -1,4 +1,6 @@
 #include "solver.h"
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 Vec Solver::retract(const Vec& s, double sqrt_relax_param) const {
     // Vectorized retraction map for both inequality and complementarity slacks
@@ -385,6 +387,9 @@ bool Solver::solve(const Solver::Options& options) {
 
     workspace->solution.setZero(); // TODO: warm-starting options
 
+    int n_iter_outer = 0;
+    int n_iter_inner = 0;
+
     for (int iter = 0; iter < options.max_iters; ++iter) {
         // Compute KKT residual and check convergence
         double sqrt_relaxation_param = sqrt(workspace->relax_param);
@@ -398,8 +403,9 @@ bool Solver::solve(const Solver::Options& options) {
         }
 
         // Check if we are performing an inner or outer step based on KKT residual norm
-        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {
+        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {            
             // Outer step: update multiplier estimates and increase penalty
+            n_iter_outer++;
             
             // Check if we need to decrease the outer step KKT norm requirement, which is done only if
             // there have been 2 consecutive outer steps without an inner step in between
@@ -424,6 +430,7 @@ bool Solver::solve(const Solver::Options& options) {
             filter->clear();
             last_outer_step_iter = iter;
         } else {
+            n_iter_inner++;
             bool linesearch_succeeded = false;
             update_KKT_system(sqrt_relaxation_param, inv_penalty_param);
 
@@ -437,8 +444,7 @@ bool Solver::solve(const Solver::Options& options) {
                 }
                 backsolve(); // Computes Newton step
 
-                linesearch_succeeded =
-                    filter_linesearch(sqrt_relaxation_param, inv_penalty_param, options.max_iters_linesearch);
+                linesearch_succeeded = filter_linesearch(sqrt_relaxation_param, inv_penalty_param, options.max_iters_linesearch);
 
                 if (linesearch_succeeded) {
                     break;
@@ -450,6 +456,17 @@ bool Solver::solve(const Solver::Options& options) {
             }
         }
     }
+
+    // Output final solution and solve information to JSON
+    nlohmann::json output_json;
+    output_json["converged"] = converged;
+    output_json["n_iter_outer"] = n_iter_outer;
+    output_json["n_iter_inner"] = n_iter_inner;
+    output_json["n_iter"] = n_iter_outer + n_iter_inner;
+    
+    output_json["x_opt"] = std::vector<double>(workspace->z.data(), workspace->z.data() + prob->nz);
+    std::ofstream f(options.output_dir / "output.json");
+    f << output_json.dump(4);
 
     return converged;
 }

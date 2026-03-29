@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Dependencies
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)   # provides Eigen3::Eigen
 find_package(QDLDL)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 if(NOT QDLDL_FOUND)
     include(FetchContent)
@@ -61,5 +62,6 @@ target_link_libraries(rcqp_wrapper
 target_link_libraries(rcqp
   PUBLIC
     Eigen3::Eigen
-    qdldl      
+    qdldl
+    nlohmann_json::nlohmann_json
 )

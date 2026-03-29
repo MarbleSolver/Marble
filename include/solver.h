@@ -6,6 +6,7 @@
 #include "problem.h"
 #include "workspace.h"
 #include "filter.h"
+#include <filesystem>
 
 class Solver {
 public:
@@ -40,6 +41,8 @@ public:
         double gamma_objective{1e-5};
         // (filter) Sufficient progress parameter for constraint violation decrease
         double gamma_constraint{1e-5};
+        // Output directory for solution and solve information
+        std::filesystem::path output_dir{"/dev/null"};
 
         Options() = default;
     };

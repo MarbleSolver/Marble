@@ -54,24 +54,32 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("n_eq", [](Problem& p) -> const int { return p.n_eq; })
         .method("n_ineq", [](Problem& p) -> const int { return p.n_ineq; })
         .method("n_comp", [](Problem& p) -> const int { return p.n_comp; });
+    
+    #define OPTION_SETTER(name, type) \
+        .method(#name "!", [](Solver::Options& o, type v) { o.name = v; }) \
+        .method(#name,     [](Solver::Options& o)         { return o.name; })
 
     mod.add_type<Solver::Options>("SolverOptions")
         .constructor()
-        .method("convergence_kkt_norm!", [](Solver::Options& o, double v) { o.convergence_kkt_norm = v; })
-        .method("convergence_eq_violation!", [](Solver::Options& o, double v) { o.convergence_eq_violation = v; })
-        .method("convergence_ineq_violation!", [](Solver::Options& o, double v) { o.convergence_ineq_violation = v; })
-        .method("convergence_comp_violation!", [](Solver::Options& o, double v) { o.convergence_comp_violation = v; })
-        .method("outer_step_kkt_norm!", [](Solver::Options& o, double v) { o.outer_step_kkt_norm = v; })
-        .method("penalty_initial!", [](Solver::Options& o, double v) { o.penalty_initial = v; })
-        .method("penalty_max!", [](Solver::Options& o, double v) { o.penalty_max = v; })
-        .method("penalty_scaling!", [](Solver::Options& o, double v) { o.penalty_scaling = v; })
-        .method("relaxation_initial!", [](Solver::Options& o, double v) { o.relaxation_initial = v; })
-        .method("relaxation_min!", [](Solver::Options& o, double v) { o.relaxation_min = v; })
-        .method("relaxation_scaling!", [](Solver::Options& o, double v) { o.relaxation_scaling = v; })
-        .method("max_iters!", [](Solver::Options& o, int v) { o.max_iters = v; })
-        .method("max_iters_linesearch!", [](Solver::Options& o, int v) { o.max_iters_linesearch = v; })
-        .method("gamma_objective!", [](Solver::Options& o, double v) { o.gamma_objective = v; })
-        .method("gamma_constraint!", [](Solver::Options& o, double v) { o.gamma_constraint = v; });
+        OPTION_SETTER(convergence_kkt_norm,       double)
+        OPTION_SETTER(convergence_eq_violation,   double)
+        OPTION_SETTER(convergence_ineq_violation, double)
+        OPTION_SETTER(convergence_comp_violation, double)
+        OPTION_SETTER(outer_step_kkt_norm,        double)
+        OPTION_SETTER(penalty_initial,            double)
+        OPTION_SETTER(penalty_max,                double)
+        OPTION_SETTER(penalty_scaling,            double)
+        OPTION_SETTER(relaxation_initial,         double)
+        OPTION_SETTER(relaxation_min,             double)
+        OPTION_SETTER(relaxation_scaling,         double)
+        OPTION_SETTER(max_iters,                  int)
+        OPTION_SETTER(max_iters_linesearch,       int)
+        OPTION_SETTER(gamma_objective,            double)
+        OPTION_SETTER(gamma_constraint,           double)
+        .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; })
+        .method("output_dir",  [](Solver::Options& o) { return o.output_dir.string(); });
+
+    #undef OPTION_SETTER
 
     // Filter class bindings
     mod.add_type<Filter>("Filter")
