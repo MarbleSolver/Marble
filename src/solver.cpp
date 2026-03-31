@@ -339,7 +339,6 @@ bool Solver::numerical_factorization() {
 
     // Check factor_status TODO: return/use
     if (factor_status == -1) {
-        std::cerr << "Factorization failed, matrix is not quasidefinite" << std::endl;
         return false;
     }
     return true;
@@ -445,6 +444,9 @@ bool Solver::solve(const Solver::Options& options) {
         } else {
             n_iter_inner++;
             bool linesearch_succeeded = false;
+            bool factorization_succeeded = false;
+            bool inertia_correction_succeeded = false;
+
             update_KKT_system(sqrt_relaxation_param, inv_penalty_param);
 
             for (double regularizer : kkt_system_regularizers) {
@@ -452,9 +454,13 @@ bool Solver::solve(const Solver::Options& options) {
                 if (!numerical_factorization()) {
                     continue;
                 }
+                factorization_succeeded = true;
+
                 if (!check_inertia()) {
                     continue;
                 }
+                inertia_correction_succeeded = true;
+
                 backsolve(); // Computes Newton step
 
                 linesearch_succeeded = filter_linesearch(sqrt_relaxation_param, inv_penalty_param, options.max_iters_linesearch);
@@ -462,6 +468,17 @@ bool Solver::solve(const Solver::Options& options) {
                 if (linesearch_succeeded) {
                     break;
                 }
+
+                factorization_succeeded = false;
+                inertia_correction_succeeded = false;
+            }
+
+            if (!factorization_succeeded) {
+                throw std::runtime_error("Numerical factorization failed for all regularization values!");
+            }
+
+            if (!inertia_correction_succeeded) {
+                throw std::runtime_error("Inertia correction failed for all regularization values!");
             }
 
             if (!linesearch_succeeded) {
