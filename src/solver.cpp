@@ -2,6 +2,11 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 
+Eigen::VectorXi safe_linspaced(int n, int start) {
+    if (n == 0) return Eigen::VectorXi(0);
+    return Eigen::VectorXi::LinSpaced(n, start, start + n - 1);
+}
+
 Vec Solver::retract(const Vec& s, double sqrt_relax_param) const {
     // Vectorized retraction map for both inequality and complementarity slacks
     // p(s) = sqrt(s^2 + relax_param)
@@ -39,22 +44,22 @@ void Solver::set_problem(Problem& prob, Vec scaling) {
     // and y is the stacked vector of primal and dual variables.
     // Here we construct indices of where each set of variables is in y
     int total_inds = 0;
-    z_inds = Eigen::VectorXi::LinSpaced(this->prob->nz, 0, this->prob->nz - 1);
-    total_inds += this->prob->nz;
-    s_ineq_inds = Eigen::VectorXi::LinSpaced(this->prob->n_ineq, total_inds, total_inds + this->prob->n_ineq - 1);
-    total_inds += this->prob->n_ineq;
-    s_comp_inds = Eigen::VectorXi::LinSpaced(this->prob->n_comp, total_inds, total_inds + this->prob->n_comp - 1);
-    total_inds += this->prob->n_comp;
-    m_eq_inds = Eigen::VectorXi::LinSpaced(this->prob->n_eq, total_inds, total_inds + this->prob->n_eq - 1);
-    total_inds += this->prob->n_eq;
-    m_ineq_inds = Eigen::VectorXi::LinSpaced(this->prob->n_ineq, total_inds, total_inds + this->prob->n_ineq - 1);
-    total_inds += this->prob->n_ineq;
-    m_comp_inds = Eigen::VectorXi::LinSpaced(2 * this->prob->n_comp, total_inds, total_inds + 2 * this->prob->n_comp - 1);
-    total_inds += 2 * this->prob->n_comp;
+
+    z_inds       = safe_linspaced(this->prob->nz,     total_inds); total_inds += this->prob->nz;
+    s_ineq_inds  = safe_linspaced(this->prob->n_ineq, total_inds); total_inds += this->prob->n_ineq;
+    s_comp_inds  = safe_linspaced(this->prob->n_comp, total_inds); total_inds += this->prob->n_comp;
+    m_eq_inds    = safe_linspaced(this->prob->n_eq,   total_inds); total_inds += this->prob->n_eq;
+    m_ineq_inds  = safe_linspaced(this->prob->n_ineq, total_inds); total_inds += this->prob->n_ineq;
+    m_comp_inds  = safe_linspaced(2 * this->prob->n_comp, total_inds); total_inds += 2 * this->prob->n_comp;
 
     // Indices into the complementarity residual for extracting the comp residual violation for filter evaluation
-    comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(this->prob->n_comp, 0, this->prob->n_comp - 1);
-    comp_R_inds = comp_L_inds.array() + 1;
+    if (this->prob->n_comp == 0) {
+        comp_L_inds = Eigen::VectorXi(0);
+        comp_R_inds = Eigen::VectorXi(0);
+    } else {
+        comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(this->prob->n_comp, 0, this->prob->n_comp - 1);
+        comp_R_inds = comp_L_inds.array() + 1;
+    }
 
     // Allocate for solution vector, multiplier estimates, and KKT residual
     // Init workspace
@@ -74,12 +79,20 @@ void Solver::initialize_kkt_sparsity() {
 
     // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + J_comp'*m_comp 
     workspace->appendBlockTriplets(triplets, prob->cost_hessian, z_inds[0], z_inds[0]);
-    workspace->appendBlockTriplets(triplets, prob->J_eq.transpose(), z_inds[0], m_eq_inds[0]);
-    workspace->appendBlockTriplets(triplets, prob->J_ineq.transpose(), z_inds[0], m_ineq_inds[0]);
-    workspace->appendBlockTriplets(triplets, prob->J_comp.transpose(), z_inds[0], m_comp_inds[0]);
-    workspace->appendBlockTriplets(triplets, prob->J_eq, m_eq_inds[0], z_inds[0]);
-    workspace->appendBlockTriplets(triplets, prob->J_ineq, m_ineq_inds[0], z_inds[0]);
-    workspace->appendBlockTriplets(triplets, prob->J_comp, m_comp_inds[0], z_inds[0]);
+    
+    // Guard every block that touches an empty constraint set
+    if (prob->n_eq > 0) {
+        workspace->appendBlockTriplets(triplets, prob->J_eq.transpose(), z_inds[0], m_eq_inds[0]);
+        workspace->appendBlockTriplets(triplets, prob->J_eq,             m_eq_inds[0], z_inds[0]);
+    }
+    if (prob->n_ineq > 0) {
+        workspace->appendBlockTriplets(triplets, prob->J_ineq.transpose(), z_inds[0], m_ineq_inds[0]);
+        workspace->appendBlockTriplets(triplets, prob->J_ineq,             m_ineq_inds[0], z_inds[0]);
+    }
+    if (prob->n_comp > 0) {
+        workspace->appendBlockTriplets(triplets, prob->J_comp.transpose(), z_inds[0], m_comp_inds[0]);
+        workspace->appendBlockTriplets(triplets, prob->J_comp,             m_comp_inds[0], z_inds[0]);
+    }
 
     // Populate stationarity for inequality slacks with dummy variables
     // -p'(s_ineq)*(p(-s_ineq) - m_ineq))
