@@ -6,6 +6,7 @@
 #include "problem.h"
 #include "workspace.h"
 #include "filter.h"
+#include <filesystem>
 
 class Solver {
 public:
@@ -17,11 +18,11 @@ public:
         // Inequality constraint violation Inf norm must be less than this value for convergence
         double convergence_ineq_violation{1e-4};
         // Complementarity constraint violation Inf norm must be less than this value for convergence
-        double convergence_comp_violation{1e-4};
+        double convergence_comp_violation{1e-5};
         // KKT Inf norm must be less than this value to take an outer step in the algorithm
         double outer_step_kkt_norm{1e-6};
         // Initial AL penalty parameter
-        double penalty_initial{1.0};
+        double penalty_initial{10.0};
         // Maximum AL penalty parameter
         double penalty_max{1e6};
         // AL penalty parameter scaling factor, multiplies current penalty parameter
@@ -40,6 +41,8 @@ public:
         double gamma_objective{1e-5};
         // (filter) Sufficient progress parameter for constraint violation decrease
         double gamma_constraint{1e-5};
+        // Output directory for solution and solve information
+        std::filesystem::path output_dir{"/dev/null"};
 
         Options() = default;
     };
@@ -69,6 +72,7 @@ public:
 
     // Indices into the sparse KKT matrix valuePtr for jacobians of the KKT residual that are updated
     // based on the nonlinear terms (s_ineq, s_comp, relaxation_param, and penalty_param)
+    Eigen::VectorXi z_z_inds; // Diagonal matrix only for regularizer updates
     Eigen::VectorXi s_ineq_s_ineq_inds; // Diagonal matrix
     Eigen::VectorXi s_ineq_m_ineq_inds; // Diagonal matrix
     Eigen::VectorXi s_comp_s_comp_inds; // Diagonal matrix
@@ -84,8 +88,7 @@ public:
 
     Solver(const Options& options)
         : options(options),
-          filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)),
-          workspace(std::make_shared<Workspace>()) {}
+          filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)) {}
     
     /**
      * Retraction map (elementwise)
@@ -105,7 +108,7 @@ public:
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
      */
-    void set_problem(Problem& prob);
+    void set_problem(Problem& prob, Vec scaling);
 
     /**
      * Returns the problem currently set for the solver
@@ -145,11 +148,37 @@ public:
     void update_KKT_penalty(const double inv_penalty_param);
 
     /**
-     * @brief Update the KKT regularization terms on the first `n_vars` diagonal entries
-     * 
-     * @param regularizer Positive regularizer
+     * Update the KKT regularizer
      */
-    void update_KKT_regularizer(const double regularizer);
+    void update_KKT_primal_regularizer(const double reg);
+
+    /**
+     * Perform an analytical factorization of the KKT system using QDLDL
+     */
+    bool analytical_factorization();
+
+    /**
+     * Perform an numerical factorization of the KKT system using QDLDL
+     */
+    bool numerical_factorization();
+
+    /**
+     * The KKT system should define a saddle point, with n_primal positive and n_dual negative eigenvalues
+     * We can check this (called the inertia) after numerical_factorization() by checking the number of
+     * positive and negative elements of D because LDLt factorizations preserve inertia
+     */
+    bool check_inertia();
+
+    /**
+     * Solve the KKT system using the factorized matrix, populating the solution
+     * in workspace->newton_step.
+     */
+    void backsolve();
+
+    /**
+     * Compute AMD ordering
+     */
+    void compute_amd_ordering();
 
     /**
      * Returns the workspace used by the solver
@@ -172,7 +201,6 @@ public:
     /**
      * @brief Perform backtracking filter linesearch given a step direction
      * 
-     * @param newton_step Search direction from Newton solve
      * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
      * @param inv_penalty_param Inverse of the AL penalty parameter
      * @param max_iters Maximum number of iterations for the linesearch
@@ -180,12 +208,17 @@ public:
      * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
      * @return false Linesearch failed
      */
-    bool filter_linesearch(const Vec &newton_step, const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
+    bool filter_linesearch(const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
 
     /**
      * Solve the current problem instance 
      */
     bool solve(const Options &options);
+
+    /**
+     * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
+     */
+    bool convergence(const Options &options);
 
 private:
     // Solver options
@@ -196,14 +229,4 @@ private:
         0, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0,
         1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8
     };
-
-    /**
-     * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
-     */
-    bool convergence(const Options &options);
-
-    /**
-     * Compute a search direction
-     */
-    Vec compute_newton_step(double kkt_system_regularizer);
 };

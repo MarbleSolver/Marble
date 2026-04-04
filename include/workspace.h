@@ -12,14 +12,12 @@ public:
     Vec solution;
 
     // Views into the solution vector
-    Vec z;
-    Vec s_ineq;
-    Vec s_comp;
-    Vec m_eq;
-    Vec m_ineq;
-    Vec m_comp;
-
-    Vec newton_step;
+    Eigen::Map<Vec> z;
+    Eigen::Map<Vec> s_ineq;
+    Eigen::Map<Vec> s_comp;
+    Eigen::Map<Vec> m_eq;
+    Eigen::Map<Vec> m_ineq;
+    Eigen::Map<Vec> m_comp;
 
     // Current multiplier estimates for AL
     Vec m_eq_est;
@@ -29,10 +27,19 @@ public:
     // KKT residual, driven to 0 in each subproblem solve
     Vec kkt_residual;
 
+    // Diagonal terms for s_ineq and s_comp stationarity, stored
+    // to allow for updating primal regularizer cheaply
+    Vec s_ineq_stationarity;
+    Vec s_comp_stationarity;
+
     // Constraint evaluations
     Vec residual_eq;
     Vec residual_ineq;
     Vec residual_comp;
+
+    // Relaxation and penalty parameters
+    double relax_param;
+    double penalty_param;
 
     /**
      * KKT system matrix, stored in sparse format with the structure intended to be fixed
@@ -40,8 +47,31 @@ public:
      */
     SMat kkt_system;
 
+    // The KKT system is permuted and scaled for conditioning using the following vectors
+    Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, QDLDL_int> amd_perm; // AMD permutation for KKT system, reduces in-fill
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> amd_perm_vec; // AMD permutation for KKT system, reduces in-fill
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> amd_iperm_vec; // Inverse AMD permutation for KKT system
+    Vec scaling;
+
+    // KKT step
+    Vec newton_step;
+
+    // Work arrays for QDLDL
+    // Workspace arrays required by QDLDL
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> etree;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Lnz;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> iwork;
+    std::vector<QDLDL_bool> bwork;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> fwork;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Lp;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Li;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> Lx;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> D;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> Dinv;
+    QDLDL_int sum_Lnz;
+
     // Empty constructor
-    Workspace() = default;
+    Workspace(const Problem& prob);
 
     /**
      * Inserts a sparse block matrix into a sparse matrix represented as a 
