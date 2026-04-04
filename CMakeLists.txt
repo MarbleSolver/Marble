@@ -91,7 +91,7 @@ if(RCQP_BUILD_PYTHON)
         FetchContent_MakeAvailable(pybind11)
     endif()
 
-    pybind11_add_module(rcqp_python MODULE python_bindings.cpp)
+    pybind11_add_module(rcqp_python MODULE bindings/python_bindings.cpp)
     target_link_libraries(rcqp_python PRIVATE rcqp)
     set_target_properties(rcqp_python PROPERTIES
         OUTPUT_NAME            rcqp
@@ -158,7 +158,7 @@ if(RCQP_BUILD_JULIA)
     endif()
 
     find_package(JlCxx REQUIRED)
-    add_library(rcqp_julia SHARED julia_bindings.cpp)
+    add_library(rcqp_julia SHARED bindings/julia_bindings.cpp)
     target_link_libraries(rcqp_julia PRIVATE rcqp JlCxx::cxxwrap_julia)
     set_target_properties(rcqp_julia PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
