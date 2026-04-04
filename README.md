@@ -43,6 +43,19 @@ cmake --preset all
 cmake --build --preset all
 ```
 
+## Docker
+
+The included `Dockerfile` builds both Python and Julia bindings inside a self-contained image.
+
+```bash
+docker build -t rcqp .
+docker run -it rcqp
+```
+
+Inside the container:
+- `python` uses the venv at `/opt/venv`; `import rcqp` works immediately
+- Julia shared library is at `build/lib/librcqp_julia.so`
+
 ## Python:  pip install (editable)
 
 For a proper install into your virtual environment:
