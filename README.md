@@ -3,14 +3,14 @@ A C++ solver for quadratic programs with linear complementarity constraints, wit
 
 ## Prerequisites
 
-| Dependency | Required for | Install |
-|---|---|---|
-| CMake ≥ 3.28 | all | [cmake.org](https://cmake.org/download/) or `brew install cmake` |
-| Eigen3 | all | `brew install eigen` / `apt install libeigen3-dev` |
-| nlohmann-json | all | `brew install nlohmann-json` / `apt install nlohmann-json3-dev` |
-| Python ≥ 3.8 + dev headers | Python bindings | [python.org](https://www.python.org/) |
-| pybind11-stubgen | `.pyi` autocomplete stubs | `pip install pybind11-stubgen` |
-| Julia ≥ 1.9 + CxxWrap.jl | Julia bindings | see below |
+| Dependency | Required for |
+|---|---|
+| CMake ≥ 3.28 | all |
+| Eigen3 | all |
+| nlohmann-json | all |
+| Python ≥ 3.8 + dev headers | Python bindings |
+| pybind11-stubgen | `.pyi` autocomplete stubs |
+| Julia ≥ 1.9 + CxxWrap.jl | Julia bindings |
 
 **Julia setup** (only needed for Julia bindings):
 ```bash
