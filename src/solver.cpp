@@ -30,6 +30,52 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
+std::pair<Vec, Vec> Solver::ruiz_equilibration(const Mat& H, const Mat& A, int niter) const {
+    Mat H_bar = H;
+    Mat A_bar = A;
+
+    Vec d = Vec::Ones(H.rows());
+    Vec e = Vec::Ones(A.rows());
+
+    // Helper functions: Inf-norm column/row reductions using Eigen vectorized ops
+    for (int iter = 0; iter < niter; ++iter) {
+        // Matrix equilibration
+        // Compute column-wise norms of first part of KKT system (stationarity)
+        Vec d_temp = H_bar.cwiseAbs().colwise().maxCoeff().transpose();
+        if (A_bar.rows() > 0) {
+            d_temp = d_temp.cwiseMax(A_bar.cwiseAbs().colwise().maxCoeff().transpose());
+        }
+
+        // Compute row-wise norms of second part of KKT system (feasibility)
+        Vec e_temp = Vec::Ones(A.rows());
+        if (A_bar.rows() > 0) {
+            e_temp = A_bar.cwiseAbs().rowwise().maxCoeff();
+        }
+
+        // Clamp scaling values
+        d_temp = d_temp.cwiseMax(1e-4).cwiseMin(1e4);
+        e_temp = e_temp.cwiseMax(1e-4).cwiseMin(1e4);
+
+        // Take square roots, reciprocal, turn into diag vectors
+        d_temp = d_temp.array().rsqrt().matrix();
+        e_temp = e_temp.array().rsqrt().matrix();
+
+        // Update problem data
+        H_bar = d_temp.asDiagonal() * H_bar * d_temp.asDiagonal();
+        if (A_bar.rows() > 0) {
+            A_bar = e_temp.asDiagonal() * A_bar * d_temp.asDiagonal();
+        }
+
+        // Update eq matrices
+        d = d.cwiseProduct(d_temp);
+        if (e.size() > 0) {
+            e = e.cwiseProduct(e_temp);
+        }
+    }
+
+    return {d, e};
+}
+
 void Solver::set_problem(Problem& prob, Vec scaling) {
     // Move problem
     this->prob = std::make_shared<Problem>(std::move(prob));

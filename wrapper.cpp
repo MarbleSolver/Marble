@@ -171,6 +171,19 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("check_inertia", &Solver::check_inertia)
         .method("compute_amd_ordering", &Solver::compute_amd_ordering)
         .method("solve", &Solver::solve)
+        .method("ruiz_equilibration", [](Solver& solver,
+                                          jl_MatXd H, int H_rows, int H_cols,
+                                          jl_MatXd A, int A_rows, int A_cols,
+                                          int niter) {
+            Mat H_eigen = to_eigen(H, H_rows, H_cols);
+            Mat A_eigen = to_eigen(A, A_rows, A_cols);
+
+            auto [D, E] = solver.ruiz_equilibration(H_eigen, A_eigen, niter);
+            return std::make_tuple(
+                std::vector<double>(D.data(), D.data() + D.size()),
+                std::vector<double>(E.data(), E.data() + E.size())
+            );
+        })
         .method("set_problem", [](Solver& solver, Problem& prob, jl_VecXd scaling) {
             solver.set_problem(prob, to_eigen(scaling));
         })

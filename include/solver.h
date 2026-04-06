@@ -7,6 +7,7 @@
 #include "workspace.h"
 #include "filter.h"
 #include <filesystem>
+#include <utility>
 
 class Solver {
 public:
@@ -104,6 +105,12 @@ public:
      * Retraction map second derivative (elementwise)
      */
     Vec retract_second_deriv(const Vec& s, double sqrt_relax_param) const;
+
+    /**
+     * Ruiz equilibration for LCQP blocks using cost Hessian H and constraint Jacobian A.
+     * Returns diagonal scaling matrices (D, E) such that H <- D H D and A <- E A D.
+     */
+    std::pair<Vec, Vec> ruiz_equilibration(const Mat& H, const Mat& A, int niter = 10) const;
 
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
