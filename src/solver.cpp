@@ -30,12 +30,13 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
-std::pair<Vec, Vec> Solver::ruiz_equilibration(const SMat& H, const SMat& A, int niter) const {
+Vec Solver::ruiz_equilibration(const SMat& H, const SMat& A, int niter) const {
     SMat H_bar = H;
     SMat A_bar = A;
 
-    Vec d = Vec::Ones(H.rows());
-    Vec e = Vec::Ones(A.rows());
+    Vec scaling = Vec::Ones(H.rows() + A.rows());
+    Eigen::VectorBlock<Vec> d = scaling.head(H.rows());
+    Eigen::VectorBlock<Vec> e = scaling.tail(A.rows());
 
     // Helper functions: Inf-norm column/row reductions using sparse nonzero iteration
     for (int iter = 0; iter < niter; ++iter) {
@@ -88,7 +89,7 @@ std::pair<Vec, Vec> Solver::ruiz_equilibration(const SMat& H, const SMat& A, int
         }
     }
 
-    return {d, e};
+    return scaling;
 }
 
 void Solver::set_problem(Problem& prob, Vec scaling) {

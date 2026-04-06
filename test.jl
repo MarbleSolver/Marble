@@ -64,8 +64,7 @@ Ā = spzeros(problem.nconstraints, problem.nz)
 constraint_jacobian!(problem, Ā, z_dummy)
 julia_ruiz = ruiz_lcqp(problem)
 cpp_ruiz = RCQP.ruiz_equilibration(rcqp, H̄, size(H̄, 1), size(H̄, 2), Matrix(Ā), size(Ā, 1), size(Ā, 2), 10)
-@assert norm(diag(julia_ruiz.D) - cpp_ruiz[1], Inf) < 1e-10
-@assert norm(diag(julia_ruiz.E) - cpp_ruiz[2], Inf) < 1e-10
+@assert norm([diag(julia_ruiz.D); diag(julia_ruiz.E)] - cpp_ruiz, Inf) < 1e-10
 
 
 # Get workspace

@@ -181,11 +181,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             SMat H_sparse = H_eigen.sparseView();
             SMat A_sparse = A_eigen.sparseView();
 
-            auto [D, E] = solver.ruiz_equilibration(H_sparse, A_sparse, niter);
-            return std::make_tuple(
-                std::vector<double>(D.data(), D.data() + D.size()),
-                std::vector<double>(E.data(), E.data() + E.size())
-            );
+            Vec scaling = solver.ruiz_equilibration(H_sparse, A_sparse, niter);
+            return std::vector<double>(scaling.data(), scaling.data() + scaling.size());
         })
         .method("set_problem", [](Solver& solver, Problem& prob, jl_VecXd scaling) {
             solver.set_problem(prob, to_eigen(scaling));
