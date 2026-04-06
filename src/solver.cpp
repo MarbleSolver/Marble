@@ -30,26 +30,35 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
-std::pair<Vec, Vec> Solver::ruiz_equilibration(const Mat& H, const Mat& A, int niter) const {
-    Mat H_bar = H;
-    Mat A_bar = A;
+std::pair<Vec, Vec> Solver::ruiz_equilibration(const SMat& H, const SMat& A, int niter) const {
+    SMat H_bar = H;
+    SMat A_bar = A;
 
     Vec d = Vec::Ones(H.rows());
     Vec e = Vec::Ones(A.rows());
 
-    // Helper functions: Inf-norm column/row reductions using Eigen vectorized ops
+    // Helper functions: Inf-norm column/row reductions using sparse nonzero iteration
     for (int iter = 0; iter < niter; ++iter) {
         // Matrix equilibration
         // Compute column-wise norms of first part of KKT system (stationarity)
-        Vec d_temp = H_bar.cwiseAbs().colwise().maxCoeff().transpose();
-        if (A_bar.rows() > 0) {
-            d_temp = d_temp.cwiseMax(A_bar.cwiseAbs().colwise().maxCoeff().transpose());
+        Vec d_temp = Vec::Zero(H_bar.cols());
+        for (int col = 0; col < H_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
+                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < A_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(A_bar, col); it; ++it) {
+                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
+            }
         }
 
         // Compute row-wise norms of second part of KKT system (feasibility)
-        Vec e_temp = Vec::Ones(A.rows());
-        if (A_bar.rows() > 0) {
-            e_temp = A_bar.cwiseAbs().rowwise().maxCoeff();
+        Vec e_temp = Vec::Zero(A_bar.rows());
+        for (int col = 0; col < A_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(A_bar, col); it; ++it) {
+                e_temp[it.row()] = std::max(e_temp[it.row()], std::abs(it.value()));
+            }
         }
 
         // Clamp scaling values
@@ -61,9 +70,15 @@ std::pair<Vec, Vec> Solver::ruiz_equilibration(const Mat& H, const Mat& A, int n
         e_temp = e_temp.array().rsqrt().matrix();
 
         // Update problem data
-        H_bar = d_temp.asDiagonal() * H_bar * d_temp.asDiagonal();
-        if (A_bar.rows() > 0) {
-            A_bar = e_temp.asDiagonal() * A_bar * d_temp.asDiagonal();
+        for (int col = 0; col < H_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
+                it.valueRef() *= d_temp[it.row()] * d_temp[col];
+            }
+        }
+        for (int col = 0; col < A_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(A_bar, col); it; ++it) {
+                it.valueRef() *= e_temp[it.row()] * d_temp[col];
+            }
         }
 
         // Update eq matrices

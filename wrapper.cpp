@@ -178,7 +178,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             Mat H_eigen = to_eigen(H, H_rows, H_cols);
             Mat A_eigen = to_eigen(A, A_rows, A_cols);
 
-            auto [D, E] = solver.ruiz_equilibration(H_eigen, A_eigen, niter);
+            SMat H_sparse = H_eigen.sparseView();
+            SMat A_sparse = A_eigen.sparseView();
+
+            auto [D, E] = solver.ruiz_equilibration(H_sparse, A_sparse, niter);
             return std::make_tuple(
                 std::vector<double>(D.data(), D.data() + D.size()),
                 std::vector<double>(E.data(), E.data() + E.size())
