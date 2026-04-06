@@ -1,5 +1,6 @@
 #include <jlcxx/jlcxx.hpp>
 #include "solver.h"
+#include <cmath>
 
 using jl_VecXd = jlcxx::ArrayRef<double, 1>;
 using jl_MatXd = jlcxx::ArrayRef<double, 2>;
@@ -84,6 +85,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_SETTER(max_iters_linesearch,       int)
         OPTION_SETTER(gamma_objective,            double)
         OPTION_SETTER(gamma_constraint,           double)
+        OPTION_SETTER(ruiz_iterations,            int)
         .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; })
         .method("output_dir",  [](Solver::Options& o) { return o.output_dir.string(); });
 
@@ -135,7 +137,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("newton_step", [](Workspace& w) { return to_julia(w.newton_step); })
         .method("D", [](Workspace& w) { return to_julia(w.D); })
         .method("amd_perm_vec", [](Workspace& w) { return to_julia(w.amd_perm_vec); })
-        .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); });
+        .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); })
+        .method("scaling", [](Workspace& w) { return to_julia(w.scaling); })
         // .method("amd_perm", [](Workspace& w) { return to_julia(w.amd_perm.toDense()); })
 ;
     // Solver class bindings
@@ -171,21 +174,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("check_inertia", &Solver::check_inertia)
         .method("compute_amd_ordering", &Solver::compute_amd_ordering)
         .method("solve", &Solver::solve)
-        .method("ruiz_equilibration", [](Solver& solver,
-                                          jl_MatXd H, int H_rows, int H_cols,
-                                          jl_MatXd A, int A_rows, int A_cols,
-                                          int niter) {
-            Mat H_eigen = to_eigen(H, H_rows, H_cols);
-            Mat A_eigen = to_eigen(A, A_rows, A_cols);
-
-            SMat H_sparse = H_eigen.sparseView();
-            SMat A_sparse = A_eigen.sparseView();
-
-            Vec scaling = solver.ruiz_equilibration(H_sparse, A_sparse, niter);
-            return std::vector<double>(scaling.data(), scaling.data() + scaling.size());
+        .method("ruiz_equilibration", [](Solver& solver, int niter) {
+            solver.ruiz_equilibration(niter);
+            Workspace& workspace = solver.get_workspace();
+            return std::vector<double>(workspace.scaling.data(), workspace.scaling.data() + workspace.scaling.size());
         })
-        .method("set_problem", [](Solver& solver, Problem& prob, jl_VecXd scaling) {
-            solver.set_problem(prob, to_eigen(scaling));
+        .method("set_problem", [](Solver& solver, Problem& prob) {
+            solver.set_problem(prob);
         })
         .method("get_problem", &Solver::get_problem)
         .method("z_inds", [](Solver& s) -> jl_VecXi { return to_julia(s.z_inds); })

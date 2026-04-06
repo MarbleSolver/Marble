@@ -42,6 +42,8 @@ public:
         double gamma_objective{1e-5};
         // (filter) Sufficient progress parameter for constraint violation decrease
         double gamma_constraint{1e-5};
+        // Number of ruiz iterations for scaling
+        double ruiz_iterations{10};
         // Output directory for solution and solve information
         std::filesystem::path output_dir{"/dev/null"};
 
@@ -107,16 +109,15 @@ public:
     Vec retract_second_deriv(const Vec& s, double sqrt_relax_param) const;
 
     /**
-     * Ruiz equilibration for LCQP blocks using cost Hessian H and constraint Jacobian A.
-     * Returns concatenated scaling vector [d; e] such that H <- D H D and A <- E A D,
-     * where D = diag(d) and E = diag(e).
+     * Ruiz equilibration for current problem data using copies of H and J_*.
+     * Writes concatenated scaling vector [d; e_eq; e_ineq; e_comp] into workspace->scaling.
      */
-        Vec ruiz_equilibration(const SMat& H, const SMat& A, int niter = 10) const;
+    void ruiz_equilibration(int niter = 10);
 
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
      */
-    void set_problem(Problem& prob, Vec scaling);
+    void set_problem(Problem& prob);
 
     /**
      * Returns the problem currently set for the solver

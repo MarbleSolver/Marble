@@ -30,69 +30,7 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
-Vec Solver::ruiz_equilibration(const SMat& H, const SMat& A, int niter) const {
-    SMat H_bar = H;
-    SMat A_bar = A;
-
-    Vec scaling = Vec::Ones(H.rows() + A.rows());
-    Eigen::VectorBlock<Vec> d = scaling.head(H.rows());
-    Eigen::VectorBlock<Vec> e = scaling.tail(A.rows());
-
-    // Helper functions: Inf-norm column/row reductions using sparse nonzero iteration
-    for (int iter = 0; iter < niter; ++iter) {
-        // Matrix equilibration
-        // Compute column-wise norms of first part of KKT system (stationarity)
-        Vec d_temp = Vec::Zero(H_bar.cols());
-        for (int col = 0; col < H_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
-                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
-            }
-        }
-        for (int col = 0; col < A_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(A_bar, col); it; ++it) {
-                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
-            }
-        }
-
-        // Compute row-wise norms of second part of KKT system (feasibility)
-        Vec e_temp = Vec::Zero(A_bar.rows());
-        for (int col = 0; col < A_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(A_bar, col); it; ++it) {
-                e_temp[it.row()] = std::max(e_temp[it.row()], std::abs(it.value()));
-            }
-        }
-
-        // Clamp scaling values
-        d_temp = d_temp.cwiseMax(1e-4).cwiseMin(1e4);
-        e_temp = e_temp.cwiseMax(1e-4).cwiseMin(1e4);
-
-        // Take square roots, reciprocal, turn into diag vectors
-        d_temp = d_temp.array().rsqrt().matrix();
-        e_temp = e_temp.array().rsqrt().matrix();
-
-        // Update problem data
-        for (int col = 0; col < H_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
-                it.valueRef() *= d_temp[it.row()] * d_temp[col];
-            }
-        }
-        for (int col = 0; col < A_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(A_bar, col); it; ++it) {
-                it.valueRef() *= e_temp[it.row()] * d_temp[col];
-            }
-        }
-
-        // Update eq matrices
-        d = d.cwiseProduct(d_temp);
-        if (e.size() > 0) {
-            e = e.cwiseProduct(e_temp);
-        }
-    }
-
-    return scaling;
-}
-
-void Solver::set_problem(Problem& prob, Vec scaling) {
+void Solver::set_problem(Problem& prob) {
     // Move problem
     this->prob = std::make_shared<Problem>(std::move(prob));
 
@@ -126,7 +64,9 @@ void Solver::set_problem(Problem& prob, Vec scaling) {
     // Allocate for solution vector, multiplier estimates, and KKT residual
     // Init workspace
     workspace = std::make_shared<Workspace>(*this->prob);
-    workspace->scaling = std::move(scaling);
+
+    // Compute scaling internally from problem data
+    ruiz_equilibration(options.ruiz_iterations);
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
@@ -628,4 +568,110 @@ bool Solver::filter_linesearch(double sqrt_relax_param, double inv_penalty_param
     workspace->solution -= step_size * workspace->newton_step;
 
     return false;
+}
+
+void Solver::ruiz_equilibration(int niter) {
+    SMat H_bar = prob->cost_hessian;
+    SMat J_eq_bar = prob->J_eq;
+    SMat J_ineq_bar = prob->J_ineq;
+    SMat J_comp_bar = prob->J_comp;
+
+    const int nz = prob->nz;
+    const int n_eq = prob->n_eq;
+    const int n_ineq = prob->n_ineq;
+    const int n_comp = prob->n_comp;
+
+    workspace->scaling.setOnes(nz + n_ineq + n_comp + n_eq + n_ineq + 2*n_comp);
+    Eigen::VectorBlock<Vec> d = workspace->scaling.head(nz);
+    Eigen::VectorBlock<Vec> e_eq = workspace->scaling.segment(nz + n_ineq + n_comp, n_eq);
+    Eigen::VectorBlock<Vec> e_ineq = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq, n_ineq);
+    Eigen::VectorBlock<Vec> e_comp = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq + n_ineq, 2*n_comp);
+
+    // Helper functions: Inf-norm column/row reductions using sparse nonzero iteration
+    for (int iter = 0; iter < niter; ++iter) {
+        // Matrix equilibration
+        // Compute column-wise norms of first part of KKT system (stationarity)
+        Vec d_temp = Vec::Zero(nz);
+        for (int col = 0; col < H_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
+                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < J_eq_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_eq_bar, col); it; ++it) {
+                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < J_ineq_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_ineq_bar, col); it; ++it) {
+                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
+                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
+            }
+        }
+
+        // Compute row-wise norms of second part of KKT system (feasibility)
+        Vec e_eq_temp = Vec::Zero(n_eq);
+        Vec e_ineq_temp = Vec::Zero(n_ineq);
+        Vec e_comp_temp = Vec::Zero(2*n_comp);
+        for (int col = 0; col < J_eq_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_eq_bar, col); it; ++it) {
+                e_eq_temp[it.row()] = std::max(e_eq_temp[it.row()], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < J_ineq_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_ineq_bar, col); it; ++it) {
+                e_ineq_temp[it.row()] = std::max(e_ineq_temp[it.row()], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
+                e_comp_temp[it.row()] = std::max(e_comp_temp[it.row()], std::abs(it.value()));
+            }
+        }
+
+        // Clamp scaling values
+        d_temp = d_temp.cwiseMax(1e-4).cwiseMin(1e4);
+        e_eq_temp = e_eq_temp.cwiseMax(1e-4).cwiseMin(1e4);
+        e_ineq_temp = e_ineq_temp.cwiseMax(1e-4).cwiseMin(1e4);
+        e_comp_temp = e_comp_temp.cwiseMax(1e-4).cwiseMin(1e4);
+
+        // Take square roots, reciprocal, turn into diag vectors
+        d_temp = d_temp.array().rsqrt().matrix();
+        e_eq_temp = e_eq_temp.array().rsqrt().matrix();
+        e_ineq_temp = e_ineq_temp.array().rsqrt().matrix();
+        e_comp_temp = e_comp_temp.array().rsqrt().matrix();
+
+        // Update problem data
+        for (int col = 0; col < H_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
+                it.valueRef() *= d_temp[it.row()] * d_temp[col];
+            }
+        }
+        for (int col = 0; col < J_eq_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_eq_bar, col); it; ++it) {
+                it.valueRef() *= e_eq_temp[it.row()] * d_temp[col];
+            }
+        }
+        for (int col = 0; col < J_ineq_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_ineq_bar, col); it; ++it) {
+                it.valueRef() *= e_ineq_temp[it.row()] * d_temp[col];
+            }
+        }
+        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
+                it.valueRef() *= e_comp_temp[it.row()] * d_temp[col];
+            }
+        }
+
+        // Update eq matrices
+        d = d.cwiseProduct(d_temp);
+        e_eq = e_eq.cwiseProduct(e_eq_temp);
+        e_ineq = e_ineq.cwiseProduct(e_ineq_temp);
+        e_comp = e_comp.cwiseProduct(e_comp_temp);
+    }
+
 }
