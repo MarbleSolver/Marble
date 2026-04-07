@@ -7,7 +7,8 @@ json_path = joinpath(@__DIR__, "../macmpec_lcqp.json")
 json_data = JSON.parsefile(json_path)
 
 for key in keys(json_data)
-    println("Processing problem: $key")
+    @info "Processing problem: $key"
+    
     nl_path = joinpath(@__DIR__, "../ampl_nl", key * ".nl")
     P = problem_data(nl_path=nl_path)
     save_data(data=P, savedir=@__DIR__)

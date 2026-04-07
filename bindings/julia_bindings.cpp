@@ -38,6 +38,25 @@ jlcxx::ArrayRef<T, 1> to_julia(Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>>& 
     return jlcxx::make_julia_array(vec.data(), vec.size());
 }
 
+// Build an Eigen sparse matrix from Julia SparseMatrixCSC components.
+// Julia uses 1-based indices; Eigen uses 0-based.
+// Accepts Int64 colptr/rowval (Julia's default index type) and casts to QDLDL_int internally.
+static SMat csc_to_smat(int rows, int cols,
+                        jlcxx::ArrayRef<int64_t, 1> colptr,
+                        jlcxx::ArrayRef<int64_t, 1> rowval,
+                        jlcxx::ArrayRef<double, 1>  nzval) {
+    int nnz = (int)nzval.size();
+    std::vector<QDLDL_int> cp(cols + 1), ri(nnz);
+    for (int i = 0; i <= cols; i++) cp[i] = (QDLDL_int)(colptr[i] - 1);
+    for (int i = 0; i < nnz;  i++) ri[i] = (QDLDL_int)(rowval[i] - 1);
+    Eigen::Map<SMat> mapped(rows, cols, nnz,
+                            cp.data(), ri.data(),
+                            const_cast<double*>(nzval.data()));
+    SMat result = mapped;
+    result.makeCompressed();
+    return result;
+}
+
 // ---------------------------------------------------------------------------
 // Module definition
 // ---------------------------------------------------------------------------
@@ -63,6 +82,33 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
                 to_eigen(J_eq,   n_eq,   nz),   to_eigen(c_eq),
                 to_eigen(J_ineq, n_ineq, nz),   to_eigen(c_ineq),
                 to_eigen(J_comp, n_comp, nz),   to_eigen(c_comp));
+        })
+        // Sparse constructor: accepts SparseMatrixCSC components from Julia.
+        // For each sparse matrix pass (colptr, rowval, nzval) from the Julia struct.
+        // Julia's colptr/rowval are Int64 (1-based); conversion to 0-based happens internally.
+        // Usage from Julia:
+        //   Problem(nz,
+        //           H.colptr, H.rowval, H.nzval, q, cost_const,
+        //           n_eq,   J_eq.colptr,   J_eq.rowval,   J_eq.nzval,   c_eq,
+        //           n_ineq, J_ineq.colptr, J_ineq.rowval, J_ineq.nzval, c_ineq,
+        //           n_comp, J_comp.colptr, J_comp.rowval, J_comp.nzval, c_comp)
+        .constructor([](int nz,
+                        jlcxx::ArrayRef<int64_t,1> Hcp,  jlcxx::ArrayRef<int64_t,1> Hrv,  jlcxx::ArrayRef<double,1> Hnz,
+                        jlcxx::ArrayRef<double,1> grad, double cost_const,
+                        int n_eq,
+                        jlcxx::ArrayRef<int64_t,1> Ecp,  jlcxx::ArrayRef<int64_t,1> Erv,  jlcxx::ArrayRef<double,1> Enz,
+                        jlcxx::ArrayRef<double,1> c_eq,
+                        int n_ineq,
+                        jlcxx::ArrayRef<int64_t,1> Icp,  jlcxx::ArrayRef<int64_t,1> Irv,  jlcxx::ArrayRef<double,1> Inz,
+                        jlcxx::ArrayRef<double,1> c_ineq,
+                        int n_comp,
+                        jlcxx::ArrayRef<int64_t,1> Ccp,  jlcxx::ArrayRef<int64_t,1> Crv,  jlcxx::ArrayRef<double,1> Cnz,
+                        jlcxx::ArrayRef<double,1> c_comp) {
+            return new Problem(
+                csc_to_smat(nz,     nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
+                csc_to_smat(n_eq,   nz, Ecp, Erv, Enz), to_eigen(c_eq),
+                csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
+                csc_to_smat(n_comp, nz, Ccp, Crv, Cnz), to_eigen(c_comp));
         })
         .method("nz",     [](const Problem& p) { return p.nz; })
         .method("n_eq",   [](const Problem& p) { return p.n_eq; })
@@ -194,17 +240,17 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .constructor()
         .constructor([](const Solver::Options& opts) { return new Solver(opts); })
         // Problem setup
-        .method("ruiz_equilibration", [](Solver& solver, int niter) {
+        .method("ruiz_equilibration!", [](Solver& solver, int niter) {
             solver.ruiz_equilibration(niter);
             Workspace& workspace = solver.get_workspace();
             return std::vector<double>(workspace.scaling.data(), workspace.scaling.data() + workspace.scaling.size());
         })
-        .method("set_problem", [](Solver& s, Problem& prob) {
+        .method("set_problem!", [](Solver& s, Problem& prob) {
             s.set_problem(prob);
         })
         .method("get_problem",   &Solver::get_problem)
         // Main solve
-        .method("solve",       &Solver::solve)
+        .method("solve!",       &Solver::solve)
         .method("convergence", &Solver::convergence)
         // Workspace / filter access
         .method("get_workspace", &Solver::get_workspace)
@@ -223,25 +269,25 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             return std::vector<double>(r.data(), r.data() + r.size());
         })
         // KKT updates
-        .method("update_KKT_residual",          &Solver::update_KKT_residual)
-        .method("update_KKT_system",            &Solver::update_KKT_system)
-        .method("update_KKT_ineq", [](Solver& s, jlcxx::ArrayRef<double, 1> s_ineq, double sqrt_relax_param) {
+        .method("update_KKT_residual!",          &Solver::update_KKT_residual)
+        .method("update_KKT_system!",            &Solver::update_KKT_system)
+        .method("update_KKT_ineq!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_ineq, double sqrt_relax_param) {
             s.update_KKT_ineq(to_eigen(s_ineq), sqrt_relax_param);
         })
-        .method("update_KKT_comp", [](Solver& s, jlcxx::ArrayRef<double, 1> s_comp, jlcxx::ArrayRef<double, 1> m_comp, double sqrt_relax_param) {
+        .method("update_KKT_comp!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_comp, jlcxx::ArrayRef<double, 1> m_comp, double sqrt_relax_param) {
             s.update_KKT_comp(to_eigen(s_comp), to_eigen(m_comp), sqrt_relax_param);
         })
-        .method("update_KKT_penalty",            &Solver::update_KKT_penalty)
-        .method("update_KKT_primal_regularizer", &Solver::update_KKT_primal_regularizer)
+        .method("update_KKT_penalty!",            &Solver::update_KKT_penalty)
+        .method("update_KKT_primal_regularizer!", &Solver::update_KKT_primal_regularizer)
         // Factorization and backsolve
-        .method("initialize_kkt_sparsity",  &Solver::initialize_kkt_sparsity)
-        .method("compute_amd_ordering",     &Solver::compute_amd_ordering)
-        .method("analytical_factorization", &Solver::analytical_factorization)
-        .method("numerical_factorization",  &Solver::numerical_factorization)
+        .method("initialize_kkt_sparsity!",  &Solver::initialize_kkt_sparsity)
+        .method("compute_amd_ordering!",     &Solver::compute_amd_ordering)
+        .method("analytical_factorization!", &Solver::analytical_factorization)
+        .method("numerical_factorization!",  &Solver::numerical_factorization)
         .method("check_inertia",            &Solver::check_inertia)
-        .method("backsolve",                &Solver::backsolve)
+        .method("backsolve!",                &Solver::backsolve)
         // Linesearch
-        .method("filter_linesearch", &Solver::filter_linesearch)
+        .method("filter_linesearch!", &Solver::filter_linesearch)
         .method("entry_from_solution", [](const Solver& s, double sqrt_relax_param, double inv_penalty_param) {
             Filter::Entry e = s.entry_from_solution(sqrt_relax_param, inv_penalty_param);
             return std::make_tuple(e.feas, e.merit);

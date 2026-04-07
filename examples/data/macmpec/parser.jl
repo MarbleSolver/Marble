@@ -39,7 +39,7 @@ function problem_data(; nl_path::String)::NamedTuple
     # grad(nlp, z) = Hz + q, so q = grad(nlp, 0).
 
     obj_sign = meta.minimize ? 1.0 : -1.0
-    H_cost = obj_sign * Symmetric(NLPModels.hess(nlp, z0), :L)
+    H_cost = obj_sign * sparse(NLPModels.hess(nlp, z0))
     q_cost = obj_sign * NLPModels.grad(nlp, z0)
     f0_cost = NLPModels.obj(nlp, z0)
 
