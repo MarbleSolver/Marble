@@ -1,8 +1,4 @@
 import rcqp
-
-print("module:", rcqp)
-print("members:", dir(rcqp))
-
 import numpy as np
 
 s = rcqp.Solver()
@@ -23,6 +19,7 @@ prob = rcqp.Problem(
     J_empty, c_empty,   # inequality
     J_empty, c_empty,   # complementarity
 )
+
 print(f"Problem: nz={prob.nz}, n_eq={prob.n_eq}, n_ineq={prob.n_ineq}, n_comp={prob.n_comp}")
 
 opts = rcqp.SolverOptions()

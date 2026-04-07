@@ -67,6 +67,7 @@ PYBIND11_MODULE(rcqp, m) {
         .def_readwrite("max_iters_linesearch",       &Solver::Options::max_iters_linesearch)
         .def_readwrite("gamma_objective",            &Solver::Options::gamma_objective)
         .def_readwrite("gamma_constraint",           &Solver::Options::gamma_constraint)
+        .def_readwrite("ruiz_iterations",            &Solver::Options::ruiz_iterations)
         .def_property("output_dir",
             [](const Solver::Options& o) { return o.output_dir.string(); },
             [](Solver::Options& o, const std::string& v) { o.output_dir = v; })
@@ -156,7 +157,29 @@ PYBIND11_MODULE(rcqp, m) {
             [](const Workspace& w) { return w.penalty_param; })
         // Newton step
         .def_property_readonly("newton_step",
-            [](const Workspace& w) { return w.newton_step; });
+            [](const Workspace& w) { return w.newton_step; })
+        // KKT system: returns (rows, cols, colptr, rowval, nzval) as a tuple
+        .def_property_readonly("kkt_system",
+            [](Workspace& w) {
+                SMat& kkt = w.kkt_system;
+                kkt.makeCompressed();
+                Eigen::VectorXi colptr(kkt.outerSize() + 1);
+                Eigen::VectorXi rowval(kkt.nonZeros());
+                Vec nzval(kkt.nonZeros());
+                std::copy(kkt.outerIndexPtr(), kkt.outerIndexPtr() + kkt.outerSize() + 1, colptr.data());
+                std::copy(kkt.innerIndexPtr(), kkt.innerIndexPtr() + kkt.nonZeros(),      rowval.data());
+                std::copy(kkt.valuePtr(),      kkt.valuePtr()      + kkt.nonZeros(),      nzval.data());
+                return py::make_tuple((int)kkt.rows(), (int)kkt.cols(), colptr, rowval, nzval);
+            })
+        // QDLDL factorization data
+        .def_property_readonly("D",
+            [](const Workspace& w) { return w.D; })
+        .def_property_readonly("amd_perm_vec",
+            [](const Workspace& w) { return w.amd_perm_vec; })
+        .def_property_readonly("amd_iperm_vec",
+            [](const Workspace& w) { return w.amd_iperm_vec; })
+        .def_property_readonly("scaling",
+            [](const Workspace& w) { return w.scaling; });
 
     // -------------------------------------------------------------------------
     // Solver
@@ -165,10 +188,15 @@ PYBIND11_MODULE(rcqp, m) {
         .def(py::init<>())
         .def(py::init<const Solver::Options&>(), py::arg("options"))
         // Problem setup
-        .def("set_problem", [](Solver& s, Problem& prob, const Vec& scaling) {
-                 s.set_problem(prob, scaling);
+        .def("set_problem", [](Solver& s, Problem& prob) {
+                 s.set_problem(prob);
              },
-             py::arg("problem"), py::arg("scaling"))
+             py::arg("problem"))
+        .def("ruiz_equilibration", [](Solver& s, int niter) {
+                 s.ruiz_equilibration(niter);
+                 return s.get_workspace().scaling;
+             },
+             py::arg("niter"))
         .def("get_problem", &Solver::get_problem,
              py::return_value_policy::reference_internal)
         // Main solve
@@ -238,5 +266,15 @@ PYBIND11_MODULE(rcqp, m) {
         .def_property_readonly("comp_L_inds",
             [](const Solver& s) { return s.comp_L_inds; })
         .def_property_readonly("comp_R_inds",
-            [](const Solver& s) { return s.comp_R_inds; });
+            [](const Solver& s) { return s.comp_R_inds; })
+        .def_property_readonly("z_z_inds",
+            [](const Solver& s) { return s.z_z_inds; })
+        .def_property_readonly("s_ineq_s_ineq_inds",
+            [](const Solver& s) { return s.s_ineq_s_ineq_inds; })
+        .def_property_readonly("s_ineq_m_ineq_inds",
+            [](const Solver& s) { return s.s_ineq_m_ineq_inds; })
+        .def_property_readonly("s_comp_s_comp_inds",
+            [](const Solver& s) { return s.s_comp_s_comp_inds; })
+        .def_property_readonly("s_comp_m_comp_inds",
+            [](const Solver& s) { return s.s_comp_m_comp_inds; });
 }

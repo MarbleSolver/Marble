@@ -3,7 +3,6 @@ RCQP: constrained optimization solver with complementarity constraints
 """
 from __future__ import annotations
 import numpy
-import numpy.typing
 import scipy.sparse
 import typing
 __all__: list[str] = ['Filter', 'FilterEntry', 'Problem', 'Solver', 'SolverOptions', 'Workspace']
@@ -12,7 +11,7 @@ class Filter:
     def __init__(self) -> None:
         ...
     @typing.overload
-    def __init__(self, gamma_objective: typing.SupportsFloat | typing.SupportsIndex, gamma_constraint: typing.SupportsFloat | typing.SupportsIndex) -> None:
+    def __init__(self, gamma_objective: float, gamma_constraint: float) -> None:
         ...
     def acceptable(self, candidate: FilterEntry) -> bool:
         ...
@@ -33,34 +32,24 @@ class Filter:
     def size(self) -> int:
         ...
 class FilterEntry:
+    feas: float
+    merit: float
     def __init__(self) -> None:
         ...
     def __repr__(self) -> str:
         ...
-    @property
-    def feas(self) -> float:
-        ...
-    @feas.setter
-    def feas(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def merit(self) -> float:
-        ...
-    @merit.setter
-    def merit(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
 class Problem:
     @typing.overload
-    def __init__(self, cost_hessian: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], cost_gradient: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], cost_const: typing.SupportsFloat | typing.SupportsIndex, J_eq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], c_eq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], J_ineq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], c_ineq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], J_comp: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], c_comp: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"]) -> None:
+    def __init__(self, cost_hessian: numpy.ndarray, cost_gradient: numpy.ndarray, cost_const: float, J_eq: numpy.ndarray, c_eq: numpy.ndarray, J_ineq: numpy.ndarray, c_ineq: numpy.ndarray, J_comp: numpy.ndarray, c_comp: numpy.ndarray) -> None:
         ...
     @typing.overload
-    def __init__(self, cost_hessian: scipy.sparse.csc_matrix, cost_gradient: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], cost_const: typing.SupportsFloat | typing.SupportsIndex, J_eq: scipy.sparse.csc_matrix, c_eq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], J_ineq: scipy.sparse.csc_matrix, c_ineq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], J_comp: scipy.sparse.csc_matrix, c_comp: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"]) -> None:
+    def __init__(self, cost_hessian: scipy.sparse.csc_matrix, cost_gradient: numpy.ndarray, cost_const: float, J_eq: scipy.sparse.csc_matrix, c_eq: numpy.ndarray, J_ineq: scipy.sparse.csc_matrix, c_ineq: numpy.ndarray, J_comp: scipy.sparse.csc_matrix, c_comp: numpy.ndarray) -> None:
         ...
     @property
     def cost_const(self) -> float:
         ...
     @property
-    def cost_gradient(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def cost_gradient(self) -> numpy.ndarray:
         ...
     @property
     def n_comp(self) -> int:
@@ -91,9 +80,9 @@ class Solver:
         ...
     def convergence(self, options: SolverOptions) -> bool:
         ...
-    def entry_from_solution(self, sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex, inv_penalty_param: typing.SupportsFloat | typing.SupportsIndex) -> tuple[float, float]:
+    def entry_from_solution(self, sqrt_relax_param: float, inv_penalty_param: float) -> tuple:
         ...
-    def filter_linesearch(self, sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex, inv_penalty_param: typing.SupportsFloat | typing.SupportsIndex, max_iters: typing.SupportsInt | typing.SupportsIndex) -> bool:
+    def filter_linesearch(self, sqrt_relax_param: float, inv_penalty_param: float, max_iters: int) -> bool:
         ...
     def get_filter(self) -> Filter:
         ...
@@ -105,42 +94,44 @@ class Solver:
         ...
     def numerical_factorization(self) -> bool:
         ...
-    def retract(self, s: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def retract(self, s: numpy.ndarray, sqrt_relax_param: float) -> numpy.ndarray:
         ...
-    def retract_deriv(self, s: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def retract_deriv(self, s: numpy.ndarray, sqrt_relax_param: float) -> numpy.ndarray:
         ...
-    def retract_second_deriv(self, s: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def retract_second_deriv(self, s: numpy.ndarray, sqrt_relax_param: float) -> numpy.ndarray:
         ...
-    def set_problem(self, problem: Problem, scaling: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"]) -> None:
+    def ruiz_equilibration(self, niter: int) -> numpy.ndarray:
+        ...
+    def set_problem(self, problem: Problem) -> None:
         ...
     def solve(self, options: SolverOptions) -> bool:
         ...
-    def update_KKT_comp(self, s_comp: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], m_comp: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
+    def update_KKT_comp(self, s_comp: numpy.ndarray, m_comp: numpy.ndarray, sqrt_relax_param: float) -> None:
         ...
-    def update_KKT_ineq(self, s_ineq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
+    def update_KKT_ineq(self, s_ineq: numpy.ndarray, sqrt_relax_param: float) -> None:
         ...
-    def update_KKT_penalty(self, inv_penalty_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
+    def update_KKT_penalty(self, inv_penalty_param: float) -> None:
         ...
-    def update_KKT_primal_regularizer(self, reg: typing.SupportsFloat | typing.SupportsIndex) -> None:
+    def update_KKT_primal_regularizer(self, reg: float) -> None:
         ...
-    def update_KKT_residual(self, sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex, inv_penalty_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
+    def update_KKT_residual(self, sqrt_relax_param: float, inv_penalty_param: float) -> None:
         ...
-    def update_KKT_system(self, sqrt_relax_param: typing.SupportsFloat | typing.SupportsIndex, inv_penalty_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def comp_L_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def update_KKT_system(self, sqrt_relax_param: float, inv_penalty_param: float) -> None:
         ...
     @property
-    def comp_R_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def comp_L_inds(self) -> numpy.ndarray:
         ...
     @property
-    def m_comp_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def comp_R_inds(self) -> numpy.ndarray:
         ...
     @property
-    def m_eq_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def m_comp_inds(self) -> numpy.ndarray:
         ...
     @property
-    def m_ineq_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def m_eq_inds(self) -> numpy.ndarray:
+        ...
+    @property
+    def m_ineq_inds(self) -> numpy.ndarray:
         ...
     @property
     def n_duals(self) -> int:
@@ -152,134 +143,87 @@ class Solver:
     def n_vars(self) -> int:
         ...
     @property
-    def s_comp_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def s_comp_inds(self) -> numpy.ndarray:
         ...
     @property
-    def s_ineq_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def s_comp_m_comp_inds(self) -> numpy.ndarray:
         ...
     @property
-    def z_inds(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"]:
+    def s_comp_s_comp_inds(self) -> numpy.ndarray:
+        ...
+    @property
+    def s_ineq_inds(self) -> numpy.ndarray:
+        ...
+    @property
+    def s_ineq_m_ineq_inds(self) -> numpy.ndarray:
+        ...
+    @property
+    def s_ineq_s_ineq_inds(self) -> numpy.ndarray:
+        ...
+    @property
+    def z_inds(self) -> numpy.ndarray:
+        ...
+    @property
+    def z_z_inds(self) -> numpy.ndarray:
         ...
 class SolverOptions:
+    convergence_comp_violation: float
+    convergence_eq_violation: float
+    convergence_ineq_violation: float
+    convergence_kkt_norm: float
+    gamma_constraint: float
+    gamma_objective: float
+    max_iters: int
+    max_iters_linesearch: int
+    outer_step_kkt_norm: float
     output_dir: str
+    penalty_initial: float
+    penalty_max: float
+    penalty_scaling: float
+    relaxation_initial: float
+    relaxation_min: float
+    relaxation_scaling: float
+    ruiz_iterations: float
     def __init__(self) -> None:
         ...
     def __repr__(self) -> str:
         ...
-    @property
-    def convergence_comp_violation(self) -> float:
-        ...
-    @convergence_comp_violation.setter
-    def convergence_comp_violation(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def convergence_eq_violation(self) -> float:
-        ...
-    @convergence_eq_violation.setter
-    def convergence_eq_violation(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def convergence_ineq_violation(self) -> float:
-        ...
-    @convergence_ineq_violation.setter
-    def convergence_ineq_violation(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def convergence_kkt_norm(self) -> float:
-        ...
-    @convergence_kkt_norm.setter
-    def convergence_kkt_norm(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def gamma_constraint(self) -> float:
-        ...
-    @gamma_constraint.setter
-    def gamma_constraint(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def gamma_objective(self) -> float:
-        ...
-    @gamma_objective.setter
-    def gamma_objective(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def max_iters(self) -> int:
-        ...
-    @max_iters.setter
-    def max_iters(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def max_iters_linesearch(self) -> int:
-        ...
-    @max_iters_linesearch.setter
-    def max_iters_linesearch(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def outer_step_kkt_norm(self) -> float:
-        ...
-    @outer_step_kkt_norm.setter
-    def outer_step_kkt_norm(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def penalty_initial(self) -> float:
-        ...
-    @penalty_initial.setter
-    def penalty_initial(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def penalty_max(self) -> float:
-        ...
-    @penalty_max.setter
-    def penalty_max(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def penalty_scaling(self) -> float:
-        ...
-    @penalty_scaling.setter
-    def penalty_scaling(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def relaxation_initial(self) -> float:
-        ...
-    @relaxation_initial.setter
-    def relaxation_initial(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def relaxation_min(self) -> float:
-        ...
-    @relaxation_min.setter
-    def relaxation_min(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def relaxation_scaling(self) -> float:
-        ...
-    @relaxation_scaling.setter
-    def relaxation_scaling(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
-        ...
 class Workspace:
     @property
-    def kkt_residual(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def D(self) -> numpy.ndarray:
         ...
     @property
-    def m_comp(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def amd_iperm_vec(self) -> numpy.ndarray:
         ...
     @property
-    def m_comp_est(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def amd_perm_vec(self) -> numpy.ndarray:
         ...
     @property
-    def m_eq(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def kkt_residual(self) -> numpy.ndarray:
         ...
     @property
-    def m_eq_est(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def kkt_system(self) -> tuple:
         ...
     @property
-    def m_ineq(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def m_comp(self) -> numpy.ndarray:
         ...
     @property
-    def m_ineq_est(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def m_comp_est(self) -> numpy.ndarray:
         ...
     @property
-    def newton_step(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def m_eq(self) -> numpy.ndarray:
+        ...
+    @property
+    def m_eq_est(self) -> numpy.ndarray:
+        ...
+    @property
+    def m_ineq(self) -> numpy.ndarray:
+        ...
+    @property
+    def m_ineq_est(self) -> numpy.ndarray:
+        ...
+    @property
+    def newton_step(self) -> numpy.ndarray:
         ...
     @property
     def penalty_param(self) -> float:
@@ -288,23 +232,26 @@ class Workspace:
     def relax_param(self) -> float:
         ...
     @property
-    def residual_comp(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def residual_comp(self) -> numpy.ndarray:
         ...
     @property
-    def residual_eq(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def residual_eq(self) -> numpy.ndarray:
         ...
     @property
-    def residual_ineq(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def residual_ineq(self) -> numpy.ndarray:
         ...
     @property
-    def s_comp(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def s_comp(self) -> numpy.ndarray:
         ...
     @property
-    def s_ineq(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def s_ineq(self) -> numpy.ndarray:
         ...
     @property
-    def solution(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def scaling(self) -> numpy.ndarray:
         ...
     @property
-    def z(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+    def solution(self) -> numpy.ndarray:
+        ...
+    @property
+    def z(self) -> numpy.ndarray:
         ...
