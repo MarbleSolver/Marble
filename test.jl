@@ -53,17 +53,18 @@ s = randn(10)
 @assert norm(RCQP.retract_second_deriv(rcqp, s, 1e-2) - solver.dd_r(s, 1e-2)) < 1e-10
 
 # Set problem
-scaling = Vector(diag(solver.ruiz_mat))
-RCQP.set_problem(rcqp, prob, scaling)
+RCQP.set_problem(rcqp, prob)
 prob = RCQP.get_problem(rcqp)
-
-# Get workspace
-workspace = RCQP.get_workspace(rcqp)
-
 @assert RCQP.nz(prob) == solver.nz
 @assert RCQP.n_eq(prob) == solver.n_eq
 @assert RCQP.n_ineq(prob) == solver.n_ineq
 @assert RCQP.n_comp(prob) == solver.n_comp
+
+# Get workspace
+workspace = RCQP.get_workspace(rcqp)
+
+# Ruiz scaling check
+@assert norm(RCQP.scaling(workspace) - diag(solver.ruiz_mat), Inf) < 1e-10
 
 # Test indices
 RCQP.z_inds(rcqp) == solver.kkt_inds.z .- 1
@@ -102,7 +103,7 @@ kkt = get_kkt(rcqp)[iperm, iperm] # Unpermuted
 kkt = (kkt + kkt' - spdiagm(diag(kkt)))
 
 # Check stationarity rows
-scaling = spdiagm(scaling)
+scaling = solver.ruiz_mat
 hess = scaling*lagrangian_hessian(solver, iter)*scaling
 @assert norm(hess[solver.kkt_inds.z, :] - kkt[solver.kkt_inds.z, :], Inf) < 1e-10 
 @assert norm(hess[solver.kkt_inds.v, :] - kkt[solver.kkt_inds.v, :], Inf) < 1e-10 
@@ -186,7 +187,7 @@ qdldl_soln = RCQP.newton_step(RCQP.get_workspace(rcqp))
 # Test for each iter
 using QDLDL
 for iter in solver.iters
-    if iter.type == :AL
+    if iter.type != :Newton
         continue
     end
     set_from_iter(rcqp, iter)

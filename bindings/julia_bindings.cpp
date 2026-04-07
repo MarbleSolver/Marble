@@ -1,5 +1,6 @@
 #include <jlcxx/jlcxx.hpp>
 #include "solver.h"
+#include <cmath>
 
 // Filter::Entry is a plain struct; tell CxxWrap not to treat it as a mirrored type
 // so we can register it with add_type and attach methods to it.
@@ -92,6 +93,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(max_iters_linesearch,       int)
         OPTION_RW(gamma_objective,            double)
         OPTION_RW(gamma_constraint,           double)
+        OPTION_RW(ruiz_iterations,            int)
         .method("output_dir",  [](const Solver::Options& o) { return o.output_dir.string(); })
         .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; });
 
@@ -182,7 +184,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         // QDLDL factorization data
         .method("D",            [](Workspace& w) { return to_julia(w.D); })
         .method("amd_perm_vec", [](Workspace& w) { return to_julia(w.amd_perm_vec); })
-        .method("amd_iperm_vec",[](Workspace& w) { return to_julia(w.amd_iperm_vec); });
+        .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); })
+        .method("scaling", [](Workspace& w) { return to_julia(w.scaling); });
 
     // -----------------------------------------------------------------------
     // Solver
@@ -191,8 +194,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .constructor()
         .constructor([](const Solver::Options& opts) { return new Solver(opts); })
         // Problem setup
-        .method("set_problem", [](Solver& s, Problem& prob, jlcxx::ArrayRef<double, 1> scaling) {
-            s.set_problem(prob, to_eigen(scaling));
+        .method("ruiz_equilibration", [](Solver& solver, int niter) {
+            solver.ruiz_equilibration(niter);
+            Workspace& workspace = solver.get_workspace();
+            return std::vector<double>(workspace.scaling.data(), workspace.scaling.data() + workspace.scaling.size());
+        })
+        .method("set_problem", [](Solver& s, Problem& prob) {
+            s.set_problem(prob);
         })
         .method("get_problem",   &Solver::get_problem)
         // Main solve
