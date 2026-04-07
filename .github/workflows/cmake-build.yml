@@ -1,0 +1,28 @@
+name: CMake Build
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libeigen3-dev nlohmann-json3-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure (Python bindings, no stub generation)
+        run: cmake --preset python -DRCQP_GENERATE_PYI=OFF
+
+      - name: Build
+        run: cmake --build --preset python -- -j$(nproc)
