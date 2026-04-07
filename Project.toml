@@ -1,0 +1,10 @@
+[deps]
+AmplNLReader = "77dd3d4c-cb1d-5e09-9340-85030ff7ba66"
+CxxWrap = "1f15a43c-97ca-5a2a-ae31-89f07a497df4"
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
+MatrixMarket = "4d4711f2-db25-561a-b6b3-d35e7d4047d3"
+NLPModels = "a4795742-8479-5a88-8948-cc11e1c8c1a6"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
