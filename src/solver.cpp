@@ -70,6 +70,11 @@ void Solver::set_problem(Problem& prob) {
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
+
+    // Print solver details
+    if (options.verbosity > 0) {
+        print_solver_details();
+    }
 }
 
 void Solver::initialize_kkt_sparsity() {
@@ -575,7 +580,7 @@ void Solver::ruiz_equilibration(int niter) {
     SMat J_eq_bar = prob->J_eq;
     SMat J_ineq_bar = prob->J_ineq;
     SMat J_comp_bar = prob->J_comp;
-
+    
     const int nz = prob->nz;
     const int n_eq = prob->n_eq;
     const int n_ineq = prob->n_ineq;
@@ -674,4 +679,15 @@ void Solver::ruiz_equilibration(int niter) {
         e_comp = e_comp.cwiseProduct(e_comp_temp);
     }
 
+}
+
+void Solver::print_solver_details() const {
+    std::cout << "Problem dimensions: " << std::endl;
+    std::cout << "  n_primals: " << n_primals << std::endl;
+    std::cout << "  n_duals: " << n_duals << std::endl;
+    std::cout << "  n_vars: " << n_vars << std::endl;
+    std::cout << "  nnz_H: " << prob->cost_hessian.nonZeros() << std::endl;
+    std::cout << "  nnz_J_eq: " << prob->J_eq.nonZeros() << std::endl;
+    std::cout << "  nnz_J_ineq: " << prob->J_ineq.nonZeros() << std::endl;
+    std::cout << "  nnz_J_comp: " << prob->J_comp.nonZeros() << std::endl;
 }

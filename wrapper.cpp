@@ -86,6 +86,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_SETTER(gamma_objective,            double)
         OPTION_SETTER(gamma_constraint,           double)
         OPTION_SETTER(ruiz_iterations,            int)
+        OPTION_SETTER(verbosity,                 int)
         .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; })
         .method("output_dir",  [](Solver::Options& o) { return o.output_dir.string(); });
 
@@ -144,6 +145,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // Solver class bindings
     mod.add_type<Solver>("Solver")
         .constructor()
+        .constructor<const Solver::Options&>()
         .method("retract", [](Solver& solver, jl_VecXd s, double sqrt_relax_param) {
             Vec p = solver.retract(to_eigen(s), sqrt_relax_param);
             return std::vector<double>(p.data(), p.data() + p.size());

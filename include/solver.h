@@ -46,6 +46,8 @@ public:
         double ruiz_iterations{10};
         // Output directory for solution and solve information
         std::filesystem::path output_dir{"/dev/null"};
+        // Verbosity level
+        int verbosity{0};
 
         Options() = default;
     };
@@ -228,6 +230,11 @@ public:
      * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
      */
     bool convergence(const Options &options);
+
+    /**
+     * Print solver details after initialization
+     */
+    void print_solver_details() const;
 
 private:
     // Solver options
