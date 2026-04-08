@@ -13,7 +13,8 @@ def load_problem(path):
 
 def solve_macmpec_lcqp(name):
     data = load_problem(os.path.join(os.path.dirname(__file__), f"../data/macmpec/h5/{name}.h5"))
-
+    logger.info(f"{data['n_eq']} equality constraints, {data['n_ineq']} inequality constraints, {data['n_comp']} complementarity constraints")
+    
     H,      q,      f0     = data["H"],      data["q"],      float(data["f0"].item())
     J_eq,   b_eq           = data["J_eq"],   data["b_eq"]
     J_ineq, b_ineq         = data["J_ineq"], data["b_ineq"]
