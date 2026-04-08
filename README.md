@@ -1,5 +1,5 @@
 # Marble
-[![CMake Build](https://github.com/MarbleSolver/RCQP/actions/workflows/cmake-build.yml/badge.svg?branch=master)](https://github.com/MarbleSolver/RCQP/actions/workflows/cmake-build.yml)
+[![CMake Build](https://github.com/MarbleSolver/RCQP/actions/workflows/cmake-build.yml/badge.svg)](https://github.com/MarbleSolver/RCQP/actions/workflows/cmake-build.yml)
 
 A C++ solver for quadratic programs with linear complementarity constraints, with Python and Julia bindings.
 
