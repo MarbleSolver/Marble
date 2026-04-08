@@ -8,6 +8,7 @@
 #include "filter.h"
 #include <filesystem>
 #include <utility>
+#include "spdlog/spdlog.h"
 
 class Solver {
 public:

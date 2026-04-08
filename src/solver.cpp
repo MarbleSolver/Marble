@@ -682,12 +682,33 @@ void Solver::ruiz_equilibration(int niter) {
 }
 
 void Solver::print_solver_details() const {
-    std::cout << "Problem dimensions: " << std::endl;
-    std::cout << "  n_primals: " << n_primals << std::endl;
-    std::cout << "  n_duals: " << n_duals << std::endl;
-    std::cout << "  n_vars: " << n_vars << std::endl;
-    std::cout << "  nnz_H: " << prob->cost_hessian.nonZeros() << std::endl;
-    std::cout << "  nnz_J_eq: " << prob->J_eq.nonZeros() << std::endl;
-    std::cout << "  nnz_J_ineq: " << prob->J_ineq.nonZeros() << std::endl;
-    std::cout << "  nnz_J_comp: " << prob->J_comp.nonZeros() << std::endl;
+    spdlog::set_pattern("%v");
+
+    spdlog::info("{:=^80}", "");
+    spdlog::info("{:^80}", "MARBLE SOLVER");
+    spdlog::info("{:=^80}", "");
+    spdlog::info("");
+    spdlog::info("PROBLEM STATISTICS");
+    spdlog::info("{:-^80}", "");
+    spdlog::info("{:<28}: {:<12} {:<28}: {}", "Variables (nz)", prob->nz, "Hessian nnz (H)", prob->cost_hessian.nonZeros());
+    spdlog::info("{:<28}: {:<12} {:<28}: {}", "Equalities (n_eq)", prob->n_eq, "Eq Jacobian nnz (J_eq)", prob->J_eq.nonZeros());
+    spdlog::info("{:<28}: {:<12} {:<28}: {}", "Inequalities (n_ineq)", prob->n_ineq, "Ineq Jacobian nnz (J_ineq)", prob->J_ineq.nonZeros());
+    spdlog::info("{:<28}: {:<12} {:<28}: {}", "Complementarities (n_comp)", prob->n_comp, "Comp Jacobian nnz (J_comp)", prob->J_comp.nonZeros());
+    if (options.ruiz_iterations > 0) {
+    spdlog::info("{:<28}: {:1.2e} - {:1.2e}   ", "Scaling vector range", workspace->scaling.minCoeff(), workspace->scaling.maxCoeff());
+    }
+    spdlog::info("");
+    spdlog::info("SOLVER SETTINGS");
+    spdlog::info("{:-^80}", "");
+    spdlog::info("{:<40}   {:<40}", "[Tolerances]", "[Iteration Limits]");
+    spdlog::info("{:<28}: {:<12.0e} {:<28}: {}", "Residual", options.convergence_kkt_norm, "Solve", 1000);
+    spdlog::info("{:<28}: {:<12.0e} {:<28}: {}", "Equality", options.convergence_eq_violation, "Linesearch", 10);
+    spdlog::info("{:<28}: {:<12.0e}", "Inequality", options.convergence_ineq_violation);
+    spdlog::info("{:<28}: {:<12.0e}", "Complementarity", options.convergence_comp_violation);
+    spdlog::info("");
+    spdlog::info("[Algorithm Parameters]");
+    spdlog::info("{:<28}: {:.0e} -> {:.0e}  ({:.1f}x multiplier)", "Penalty Updating", options.penalty_initial, options.penalty_max, options.penalty_scaling);
+    spdlog::info("{:<28}: {:.0e} -> {:.0e}  ({:.1f}x multiplier)", "Relaxation Updating", options.relaxation_initial, options.relaxation_min, options.relaxation_scaling);
+    spdlog::info("{:<28}: {}", "Scaling", options.ruiz_iterations);
+    spdlog::info("{:=^80}", "");
 }

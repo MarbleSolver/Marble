@@ -10,8 +10,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)   # provides Eigen3::Eigen
 find_package(QDLDL)
 find_package(nlohmann_json CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
 
+# Fetch QDLDL if not found
 if(NOT QDLDL_FOUND)
     include(FetchContent)
     FetchContent_Declare(
@@ -30,12 +30,27 @@ if(NOT TARGET qdldl::qdldl)
     endif()
 endif()
 
+# Add JlCxx for Julia bindings
 find_package(JlCxx)
 get_target_property(JlCxx_location JlCxx::cxxwrap_julia LOCATION)
 get_filename_component(JlCxx_location ${JlCxx_location} DIRECTORY)
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib;${JlCxx_location}")
 
 message(STATUS "Found JlCxx at ${JlCxx_location}")
+
+# Fetch a specific version of spdlog to avoid fmt/spdlog compatibility issues
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.12.0 # Or whatever version you prefer
+)
+
+# Make sure spdlog builds its bundled fmt instead of looking for the system one
+set(SPDLOG_FMT_EXTERNAL OFF CACHE BOOL "Use bundled fmt" FORCE)
+
+FetchContent_MakeAvailable(spdlog)
+
+add_definitions(-DSPDLOG_COMPILED_LIB)
 
 # Setup library
 add_library(rcqp SHARED
