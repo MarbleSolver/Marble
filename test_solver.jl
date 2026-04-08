@@ -1,5 +1,5 @@
 using Pkg;
-Pkg.activate(joinpath(@__DIR__))
+Pkg.activate(joinpath(@__DIR__, "../.."))
 using CxxWrap
 using Revise
 using CILogDomain
@@ -8,7 +8,7 @@ using LinearAlgebra
 
 module RCQP
   using CxxWrap
-  @wrapmodule(() -> joinpath(@__DIR__, "submodules/RCQP/build/librcqp_wrapper"))
+  @wrapmodule(() -> joinpath(@__DIR__, "build/librcqp_wrapper"))
 
   function __init__()
     @initcxx

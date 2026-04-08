@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <utility>
 #include "spdlog/spdlog.h"
+#include "fmt/format.h"
 
 class Solver {
 public:
@@ -89,6 +90,15 @@ public:
     // Filter for linesearch
     // TODO: initialize filter with options, should be private member of solver
     std::shared_ptr<Filter> filter;
+
+    // Track iterations
+    int total_iters = 0;
+    int outer_iters = 0;
+    int inner_iters = 0;
+    int ls_iters = 0;
+
+    // Track regularizer for logging
+    double regularizer = 0.0;
 
     Solver() : Solver(Options()) {}
 
@@ -231,6 +241,11 @@ public:
      * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
      */
     bool convergence(const Options &options);
+
+    /**
+     * Print iteration log
+     */
+    void print_iteration_log(bool outer) const;
 
     /**
      * Print solver details after initialization

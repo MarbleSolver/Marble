@@ -406,10 +406,11 @@ bool Solver::solve(const Solver::Options& options) {
 
     workspace->solution.setZero(); // TODO: warm-starting options
 
-    int n_iter_outer = 0;
-    int n_iter_inner = 0;
+    outer_iters = 0;
+    inner_iters = 0;
+    bool outer = false;
 
-    for (int iter = 0; iter < options.max_iters; ++iter) {
+    for (total_iters = 0; total_iters < options.max_iters; ++total_iters) {
         // Compute KKT residual and check convergence
         double sqrt_relaxation_param = sqrt(workspace->relax_param);
         double inv_penalty_param = 1.0 / workspace->penalty_param;
@@ -422,13 +423,15 @@ bool Solver::solve(const Solver::Options& options) {
         }
 
         // Check if we are performing an inner or outer step based on KKT residual norm
+        outer = false;
         if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {            
             // Outer step: update multiplier estimates and increase penalty
-            n_iter_outer++;
+            outer = true;
+            outer_iters++;
             
             // Check if we need to decrease the outer step KKT norm requirement, which is done only if
             // there have been 2 consecutive outer steps without an inner step in between
-            if (iter > 0 && last_outer_step_iter == iter - 1 && workspace->relax_param <= options.relaxation_min) {
+            if (total_iters > 0 && last_outer_step_iter == total_iters - 1 && workspace->relax_param <= options.relaxation_min) {
                 outer_step_kkt_norm_adjustment /= 10.0;
             }
 
@@ -447,16 +450,17 @@ bool Solver::solve(const Solver::Options& options) {
 
             // Clear the filter
             filter->clear();
-            last_outer_step_iter = iter;
+            last_outer_step_iter = total_iters;
         } else {
-            n_iter_inner++;
+            inner_iters++;
             bool linesearch_succeeded = false;
             bool factorization_succeeded = false;
             bool inertia_correction_succeeded = false;
 
             update_KKT_system(sqrt_relaxation_param, inv_penalty_param);
 
-            for (double regularizer : kkt_system_regularizers) {
+            for (double reg : kkt_system_regularizers) {
+                regularizer = reg;
                 update_KKT_primal_regularizer(regularizer);
                 if (!numerical_factorization()) {
                     continue;
@@ -492,14 +496,18 @@ bool Solver::solve(const Solver::Options& options) {
                 throw std::runtime_error("Linesearch failed to find an acceptable point!");
             }
         }
+
+        if (options.verbosity > 0) {
+            print_iteration_log(outer);
+        }
     }
 
     // // Output final solution and solve information to JSON
     // nlohmann::json output_json;
     // output_json["converged"] = converged;
-    // output_json["n_iter_outer"] = n_iter_outer;
-    // output_json["n_iter_inner"] = n_iter_inner;
-    // output_json["n_iter"] = n_iter_outer + n_iter_inner;
+    // output_json["n_iter_outer"] = outer_iters;
+    // output_json["n_iter_inner"] = inner_iters;
+    // output_json["n_iter"] = outer_iters + inner_iters;
     
     // output_json["x_opt"] = std::vector<double>(workspace->z.data(), workspace->z.data() + prob->nz);
     // std::ofstream f(options.output_dir / "output.json");
@@ -551,7 +559,7 @@ bool Solver::filter_linesearch(double sqrt_relax_param, double inv_penalty_param
     // and use those scaled vectors to assembly the feasibility candidates
     // We should also re-use the terms in the bottom half of the KKT residual
     
-    for (int i = 0; i < max_iters; ++i) {
+    for (ls_iters = 0; ls_iters < max_iters; ++ls_iters) {
         // Update constraint residuals from candidate solution
         workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
         workspace->residual_ineq = prob->J_ineq * workspace->z + prob->c_ineq;
@@ -678,8 +686,27 @@ void Solver::ruiz_equilibration(int niter) {
         e_ineq = e_ineq.cwiseProduct(e_ineq_temp);
         e_comp = e_comp.cwiseProduct(e_comp_temp);
     }
-
 }
+
+void Solver::print_iteration_log(bool outer) const {
+    if (outer || total_iters == 0) {
+        spdlog::info("    o i ls  |   pen    rel   | |kkt|_inf   obj    |   |eq|     |ineq|   |comp|  |   reg  ");
+        spdlog::info("------------|----------------|--------------------|-----------------------------|--------");
+        // spdlog::info("  16 225 1  |  1e+06  5e-05  |  5.7e-08  3.2e+01  |  7.2e-08  0.0e+00  9.8e-05  |  0e+00")
+    }
+
+    // Compute values
+    double kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
+    double obj = 0.5 * workspace->z.transpose() * prob->cost_hessian * workspace->z + prob->cost_gradient.dot(workspace->z) + prob->cost_const;
+    double eq_viol = workspace->residual_eq.lpNorm<Eigen::Infinity>();
+    double ineq_viol = std::max(0.0, -workspace->residual_ineq.minCoeff());
+    double comp_viol = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds))).lpNorm<Eigen::Infinity>();
+
+    std::string iters = fmt::format("{} {} {}", outer_iters, inner_iters, ls_iters + 1);
+    spdlog::info("{:>10}  |  {:5.0e}  {:5.0e}  |  {:>7.1e}  {:>7.1e}  |  {:>7.1e}  {:>7.1e}  {:>7.1e}  |  {:5.0e}", 
+            iters, workspace->penalty_param, workspace->relax_param, kkt_norm, obj, eq_viol, ineq_viol, comp_viol, regularizer);
+}
+
 
 void Solver::print_solver_details() const {
     spdlog::set_pattern("%v");
