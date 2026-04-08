@@ -1,0 +1,83 @@
+name: CMake Build
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-python:
+    name: Python bindings
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libeigen3-dev nlohmann-json3-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Configure
+        run: cmake --preset python -DRCQP_GENERATE_PYI=OFF
+
+      - name: Build
+        run: cmake --build --preset python -- -j$(nproc)
+
+  build-julia:
+    name: Julia bindings
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libeigen3-dev nlohmann-json3-dev
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: "1"
+
+      - name: Install CxxWrap.jl
+        run: julia --startup-file=no -e 'using Pkg; Pkg.add("CxxWrap")'
+
+      - name: Configure
+        run: cmake --preset julia
+
+      - name: Build
+        run: cmake --build --preset julia -- -j$(nproc)
+
+  build-all:
+    name: Python + Julia bindings
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libeigen3-dev nlohmann-json3-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: "1"
+
+      - name: Install CxxWrap.jl
+        run: julia --startup-file=no -e 'using Pkg; Pkg.add("CxxWrap")'
+
+      - name: Configure
+        run: cmake --preset all -DRCQP_GENERATE_PYI=OFF
+
+      - name: Build
+        run: cmake --build --preset all -- -j$(nproc)

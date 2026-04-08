@@ -1,0 +1,42 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "python",
+      "displayName": "Python bindings only",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":   "Release",
+        "RCQP_BUILD_PYTHON":  "ON",
+        "RCQP_BUILD_JULIA":   "OFF",
+        "RCQP_GENERATE_PYI":  "ON"
+      }
+    },
+    {
+      "name": "julia",
+      "displayName": "Julia bindings only (requires Julia + CxxWrap.jl)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":   "Release",
+        "RCQP_BUILD_PYTHON":  "OFF",
+        "RCQP_BUILD_JULIA":   "ON"
+      }
+    },
+    {
+      "name": "all",
+      "displayName": "Python + Julia bindings (requires Julia + CxxWrap.jl)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":   "Release",
+        "RCQP_BUILD_PYTHON":  "ON",
+        "RCQP_BUILD_JULIA":   "ON",
+        "RCQP_GENERATE_PYI":  "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "python", "configurePreset": "python" },
+    { "name": "julia",  "configurePreset": "julia"  },
+    { "name": "all",    "configurePreset": "all"    }
+  ]
+}
