@@ -8,6 +8,36 @@ namespace py = pybind11;
 // Helper: copy Eigen::Map<Vec> → Vec so pybind11/eigen can convert to numpy
 static Vec copy_map(const Eigen::Map<Vec>& m) { return Vec(m); }
 
+// Helper: build Eigen sparse matrix from CSC components (0-based indices).
+// colptr has length cols+1, rowval/nzval have length nnz.
+// Accepts numpy arrays of QDLDL_int (long long) for colptr/rowval and double for nzval.
+static SMat csc_to_smat(int rows, int cols,
+                        py::array_t<QDLDL_int> colptr_arr,
+                        py::array_t<QDLDL_int> rowval_arr,
+                        py::array_t<double>    nzval_arr) {
+    int nnz = static_cast<int>(nzval_arr.size());
+    if (nnz == 0) {
+        SMat m(rows, cols);
+        m.makeCompressed();
+        return m;
+    }
+    // Copy index arrays through std::vector to guarantee QDLDL_int storage
+    // independent of the numpy array lifetime.
+    std::vector<QDLDL_int> cp(colptr_arr.data(), colptr_arr.data() + cols + 1);
+    std::vector<QDLDL_int> ri(rowval_arr.data(), rowval_arr.data() + nnz);
+    Eigen::Map<SMat> mapped(rows, cols, nnz, cp.data(), ri.data(),
+                            const_cast<double*>(nzval_arr.data()));
+    SMat result = mapped;
+    result.makeCompressed();
+    return result;
+}
+
+// Helper: convert 1-D numpy float64 array → Eigen VectorXd (copy)
+static Vec arr_to_vec(py::array_t<double> arr) {
+    if (arr.size() == 0) return Vec(0);
+    return Eigen::Map<const Vec>(arr.data(), arr.size());
+}
+
 PYBIND11_MODULE(rcqp, m) {
     m.doc() = "RCQP: constrained optimization solver with complementarity constraints";
 
@@ -45,7 +75,44 @@ PYBIND11_MODULE(rcqp, m) {
         .def_readonly("n_ineq", &Problem::n_ineq)
         .def_readonly("n_comp", &Problem::n_comp)
         .def_property_readonly("cost_gradient", [](const Problem& p) { return p.cost_gradient; })
-        .def_readonly("cost_const", &Problem::cost_const);
+        .def_readonly("cost_const", &Problem::cost_const)
+        // Constraint matrices (returned as scipy-compatible CSC tuple: rows, cols, colptr, rowval, nzval)
+        .def_property_readonly("J_eq",   [](Problem& p) {
+            p.J_eq.makeCompressed();
+            Eigen::VectorXi cp(p.J_eq.outerSize() + 1), rv(p.J_eq.nonZeros()); Vec nz(p.J_eq.nonZeros());
+            std::copy(p.J_eq.outerIndexPtr(), p.J_eq.outerIndexPtr() + p.J_eq.outerSize() + 1, cp.data());
+            std::copy(p.J_eq.innerIndexPtr(), p.J_eq.innerIndexPtr() + p.J_eq.nonZeros(),      rv.data());
+            std::copy(p.J_eq.valuePtr(),      p.J_eq.valuePtr()      + p.J_eq.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.J_eq.rows(), (int)p.J_eq.cols(), cp, rv, nz);
+        })
+        .def_property_readonly("c_eq",   [](const Problem& p) { return p.c_eq; })
+        .def_property_readonly("J_ineq", [](Problem& p) {
+            p.J_ineq.makeCompressed();
+            Eigen::VectorXi cp(p.J_ineq.outerSize() + 1), rv(p.J_ineq.nonZeros()); Vec nz(p.J_ineq.nonZeros());
+            std::copy(p.J_ineq.outerIndexPtr(), p.J_ineq.outerIndexPtr() + p.J_ineq.outerSize() + 1, cp.data());
+            std::copy(p.J_ineq.innerIndexPtr(), p.J_ineq.innerIndexPtr() + p.J_ineq.nonZeros(),      rv.data());
+            std::copy(p.J_ineq.valuePtr(),      p.J_ineq.valuePtr()      + p.J_ineq.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.J_ineq.rows(), (int)p.J_ineq.cols(), cp, rv, nz);
+        })
+        .def_property_readonly("c_ineq", [](const Problem& p) { return p.c_ineq; })
+        .def_property_readonly("J_comp", [](Problem& p) {
+            p.J_comp.makeCompressed();
+            Eigen::VectorXi cp(p.J_comp.outerSize() + 1), rv(p.J_comp.nonZeros()); Vec nz(p.J_comp.nonZeros());
+            std::copy(p.J_comp.outerIndexPtr(), p.J_comp.outerIndexPtr() + p.J_comp.outerSize() + 1, cp.data());
+            std::copy(p.J_comp.innerIndexPtr(), p.J_comp.innerIndexPtr() + p.J_comp.nonZeros(),      rv.data());
+            std::copy(p.J_comp.valuePtr(),      p.J_comp.valuePtr()      + p.J_comp.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.J_comp.rows(), (int)p.J_comp.cols(), cp, rv, nz);
+        })
+        .def_property_readonly("c_comp", [](const Problem& p) { return p.c_comp; })
+        // Cost hessian (same CSC tuple format)
+        .def_property_readonly("cost_hessian", [](Problem& p) {
+            p.cost_hessian.makeCompressed();
+            Eigen::VectorXi cp(p.cost_hessian.outerSize() + 1), rv(p.cost_hessian.nonZeros()); Vec nz(p.cost_hessian.nonZeros());
+            std::copy(p.cost_hessian.outerIndexPtr(), p.cost_hessian.outerIndexPtr() + p.cost_hessian.outerSize() + 1, cp.data());
+            std::copy(p.cost_hessian.innerIndexPtr(), p.cost_hessian.innerIndexPtr() + p.cost_hessian.nonZeros(),      rv.data());
+            std::copy(p.cost_hessian.valuePtr(),      p.cost_hessian.valuePtr()      + p.cost_hessian.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), cp, rv, nz);
+        });
 
     // -------------------------------------------------------------------------
     // Solver::Options

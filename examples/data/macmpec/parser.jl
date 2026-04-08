@@ -2,9 +2,9 @@ using AmplNLReader
 using NLPModels
 using SparseArrays
 using LinearAlgebra
-using MAT
+using HDF5
 
-function problem_data(; nl_path::String)::NamedTuple
+function problem_data(; nl_path::String, dense=false)::NamedTuple
     @assert ispath(nl_path) "File not found: $nl_path"
     name = splitext(basename(nl_path))[1]
 
@@ -94,8 +94,18 @@ function problem_data(; nl_path::String)::NamedTuple
     b_comp_c[1:2:end] .= -meta.lvar[cvar]
     b_comp_c[2:2:end] .= -meta.lcon[comp_inds]
 
+    if dense
+        H_cost = Matrix(H_cost)
+        J_eq_var = Matrix(J_eq_var)
+        J_ineq_var = Matrix(J_ineq_var)
+        J_eq_c = Matrix(J_eq_c)
+        J_ineq_c = Matrix(J_ineq_c)
+        J_comp_c = Matrix(J_comp_c)
+    end
+    
     return (
         name   = name,
+        dense  = dense,
         cost   = (H=H_cost, q=q_cost, f0=f0_cost),
         eq_c   = (J=[J_eq_var; J_eq_c],     b=[b_eq_var; b_eq_c]),
         ineq_c = (J=[J_ineq_var; J_ineq_c], b=[b_ineq_var; b_ineq_c]),
@@ -106,9 +116,30 @@ end
 function save_data(; data::NamedTuple, savedir::String = @__DIR__)
     @assert isdir(savedir) "Directory not found: $savedir"
 
-    # Save data as sparse .mat file
-    matwrite(joinpath(savedir, "$(data.name).mat"), Dict("H" => data.cost.H, "q" => data.cost.q, "f0" => data.cost.f0,
-                                      "J_eq" => data.eq_c.J, "b_eq" => data.eq_c.b,
-                                      "J_ineq" => data.ineq_c.J, "b_ineq" => data.ineq_c.b,
-                                      "J_comp" => data.comp_c.J, "b_comp" => data.comp_c.b))
+    n_eq   = length(data.eq_c.b)
+    n_ineq = length(data.ineq_c.b)
+    n_comp = length(data.comp_c.b) ÷ 2
+    nz     = size(data.cost.q, 1)
+
+    # Always produce a typed Float64 matrix of the expected shape
+    safe_mat(M, rows, cols) = convert(Matrix{Float64},
+        size(M) == (rows, cols) ? Matrix(M) : zeros(Float64, rows, cols))
+    safe_vec(v, n) = convert(Vector{Float64},
+        length(v) == n ? v : zeros(Float64, n))
+
+    h5open(joinpath(savedir, "$(data.name).h5"), "w") do f
+        f["nz"]     = nz
+        f["n_eq"]   = n_eq
+        f["n_ineq"] = n_ineq
+        f["n_comp"] = n_comp
+        f["f0"]     = Float64(data.cost.f0)
+        f["q"]      = safe_vec(data.cost.q, nz)
+        f["b_eq"]   = safe_vec(data.eq_c.b,   n_eq)
+        f["b_ineq"] = safe_vec(data.ineq_c.b, n_ineq)
+        f["b_comp"] = safe_vec(data.comp_c.b, 2 * n_comp)
+        f["H"]      = safe_mat(data.cost.H,   nz,         nz)
+        f["J_eq"]   = safe_mat(data.eq_c.J,   n_eq,       nz)
+        f["J_ineq"] = safe_mat(data.ineq_c.J, n_ineq,     nz)
+        f["J_comp"] = safe_mat(data.comp_c.J, 2 * n_comp, nz)
+    end
 end
