@@ -7,7 +7,7 @@ using SparseArrays
 # ---------------------------------------------------------------------------
 module RCQP
     using CxxWrap
-    @wrapmodule(() -> joinpath(@__DIR__, "build/librcqp_julia"))
+    @wrapmodule(() -> joinpath(@__DIR__, "../build/librcqp_julia"))
     function __init__()
         @initcxx
     end

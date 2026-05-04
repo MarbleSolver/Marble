@@ -103,11 +103,11 @@ if(RCQP_BUILD_PYTHON)
         find_program(PYBIND11_STUBGEN pybind11-stubgen)
         if(PYBIND11_STUBGEN)
             add_custom_command(TARGET rcqp_python POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/typings
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/python/typings
                 COMMAND ${CMAKE_COMMAND} -E env
                         PYTHONPATH=${CMAKE_BINARY_DIR}/python
                         ${PYBIND11_STUBGEN} rcqp
-                        --output-dir ${CMAKE_SOURCE_DIR}/typings
+                        --output-dir ${CMAKE_SOURCE_DIR}/python/typings
                         --numpy-array-remove-parameters
                         --ignore-unresolved-names "^(m|n)$"
                 COMMENT "Generating rcqp.pyi stubs"

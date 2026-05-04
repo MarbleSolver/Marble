@@ -12,7 +12,7 @@ def load_problem(path):
 
 
 def solve_macmpec_lcqp(name):
-    data = load_problem(os.path.join(os.path.dirname(__file__), f"../data/macmpec/h5/{name}.h5"))
+    data = load_problem(os.path.join(os.path.dirname(__file__), f"../../examples/data/macmpec/h5/{name}.h5"))
     logger.info(f"{data['n_eq']} equality constraints, {data['n_ineq']} inequality constraints, {data['n_comp']} complementarity constraints")
     
     H,      q,      f0     = data["H"],      data["q"],      float(data["f0"].item())
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    json_path = os.path.join(os.path.dirname(__file__), "../data/macmpec/macmpec_lcqp.json")
+    json_path = os.path.join(os.path.dirname(__file__), "../../examples/data/macmpec/macmpec_lcqp.json")
     with open(json_path, "r") as f:
         json_data = json.load(f)
 

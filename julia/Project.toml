@@ -1,3 +1,8 @@
+name = "Marble"
+uuid = "b3638fc0-1f6f-44b7-b12a-1e2f3108bdcf"
+authors = ["Arun Bishop <arunbish@andrew.cmu.edu", "Micah Reich <mreich@andrew.cmu.edu>"]
+version = "0.1.0"
+
 [deps]
 AmplNLReader = "77dd3d4c-cb1d-5e09-9340-85030ff7ba66"
 CxxWrap = "1f15a43c-97ca-5a2a-ae31-89f07a497df4"
@@ -9,3 +14,6 @@ MatrixMarket = "4d4711f2-db25-561a-b6b3-d35e7d4047d3"
 NLPModels = "a4795742-8479-5a88-8948-cc11e1c8c1a6"
 NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[compat]
+julia = "1.10"

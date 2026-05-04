@@ -10,6 +10,7 @@ requires-python = ">=3.8"
 dependencies = ["numpy"]
 
 [tool.scikit-build]
+cmake.source-dir = ".."
 cmake.build-type = "Release"
 cmake.args = [
     "-DRCQP_BUILD_PYTHON=ON",

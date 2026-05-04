@@ -21,7 +21,7 @@ julia -e 'using Pkg; Pkg.add("CxxWrap")'
 
 ## Building
 
-The project uses CMake presets defined in `CMakePresets.json`.
+The project uses CMake presets defined in `CMakePresets.json`. Execute the commands below from the root of the repository.
 
 ### Python bindings (default)
 ```bash
