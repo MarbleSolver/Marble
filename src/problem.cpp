@@ -8,7 +8,7 @@ Problem::Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
       J_eq(std::move(J_eq)), c_eq(std::move(c_eq)),
       J_ineq(std::move(J_ineq)), c_ineq(std::move(c_ineq)),
       J_comp(std::move(J_comp)), c_comp(std::move(c_comp)) {
-  cost_hessian_diag = cost_hessian.diagonal();
+  cost_hessian_diag = this->cost_hessian.diagonal();
 };
 
 Problem::Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
@@ -19,5 +19,5 @@ Problem::Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
       J_eq(J_eq.sparseView()), c_eq(std::move(c_eq)),
       J_ineq(J_ineq.sparseView()), c_ineq(std::move(c_ineq)),
       J_comp(J_comp.sparseView()), c_comp(std::move(c_comp)) {
-  cost_hessian_diag = cost_hessian.diagonal();
+  cost_hessian_diag = this->cost_hessian.diagonal();
 };

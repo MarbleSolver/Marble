@@ -43,7 +43,7 @@ public:
         // (filter) Sufficient progress parameter for constraint violation decrease
         double gamma_constraint{1e-5};
         // Number of ruiz iterations for scaling
-        double ruiz_iterations{10};
+        int ruiz_iterations{10};
         // Output directory for solution and solve information
         std::filesystem::path output_dir{"/dev/null"};
 
@@ -149,7 +149,7 @@ public:
     /**
      * Update the KKT terms associated with s_comp and m_comp
      */
-    void update_KKT_comp(const Vec& s_comp, Vec m_comp, double sqrt_relax_param);
+    void update_KKT_comp(const Vec& s_comp, const Vec& m_comp, double sqrt_relax_param);
 
     /**
      * Update the KKT penalty diagonal
@@ -213,7 +213,7 @@ public:
      * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
      * @param inv_penalty_param Inverse of the AL penalty parameter
      * @param max_iters Maximum number of iterations for the linesearch
-     * @warning This function modifies the workspace solution to store the candidate solution, and updates the constraint residuals based on the candidate solution, which are used to evaluate the filter conditions. If the linesearch fails, the workspace solution is left at the last candidate solution evaluated.
+     * @warning This function modifies the workspace solution to store the candidate solution, and updates the constraint residuals based on the candidate solution, which are used to evaluate the filter conditions. If the linesearch fails, the workspace solution is restored to its original value before returning.
      * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
      * @return false Linesearch failed
      */
