@@ -2,7 +2,6 @@ module Marble
     using CxxWrap
     using SparseArrays
     using NLPModels, ADNLPModels
-    using MPCC
     using LinearAlgebra
     using AmplNLReader
     using Preferences
