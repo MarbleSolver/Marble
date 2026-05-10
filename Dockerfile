@@ -1,8 +1,8 @@
-FROM julia:1.10
+FROM julia:1.11
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Compiler toolchain + C++ headers that the RCQP build needs at compile time:
+# Compiler toolchain + C++ headers that the Marble build needs at compile time:
 #   git               — required by CMake FetchContent to clone qdldl at configure time
 #   libeigen3-dev     — linear algebra (matrix/vector types)
 #   nlohmann-json3-dev — JSON (used for solver config/output)
@@ -39,7 +39,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 #   numpy   — runtime dependency for working with the solver in Python
 RUN pip install cmake pybind11 numpy
 
-WORKDIR /rcqp
+WORKDIR /marble
 COPY . .
 
 # Build both the Python and Julia bindings in one pass using the "all" preset
@@ -51,20 +51,20 @@ COPY . .
 #     Equivalent to:
 #       cmake -B build \
 #             -DCMAKE_BUILD_TYPE=Release \
-#             -DRCQP_BUILD_PYTHON=ON \
-#             -DRCQP_BUILD_JULIA=ON \
-#             -DRCQP_GENERATE_PYI=ON
+#             -DMARBLE_BUILD_PYTHON=ON \
+#             -DMARBLE_BUILD_JULIA=ON \
+#             -DMARBLE_GENERATE_PYI=ON
 #
 #   cmake --build --preset all
 #     "build" step: runs the compiler using the files generated above.
 #     Produces:
-#       build/python/rcqp.<cpython-tag>.so  — Python extension module
-#       build/lib/librcqp_julia.so          — Julia shared library
+#       build/python/marble.<cpython-tag>.so  — Python extension module
+#       build/lib/libmarble_julia.so          — Julia shared library
 #
 RUN cmake --preset all && cmake --build --preset all
 
 # Add the directory containing the compiled Python extension to PYTHONPATH
-# so that `import rcqp` works inside the venv without a separate `pip install`.
-ENV PYTHONPATH="/rcqp/build/python"
+# so that `import marble` works inside the venv without a separate `pip install`.
+ENV PYTHONPATH="/marble/build/python"
 
 CMD ["/bin/bash"]

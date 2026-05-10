@@ -9,6 +9,20 @@
 #include <filesystem>
 #include <utility>
 
+struct SolveResult {
+    bool converged;
+    int iterations;
+    int iterations_outer;
+    int iterations_inner;
+    int factorizations;
+    Vec z;
+    Vec s_ineq;
+    Vec s_comp;
+    Vec m_eq;
+    Vec m_ineq;
+    Vec m_comp;
+};
+
 class Solver {
 public:
     struct Options {
@@ -46,6 +60,10 @@ public:
         int ruiz_iterations{10};
         // Output directory for solution and solve information
         std::filesystem::path output_dir{"/dev/null"};
+        // Verbosity level: 0=silent, 1=per-iteration table + footer
+        int verbosity{0};
+        // Print a row every N iterations (only used when verbosity >= 1)
+        int print_every{1};
 
         Options() = default;
     };
@@ -220,9 +238,9 @@ public:
     bool filter_linesearch(const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
 
     /**
-     * Solve the current problem instance 
+     * Solve the current problem instance
      */
-    bool solve(const Options &options);
+    SolveResult solve(const Options &options);
 
     /**
      * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
@@ -232,6 +250,9 @@ public:
 private:
     // Solver options
     const Options options;
+
+    // Counts numerical_factorization() calls; reset at the start of each solve()
+    int n_factorizations{0};
 
     // KKT system regularizers to try in Newton step
     const std::vector<double> kkt_system_regularizers = {

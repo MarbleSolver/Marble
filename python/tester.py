@@ -1,7 +1,7 @@
-import rcqp
+import marble
 import numpy as np
 
-s = rcqp.Solver()
+s = marble.Solver()
 
 # Simple 2-variable unconstrained QP:
 #   min  0.5 * x' * I * x + [1, 2]' * x
@@ -13,7 +13,7 @@ g = np.array([1.0, 2.0])
 J_empty = np.zeros((0, nz))
 c_empty = np.zeros(0)
 
-prob = rcqp.Problem(
+prob = marble.Problem(
     H, g, 0.0,
     J_empty, c_empty,   # equality
     J_empty, c_empty,   # inequality
@@ -22,12 +22,12 @@ prob = rcqp.Problem(
 
 print(f"Problem: nz={prob.nz}, n_eq={prob.n_eq}, n_ineq={prob.n_ineq}, n_comp={prob.n_comp}")
 
-opts = rcqp.SolverOptions()
+opts = marble.SolverOptions()
 opts.max_iters = 500
 opts.convergence_kkt_norm = 1e-6
 print(f"Options: {opts}")
 
-solver = rcqp.Solver(opts)
+solver = marble.Solver(opts)
 solver.set_problem(prob, np.ones(nz))
 
 converged = solver.solve(opts)

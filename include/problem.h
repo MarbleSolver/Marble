@@ -32,19 +32,11 @@ public:
     SMat J_comp;
     Vec c_comp;
 
-    /**
-     * Construct a new Problem given problem data
-     * TODO: support empty variables
-     */
     Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
             SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
-            SMat J_comp, Vec c_comp);
+            SMat L, Vec l, SMat R, Vec r);
 
-    /**
-     * Construct a new Problem given problem data
-     * TODO: support empty variables
-     */
     Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
             Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
-            Mat J_comp, Vec c_comp);
+            Mat L, Vec l, Mat R, Vec r);
 };

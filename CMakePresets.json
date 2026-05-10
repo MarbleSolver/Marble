@@ -7,9 +7,9 @@
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":   "Release",
-        "RCQP_BUILD_PYTHON":  "ON",
-        "RCQP_BUILD_JULIA":   "OFF",
-        "RCQP_GENERATE_PYI":  "ON"
+        "MARBLE_BUILD_PYTHON":  "ON",
+        "MARBLE_BUILD_JULIA":   "OFF",
+        "MARBLE_GENERATE_PYI":  "ON"
       }
     },
     {
@@ -18,8 +18,8 @@
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":   "Release",
-        "RCQP_BUILD_PYTHON":  "OFF",
-        "RCQP_BUILD_JULIA":   "ON"
+        "MARBLE_BUILD_PYTHON":  "OFF",
+        "MARBLE_BUILD_JULIA":   "ON"
       }
     },
     {
@@ -28,9 +28,9 @@
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":   "Release",
-        "RCQP_BUILD_PYTHON":  "ON",
-        "RCQP_BUILD_JULIA":   "ON",
-        "RCQP_GENERATE_PYI":  "ON"
+        "MARBLE_BUILD_PYTHON":  "ON",
+        "MARBLE_BUILD_JULIA":   "ON",
+        "MARBLE_GENERATE_PYI":  "ON"
       }
     }
   ],

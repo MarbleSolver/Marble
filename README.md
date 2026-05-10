@@ -28,7 +28,7 @@ The project uses CMake presets defined in `CMakePresets.json`. Execute the comma
 cmake --preset python
 cmake --build --preset python
 ```
-Output: `build/python/rcqp.cpython-<version>-<platform>.so`
+Output: `build/python/marble.cpython-<version>-<platform>.so`
 
 ### Julia bindings
 ```bash
@@ -37,7 +37,7 @@ cmake --build --preset julia
 ```
 CMake auto-detects JlCxx by calling `julia -e 'using CxxWrap; print(CxxWrap.prefix_path())'`
 
-Output: `build/lib/librcqp_julia.dylib` (macOS) / `build/lib/librcqp_julia.so` (Linux)
+Output: `build/lib/libmarble_julia.dylib` (macOS) / `build/lib/libmarble_julia.so` (Linux)
 
 ### Both
 ```bash
@@ -50,13 +50,13 @@ cmake --build --preset all
 The included `Dockerfile` builds both Python and Julia bindings inside a self-contained image.
 
 ```bash
-docker build -t rcqp .
-docker run -it rcqp
+docker build -t marble .
+docker run -it marble
 ```
 
 Inside the container:
-- `python` uses the venv at `/opt/venv`; `import rcqp` works immediately
-- Julia shared library is at `build/lib/librcqp_julia.so`
+- `python` uses the venv at `/opt/venv`; `import marble` works immediately
+- Julia shared library is at `build/lib/libmarble_julia.so`
 
 ## Python:  pip install (editable)
 
@@ -76,12 +76,12 @@ sudo apt install cmake libeigen3-dev nlohmann-json3-dev
 pip install scikit-build-core pybind11
 ```
 
-**3. Install rcqp:**
+**3. Install marble:**
 ```bash
 pip install -e . --no-build-isolation
 ```
 
-After this, `import rcqp` works from anywhere in that environment.
+After this, `import marble` works from anywhere in that environment.
 
 ## Python:  usage without installing
 
@@ -91,15 +91,15 @@ import sys
 from pathlib import Path
 
 # Insert the path to the `build` directory in PYTHONPATH
-path_to_rcqp = ...
-sys.path.insert(0, str(path_to_rcqp / "build" / "python"))
+path_to_marble = ...
+sys.path.insert(0, str(path_to_marble / "build" / "python"))
 
-import rcqp
+import marble
 ```
 
 ## VSCode: Python autocomplete
 
-Autocomplete and type-checking are driven by the `.pyi` stubs in `typings/`, which are regenerated automatically each time you build `rcqp_python` (requires `pybind11-stubgen`).
+Autocomplete and type-checking are driven by the `.pyi` stubs in `typings/`, which are regenerated automatically each time you build `marble_python` (requires `pybind11-stubgen`).
 
 Two config files in this repo wire everything up for VSCode automatically:
 
@@ -120,7 +120,7 @@ Install the **Pylance** extension in VSCode (`ms-python.vscode-pylance`). It pic
 
 If stubs are stale or missing, rebuild:
 ```bash
-cmake --build --preset python --target rcqp_python
+cmake --build --preset python --target marble_python
 ```
 
 If `pybind11-stubgen` is not installed, CMake will warn but the build still succeeds. Ensure `pybind11-stubgen` is installed with:

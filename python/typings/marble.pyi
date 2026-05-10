@@ -1,11 +1,11 @@
 """
-RCQP: constrained optimization solver with complementarity constraints
+Marble: constrained optimization solver with complementarity constraints
 """
 from __future__ import annotations
 import numpy
 import scipy.sparse
 import typing
-__all__: list[str] = ['Filter', 'FilterEntry', 'Problem', 'Solver', 'SolverOptions', 'Workspace']
+__all__: list[str] = ['Filter', 'FilterEntry', 'Problem', 'SolveResult', 'Solver', 'SolverOptions', 'Workspace']
 class Filter:
     @typing.overload
     def __init__(self) -> None:
@@ -40,10 +40,10 @@ class FilterEntry:
         ...
 class Problem:
     @typing.overload
-    def __init__(self, cost_hessian: numpy.ndarray, cost_gradient: numpy.ndarray, cost_const: float, J_eq: numpy.ndarray, c_eq: numpy.ndarray, J_ineq: numpy.ndarray, c_ineq: numpy.ndarray, J_comp: numpy.ndarray, c_comp: numpy.ndarray) -> None:
+    def __init__(self, cost_hessian: numpy.ndarray, cost_gradient: numpy.ndarray, cost_const: float, J_eq: numpy.ndarray, c_eq: numpy.ndarray, J_ineq: numpy.ndarray, c_ineq: numpy.ndarray, L: numpy.ndarray, l: numpy.ndarray, R: numpy.ndarray, r: numpy.ndarray) -> None:
         ...
     @typing.overload
-    def __init__(self, cost_hessian: scipy.sparse.csc_matrix, cost_gradient: numpy.ndarray, cost_const: float, J_eq: scipy.sparse.csc_matrix, c_eq: numpy.ndarray, J_ineq: scipy.sparse.csc_matrix, c_ineq: numpy.ndarray, J_comp: scipy.sparse.csc_matrix, c_comp: numpy.ndarray) -> None:
+    def __init__(self, cost_hessian: scipy.sparse.csc_matrix, cost_gradient: numpy.ndarray, cost_const: float, J_eq: scipy.sparse.csc_matrix, c_eq: numpy.ndarray, J_ineq: scipy.sparse.csc_matrix, c_ineq: numpy.ndarray, L: scipy.sparse.csc_matrix, l: numpy.ndarray, R: scipy.sparse.csc_matrix, r: numpy.ndarray) -> None:
         ...
     @property
     def J_comp(self) -> tuple:
@@ -83,6 +83,42 @@ class Problem:
         ...
     @property
     def nz(self) -> int:
+        ...
+class SolveResult:
+    def __repr__(self) -> str:
+        ...
+    @property
+    def converged(self) -> bool:
+        ...
+    @property
+    def factorizations(self) -> int:
+        ...
+    @property
+    def iterations(self) -> int:
+        ...
+    @property
+    def iterations_inner(self) -> int:
+        ...
+    @property
+    def iterations_outer(self) -> int:
+        ...
+    @property
+    def m_comp(self) -> numpy.ndarray:
+        ...
+    @property
+    def m_eq(self) -> numpy.ndarray:
+        ...
+    @property
+    def m_ineq(self) -> numpy.ndarray:
+        ...
+    @property
+    def s_comp(self) -> numpy.ndarray:
+        ...
+    @property
+    def s_ineq(self) -> numpy.ndarray:
+        ...
+    @property
+    def z(self) -> numpy.ndarray:
         ...
 class Solver:
     @typing.overload
@@ -125,7 +161,7 @@ class Solver:
         ...
     def set_problem(self, problem: Problem) -> None:
         ...
-    def solve(self, options: SolverOptions) -> bool:
+    def solve(self, options: SolverOptions) -> SolveResult:
         ...
     def update_KKT_comp(self, s_comp: numpy.ndarray, m_comp: numpy.ndarray, sqrt_relax_param: float) -> None:
         ...
@@ -201,10 +237,12 @@ class SolverOptions:
     penalty_initial: float
     penalty_max: float
     penalty_scaling: float
+    print_every: int
     relaxation_initial: float
     relaxation_min: float
     relaxation_scaling: float
-    ruiz_iterations: float
+    ruiz_iterations: int
+    verbosity: int
     def __init__(self) -> None:
         ...
     def __repr__(self) -> str:

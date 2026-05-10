@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Configure
-        run: cmake --preset python -DRCQP_GENERATE_PYI=OFF
+        run: cmake --preset python -DMARBLE_GENERATE_PYI=OFF
 
       - name: Build
         run: cmake --build --preset python -- -j$(nproc)
@@ -77,7 +77,7 @@ jobs:
         run: julia --startup-file=no -e 'using Pkg; Pkg.add("CxxWrap")'
 
       - name: Configure
-        run: cmake --preset all -DRCQP_GENERATE_PYI=OFF
+        run: cmake --preset all -DMARBLE_GENERATE_PYI=OFF
 
       - name: Build
         run: cmake --build --preset all -- -j$(nproc)

@@ -38,8 +38,8 @@ static Vec arr_to_vec(py::array_t<double> arr) {
     return Eigen::Map<const Vec>(arr.data(), arr.size());
 }
 
-PYBIND11_MODULE(rcqp, m) {
-    m.doc() = "RCQP: constrained optimization solver with complementarity constraints";
+PYBIND11_MODULE(marble, m) {
+    m.doc() = "Marble: constrained optimization solver with complementarity constraints";
 
     // -------------------------------------------------------------------------
     // Problem
@@ -49,27 +49,31 @@ PYBIND11_MODULE(rcqp, m) {
         .def(py::init([](const Mat& cost_hessian, const Vec& cost_gradient, double cost_const,
                          const Mat& J_eq,   const Vec& c_eq,
                          const Mat& J_ineq, const Vec& c_ineq,
-                         const Mat& J_comp, const Vec& c_comp) {
+                         const Mat& L,      const Vec& l,
+                         const Mat& R,      const Vec& r) {
                  return new Problem(cost_hessian, cost_gradient, cost_const,
-                                    J_eq, c_eq, J_ineq, c_ineq, J_comp, c_comp);
+                                    J_eq, c_eq, J_ineq, c_ineq, L, l, R, r);
              }),
              py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
              py::arg("J_eq"),   py::arg("c_eq"),
              py::arg("J_ineq"), py::arg("c_ineq"),
-             py::arg("J_comp"), py::arg("c_comp"))
+             py::arg("L"), py::arg("l"),
+             py::arg("R"), py::arg("r"))
         // Sparse constructor – accepts Eigen::SparseMatrix which pybind11 converts
         // from scipy.sparse.csc_matrix automatically
         .def(py::init([](const SMat& cost_hessian, const Vec& cost_gradient, double cost_const,
                          const SMat& J_eq,   const Vec& c_eq,
                          const SMat& J_ineq, const Vec& c_ineq,
-                         const SMat& J_comp, const Vec& c_comp) {
+                         const SMat& L,      const Vec& l,
+                         const SMat& R,      const Vec& r) {
                  return new Problem(cost_hessian, cost_gradient, cost_const,
-                                    J_eq, c_eq, J_ineq, c_ineq, J_comp, c_comp);
+                                    J_eq, c_eq, J_ineq, c_ineq, L, l, R, r);
              }),
              py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
              py::arg("J_eq"),   py::arg("c_eq"),
              py::arg("J_ineq"), py::arg("c_ineq"),
-             py::arg("J_comp"), py::arg("c_comp"))
+             py::arg("L"), py::arg("l"),
+             py::arg("R"), py::arg("r"))
         .def_readonly("nz",     &Problem::nz)
         .def_readonly("n_eq",   &Problem::n_eq)
         .def_readonly("n_ineq", &Problem::n_ineq)
@@ -115,6 +119,27 @@ PYBIND11_MODULE(rcqp, m) {
         });
 
     // -------------------------------------------------------------------------
+    // SolveResult
+    // -------------------------------------------------------------------------
+    py::class_<SolveResult>(m, "SolveResult")
+        .def_readonly("converged",         &SolveResult::converged)
+        .def_readonly("iterations",        &SolveResult::iterations)
+        .def_readonly("iterations_outer",  &SolveResult::iterations_outer)
+        .def_readonly("iterations_inner",  &SolveResult::iterations_inner)
+        .def_readonly("factorizations",    &SolveResult::factorizations)
+        .def_property_readonly("z",        [](const SolveResult& r) { return r.z; })
+        .def_property_readonly("s_ineq",   [](const SolveResult& r) { return r.s_ineq; })
+        .def_property_readonly("s_comp",   [](const SolveResult& r) { return r.s_comp; })
+        .def_property_readonly("m_eq",     [](const SolveResult& r) { return r.m_eq; })
+        .def_property_readonly("m_ineq",   [](const SolveResult& r) { return r.m_ineq; })
+        .def_property_readonly("m_comp",   [](const SolveResult& r) { return r.m_comp; })
+        .def("__repr__", [](const SolveResult& r) {
+            return "<SolveResult converged=" + std::string(r.converged ? "True" : "False")
+                 + " iterations=" + std::to_string(r.iterations)
+                 + " factorizations=" + std::to_string(r.factorizations) + ">";
+        });
+
+    // -------------------------------------------------------------------------
     // Solver::Options
     // -------------------------------------------------------------------------
     py::class_<Solver::Options>(m, "SolverOptions")
@@ -135,6 +160,8 @@ PYBIND11_MODULE(rcqp, m) {
         .def_readwrite("gamma_objective",            &Solver::Options::gamma_objective)
         .def_readwrite("gamma_constraint",           &Solver::Options::gamma_constraint)
         .def_readwrite("ruiz_iterations",            &Solver::Options::ruiz_iterations)
+        .def_readwrite("verbosity",                  &Solver::Options::verbosity)
+        .def_readwrite("print_every",                &Solver::Options::print_every)
         .def_property("output_dir",
             [](const Solver::Options& o) { return o.output_dir.string(); },
             [](Solver::Options& o, const std::string& v) { o.output_dir = v; })

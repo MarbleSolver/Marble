@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)  # 3.28 needed for EXCLUDE_FROM_ALL in FetchContent_Declare
 
-project(rcqp LANGUAGES C CXX)
+project(marble LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,9 +12,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---------------------------------------------------------------------------
 # Build options
 # ---------------------------------------------------------------------------
-option(RCQP_BUILD_PYTHON  "Build Python bindings"                   ON)
-option(RCQP_BUILD_JULIA   "Build Julia bindings"                    ON)
-option(RCQP_GENERATE_PYI  "Generate .pyi stubs via pybind11-stubgen" ON)
+option(MARBLE_BUILD_PYTHON  "Build Python bindings"                   ON)
+option(MARBLE_BUILD_JULIA   "Build Julia bindings"                    ON)
+option(MARBLE_GENERATE_PYI  "Generate .pyi stubs via pybind11-stubgen" ON)
 
 # ---------------------------------------------------------------------------
 # Output directories  (keeps build/ tidy)
@@ -50,15 +50,15 @@ if(NOT qdldl_FOUND)
 endif()
 
 # Normalise QDLDL to a single interface target regardless of how it was found
-add_library(rcqp_qdldl INTERFACE)
+add_library(marble_qdldl INTERFACE)
 if(TARGET qdldl::qdldlstatic)
-    target_link_libraries(rcqp_qdldl INTERFACE qdldl::qdldlstatic)
+    target_link_libraries(marble_qdldl INTERFACE qdldl::qdldlstatic)
 elseif(TARGET qdldl::qdldl)
-    target_link_libraries(rcqp_qdldl INTERFACE qdldl::qdldl)
+    target_link_libraries(marble_qdldl INTERFACE qdldl::qdldl)
 elseif(TARGET qdldlstatic)
-    target_link_libraries(rcqp_qdldl INTERFACE qdldlstatic)
+    target_link_libraries(marble_qdldl INTERFACE qdldlstatic)
 elseif(TARGET qdldl)
-    target_link_libraries(rcqp_qdldl INTERFACE qdldl)
+    target_link_libraries(marble_qdldl INTERFACE qdldl)
 else()
     message(FATAL_ERROR "Could not find a usable QDLDL target")
 endif()
@@ -66,19 +66,19 @@ endif()
 # ---------------------------------------------------------------------------
 # Core library  (static → gets bundled into each wrapper, no rpath issues)
 # ---------------------------------------------------------------------------
-add_library(rcqp STATIC
+add_library(marble STATIC
     src/solver.cpp
     src/problem.cpp
     src/workspace.cpp
     src/filter.cpp
 )
-target_include_directories(rcqp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(rcqp PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json rcqp_qdldl)
+target_include_directories(marble PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(marble PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json marble_qdldl)
 
 # ---------------------------------------------------------------------------
-# Python bindings  (cmake -DRCQP_BUILD_PYTHON=ON  — default ON)
+# Python bindings  (cmake -DMARBLE_BUILD_PYTHON=ON  — default ON)
 # ---------------------------------------------------------------------------
-if(RCQP_BUILD_PYTHON)
+if(MARBLE_BUILD_PYTHON)
     find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
     find_package(pybind11 CONFIG QUIET)
@@ -91,26 +91,26 @@ if(RCQP_BUILD_PYTHON)
         FetchContent_MakeAvailable(pybind11)
     endif()
 
-    pybind11_add_module(rcqp_python MODULE bindings/python_bindings.cpp)
-    target_link_libraries(rcqp_python PRIVATE rcqp)
-    set_target_properties(rcqp_python PROPERTIES
-        OUTPUT_NAME            rcqp
+    pybind11_add_module(marble_python MODULE bindings/python_bindings.cpp)
+    target_link_libraries(marble_python PRIVATE marble)
+    set_target_properties(marble_python PROPERTIES
+        OUTPUT_NAME            marble
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python
     )
 
     # .pyi stub generation (for VSCode / Pylance autocomplete)
-    if(RCQP_GENERATE_PYI)
+    if(MARBLE_GENERATE_PYI)
         find_program(PYBIND11_STUBGEN pybind11-stubgen)
         if(PYBIND11_STUBGEN)
-            add_custom_command(TARGET rcqp_python POST_BUILD
+            add_custom_command(TARGET marble_python POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/python/typings
                 COMMAND ${CMAKE_COMMAND} -E env
                         PYTHONPATH=${CMAKE_BINARY_DIR}/python
-                        ${PYBIND11_STUBGEN} rcqp
+                        ${PYBIND11_STUBGEN} marble
                         --output-dir ${CMAKE_SOURCE_DIR}/python/typings
                         --numpy-array-remove-parameters
                         --ignore-unresolved-names "^(m|n)$"
-                COMMENT "Generating rcqp.pyi stubs"
+                COMMENT "Generating marble.pyi stubs"
                 VERBATIM
             )
         else()
@@ -120,13 +120,13 @@ if(RCQP_BUILD_PYTHON)
         endif()
     endif()
 
-    install(TARGETS rcqp_python LIBRARY DESTINATION .)
+    install(TARGETS marble_python LIBRARY DESTINATION .)
 endif()
 
 # ---------------------------------------------------------------------------
-# Julia bindings  (cmake -DRCQP_BUILD_JULIA=ON)
+# Julia bindings  (cmake -DMARBLE_BUILD_JULIA=ON)
 # ---------------------------------------------------------------------------
-if(RCQP_BUILD_JULIA)
+if(MARBLE_BUILD_JULIA)
     # Auto-detect JlCxx prefix by asking Julia where CxxWrap installed it.
     # This works on any machine that has Julia + CxxWrap.jl without any
     # hardcoded paths. Users can still override with -DJlCxx_DIR=<path>.
@@ -158,9 +158,9 @@ if(RCQP_BUILD_JULIA)
     endif()
 
     find_package(JlCxx REQUIRED)
-    add_library(rcqp_julia SHARED bindings/julia_bindings.cpp)
-    target_link_libraries(rcqp_julia PRIVATE rcqp JlCxx::cxxwrap_julia)
-    set_target_properties(rcqp_julia PROPERTIES
+    add_library(marble_julia SHARED bindings/julia_bindings.cpp)
+    target_link_libraries(marble_julia PRIVATE marble JlCxx::cxxwrap_julia)
+    set_target_properties(marble_julia PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
     )
 endif()

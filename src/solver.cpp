@@ -1,11 +1,53 @@
 #include "solver.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <cstdio>
+#include <cmath>
 
 namespace {
     Eigen::VectorXi safe_linspaced(int n, int start) {
         if (n == 0) return Eigen::VectorXi(0);
         return Eigen::VectorXi::LinSpaced(n, start, start + n - 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // IPOPT-style printing helpers
+    // -------------------------------------------------------------------------
+    static const int COL_HEADER_REPRINT = 25;  // reprint column headers every N rows
+
+    static void print_col_header() {
+        printf("%5s  %-5s  %7s  %7s  %12s  %12s  %12s  %12s  %12s\n",
+               "iter", "type", "lg(ρ)", "lg(κ)",
+               "||kkt||", "||eq||", "||ineq||", "||comp||", "obj");
+        printf("%s\n", std::string(100, '-').c_str());
+    }
+
+    static void print_solve_header(int nz, int n_eq, int n_ineq, int n_comp) {
+        printf("\nMarble Solver  [nz=%d, n_eq=%d, n_ineq=%d, n_comp=%d]\n\n",
+               nz, n_eq, n_ineq, n_comp);
+        print_col_header();
+    }
+
+    static void print_iter_row(int iter, const char* type,
+                               double penalty, double relax,
+                               double kkt, double eq_vio, double ineq_vio,
+                               double comp_vio, double obj) {
+        printf("%5d  %-5s  %7.1f  %7.1f  %12.3e  %12.3e  %12.3e  %12.3e  %12.3e\n",
+               iter, type,
+               std::log10(penalty), std::log10(relax),
+               kkt, eq_vio, ineq_vio, comp_vio, obj);
+        std::fflush(stdout);
+    }
+
+    static void print_solve_footer(bool converged, int n_outer, int n_inner, int n_fact,
+                                   double kkt, double eq_vio, double ineq_vio,
+                                   double comp_vio, double obj) {
+        printf("\nSolver %-20s  %d iters (%d outer, %d inner),  %d factorizations.\n",
+               converged ? "CONVERGED" : "MAX ITERS REACHED",
+               n_outer + n_inner, n_outer, n_inner, n_fact);
+        printf("Final  ||kkt||=%.2e  ||eq||=%.2e  ||ineq||=%.2e  ||comp||=%.2e  obj=%.6e\n\n",
+               kkt, eq_vio, ineq_vio, comp_vio, obj);
+        std::fflush(stdout);
     }
 }
 
@@ -338,13 +380,14 @@ bool Solver::numerical_factorization() {
     QDLDL_int factor_status = QDLDL_factor(n_vars, Ap, Ai, Ax,
                         workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
                         workspace->D.data(), workspace->Dinv.data(), workspace->Lnz.data(),
-                        workspace->etree.data(), 
+                        workspace->etree.data(),
                         workspace->bwork.data(), workspace->iwork.data(), workspace->fwork.data());
 
     // Check factor_status TODO: return/use
     if (factor_status == -1) {
         return false;
     }
+    ++n_factorizations;
     return true;
 }
 
@@ -392,8 +435,9 @@ bool Solver::convergence(const Solver::Options& options) {
            ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
 }
 
-bool Solver::solve(const Solver::Options& options) {
+SolveResult Solver::solve(const Solver::Options& options) {
     bool converged = false;
+    n_factorizations = 0;
 
     workspace->relax_param = options.relaxation_initial;
     workspace->penalty_param = options.penalty_initial;
@@ -406,6 +450,28 @@ bool Solver::solve(const Solver::Options& options) {
     int n_iter_outer = 0;
     int n_iter_inner = 0;
 
+    const bool verbose = options.verbosity >= 1;
+    const char* last_step_type = "---";
+    int rows_printed = 0;
+
+    if (verbose) {
+        print_solve_header(prob->nz, prob->n_eq, prob->n_ineq, prob->n_comp);
+    }
+
+    auto compute_metrics = [&]() {
+        double kkt     = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
+        double eq_vio  = prob->n_eq   > 0 ? workspace->residual_eq.lpNorm<Eigen::Infinity>() : 0.0;
+        double ineq_vio= prob->n_ineq > 0 ? workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>() : 0.0;
+        double comp_vio= prob->n_comp > 0
+            ? (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
+                .lpNorm<Eigen::Infinity>()
+            : 0.0;
+        double obj = 0.5 * workspace->z.dot(prob->cost_hessian * workspace->z)
+                   + prob->cost_gradient.dot(workspace->z)
+                   + prob->cost_const;
+        return std::make_tuple(kkt, eq_vio, ineq_vio, comp_vio, obj);
+    };
+
     for (int iter = 0; iter < options.max_iters; ++iter) {
         // Compute KKT residual and check convergence
         double sqrt_relaxation_param = sqrt(workspace->relax_param);
@@ -413,16 +479,28 @@ bool Solver::solve(const Solver::Options& options) {
 
         update_KKT_residual(sqrt_relaxation_param, inv_penalty_param);
 
+        if (verbose && iter % options.print_every == 0) {
+            if (rows_printed > 0 && rows_printed % COL_HEADER_REPRINT == 0) {
+                print_col_header();
+            }
+            auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
+            print_iter_row(iter, last_step_type,
+                           workspace->penalty_param, workspace->relax_param,
+                           kkt, eq_vio, ineq_vio, comp_vio, obj);
+            ++rows_printed;
+        }
+
         if (convergence(options)) {
             converged = true;
             break;
         }
 
         // Check if we are performing an inner or outer step based on KKT residual norm
-        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {            
+        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {
             // Outer step: update multiplier estimates and increase penalty
             n_iter_outer++;
-            
+            last_step_type = "O";
+
             // Check if we need to decrease the outer step KKT norm requirement, which is done only if
             // there have been 2 consecutive outer steps without an inner step in between
             if (iter > 0 && last_outer_step_iter == iter - 1 && workspace->relax_param <= options.relaxation_min) {
@@ -447,6 +525,7 @@ bool Solver::solve(const Solver::Options& options) {
             last_outer_step_iter = iter;
         } else {
             n_iter_inner++;
+            last_step_type = "I";
             bool linesearch_succeeded = false;
             bool factorization_succeeded = false;
             bool inertia_correction_succeeded = false;
@@ -491,18 +570,28 @@ bool Solver::solve(const Solver::Options& options) {
         }
     }
 
-    // // Output final solution and solve information to JSON
-    // nlohmann::json output_json;
-    // output_json["converged"] = converged;
-    // output_json["n_iter_outer"] = n_iter_outer;
-    // output_json["n_iter_inner"] = n_iter_inner;
-    // output_json["n_iter"] = n_iter_outer + n_iter_inner;
-    
-    // output_json["x_opt"] = std::vector<double>(workspace->z.data(), workspace->z.data() + prob->nz);
-    // std::ofstream f(options.output_dir / "output.json");
-    // f << output_json.dump(4);
+    if (verbose) {
+        double sqrt_relax = sqrt(workspace->relax_param);
+        double inv_pen    = 1.0 / workspace->penalty_param;
+        update_KKT_residual(sqrt_relax, inv_pen);
+        auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
+        print_solve_footer(converged, n_iter_outer, n_iter_inner, n_factorizations,
+                           kkt, eq_vio, ineq_vio, comp_vio, obj);
+    }
 
-    return converged;
+    return SolveResult{
+        converged,
+        n_iter_outer + n_iter_inner,
+        n_iter_outer,
+        n_iter_inner,
+        n_factorizations,
+        Vec(workspace->z),
+        Vec(workspace->s_ineq),
+        Vec(workspace->s_comp),
+        Vec(workspace->m_eq),
+        Vec(workspace->m_ineq),
+        Vec(workspace->m_comp),
+    };
 }
 
 // TODO: is maybe weird that this is part of Solver and not Filter... but need access to the workspace and problem

@@ -1,6 +1,6 @@
 import h5py
 import numpy as np
-import rcqp
+import marble
 import json
 import logging
 import os
@@ -22,13 +22,13 @@ def solve_macmpec_lcqp(name):
 
     obj = lambda z: 0.5 * z.T @ H @ z + q.T @ z + f0
 
-    solver  = rcqp.Solver()
-    problem = rcqp.Problem(H, q, f0,
+    solver  = marble.Solver()
+    problem = marble.Problem(H, q, f0,
                            J_eq,   b_eq,
                            J_ineq, b_ineq,
                            J_comp, b_comp)
     solver.set_problem(problem)
-    assert solver.solve(rcqp.SolverOptions()), "Failed to solve problem"
+    assert solver.solve(marble.SolverOptions()), "Failed to solve problem"
 
     logger.info(f"\tObjective value: {obj(solver.get_workspace().z)}")
 

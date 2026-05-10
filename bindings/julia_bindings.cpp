@@ -2,10 +2,11 @@
 #include "solver.h"
 #include <cmath>
 
-// Filter::Entry is a plain struct; tell CxxWrap not to treat it as a mirrored type
-// so we can register it with add_type and attach methods to it.
+// Plain structs: tell CxxWrap not to treat them as mirrored types
+// so we can register them with add_type and attach methods.
 namespace jlcxx {
     template<> struct IsMirroredType<Filter::Entry> : std::false_type {};
+    template<> struct IsMirroredType<SolveResult>  : std::false_type {};
 }
 
 // ---------------------------------------------------------------------------
@@ -72,16 +73,18 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
                         double cost_const,
                         jlcxx::ArrayRef<double, 2> J_eq,   jlcxx::ArrayRef<double, 1> c_eq,
                         jlcxx::ArrayRef<double, 2> J_ineq, jlcxx::ArrayRef<double, 1> c_ineq,
-                        jlcxx::ArrayRef<double, 2> J_comp, jlcxx::ArrayRef<double, 1> c_comp) {
+                        jlcxx::ArrayRef<double, 2> L,      jlcxx::ArrayRef<double, 1> l,
+                        jlcxx::ArrayRef<double, 2> R,      jlcxx::ArrayRef<double, 1> r) {
             int nz     = cost_gradient.size();
             int n_eq   = c_eq.size();
             int n_ineq = c_ineq.size();
-            int n_comp = c_comp.size();
+            int n_comp = l.size();
             return new Problem(
                 to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient), cost_const,
                 to_eigen(J_eq,   n_eq,   nz),   to_eigen(c_eq),
                 to_eigen(J_ineq, n_ineq, nz),   to_eigen(c_ineq),
-                to_eigen(J_comp, n_comp, nz),   to_eigen(c_comp));
+                to_eigen(L, n_comp, nz),         to_eigen(l),
+                to_eigen(R, n_comp, nz),         to_eigen(r));
         })
         // Sparse constructor: accepts SparseMatrixCSC components from Julia.
         // For each sparse matrix pass (colptr, rowval, nzval) from the Julia struct.
@@ -91,7 +94,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         //           H.colptr, H.rowval, H.nzval, q, cost_const,
         //           n_eq,   J_eq.colptr,   J_eq.rowval,   J_eq.nzval,   c_eq,
         //           n_ineq, J_ineq.colptr, J_ineq.rowval, J_ineq.nzval, c_ineq,
-        //           n_comp, J_comp.colptr, J_comp.rowval, J_comp.nzval, c_comp)
+        //           n_comp, L.colptr, L.rowval, L.nzval, l,
+        //                   R.colptr, R.rowval, R.nzval, r)
         .constructor([](int nz,
                         jlcxx::ArrayRef<int64_t,1> Hcp,  jlcxx::ArrayRef<int64_t,1> Hrv,  jlcxx::ArrayRef<double,1> Hnz,
                         jlcxx::ArrayRef<double,1> grad, double cost_const,
@@ -102,13 +106,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
                         jlcxx::ArrayRef<int64_t,1> Icp,  jlcxx::ArrayRef<int64_t,1> Irv,  jlcxx::ArrayRef<double,1> Inz,
                         jlcxx::ArrayRef<double,1> c_ineq,
                         int n_comp,
-                        jlcxx::ArrayRef<int64_t,1> Ccp,  jlcxx::ArrayRef<int64_t,1> Crv,  jlcxx::ArrayRef<double,1> Cnz,
-                        jlcxx::ArrayRef<double,1> c_comp) {
+                        jlcxx::ArrayRef<int64_t,1> Lcp,  jlcxx::ArrayRef<int64_t,1> Lrv,  jlcxx::ArrayRef<double,1> Lnz,
+                        jlcxx::ArrayRef<double,1> l,
+                        jlcxx::ArrayRef<int64_t,1> Rcp,  jlcxx::ArrayRef<int64_t,1> Rrv,  jlcxx::ArrayRef<double,1> Rnz,
+                        jlcxx::ArrayRef<double,1> r) {
             return new Problem(
                 csc_to_smat(nz,     nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
                 csc_to_smat(n_eq,   nz, Ecp, Erv, Enz), to_eigen(c_eq),
                 csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
-                csc_to_smat(n_comp, nz, Ccp, Crv, Cnz), to_eigen(c_comp));
+                csc_to_smat(n_comp, nz, Lcp, Lrv, Lnz), to_eigen(l),
+                csc_to_smat(n_comp, nz, Rcp, Rrv, Rnz), to_eigen(r));
         })
         .method("nz",     [](const Problem& p) { return p.nz; })
         .method("n_eq",   [](const Problem& p) { return p.n_eq; })
@@ -140,6 +147,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(gamma_objective,            double)
         OPTION_RW(gamma_constraint,           double)
         OPTION_RW(ruiz_iterations,            int)
+        OPTION_RW(verbosity,                  int)
+        OPTION_RW(print_every,                int)
         .method("output_dir",  [](const Solver::Options& o) { return o.output_dir.string(); })
         .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; });
 
@@ -232,6 +241,22 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("amd_perm_vec", [](Workspace& w) { return to_julia(w.amd_perm_vec); })
         .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); })
         .method("scaling", [](Workspace& w) { return to_julia(w.scaling); });
+
+    // -----------------------------------------------------------------------
+    // SolveResult
+    // -----------------------------------------------------------------------
+    mod.add_type<SolveResult>("SolveResult")
+        .method("converged",        [](const SolveResult& r) { return r.converged; })
+        .method("iterations",       [](const SolveResult& r) { return r.iterations; })
+        .method("iterations_outer", [](const SolveResult& r) { return r.iterations_outer; })
+        .method("iterations_inner", [](const SolveResult& r) { return r.iterations_inner; })
+        .method("factorizations",   [](const SolveResult& r) { return r.factorizations; })
+        .method("z",      [](SolveResult& r) { return to_julia(r.z); })
+        .method("s_ineq", [](SolveResult& r) { return to_julia(r.s_ineq); })
+        .method("s_comp", [](SolveResult& r) { return to_julia(r.s_comp); })
+        .method("m_eq",   [](SolveResult& r) { return to_julia(r.m_eq); })
+        .method("m_ineq", [](SolveResult& r) { return to_julia(r.m_ineq); })
+        .method("m_comp", [](SolveResult& r) { return to_julia(r.m_comp); });
 
     // -----------------------------------------------------------------------
     // Solver
