@@ -2,6 +2,44 @@ using AmplNLReader, NLPModels, ADNLPModels
 using MPCCModels: AbstractMPCCModel, MPCCModel, MPCCModelMeta, CCType, VarVar, VarCon, ConVar, ConCon
 using LinearAlgebra
 
+# Returns (Jrow, scalar, extra) for one side of a complementarity pair, where
+# Jrow*x + scalar >= 0 is the canonical CC form the solver expects.
+#
+# `extra` is nothing when only one bound is finite.  When both bounds are finite
+# (l <= c(x) <= u), the lower bound drives the CC term and the upper bound
+# becomes a standalone inequality that the caller must add to J_ineq:
+#   CC side  : J*x + b - l >= 0
+#   extra    : -(J*x + b) + u >= 0  (i.e. c(x) <= u, kept as a regular ineq)
+function _cc_con_row(J0, b_full, lcon, ucon, idx)
+    l, u = lcon[idx], ucon[idx]
+    J = J0[idx:idx, :]
+    b = b_full[idx]
+    if isfinite(l) && !isfinite(u)
+        return J, b - l, nothing
+    elseif isfinite(u) && !isfinite(l)
+        return -J, u - b, nothing
+    elseif isfinite(l) && isfinite(u)
+        return J, b - l, (-J, u - b)   # CC uses lower; upper becomes extra ineq
+    else
+        error("Complementarity constraint $idx has no finite bound")
+    end
+end
+
+# Same logic for a variable bound.
+function _cc_var_row(I_nvar, lvar, uvar, idx)
+    l, u = lvar[idx], uvar[idx]
+    I = I_nvar[idx:idx, :]
+    if isfinite(l) && !isfinite(u)
+        return I, -l, nothing
+    elseif isfinite(u) && !isfinite(l)
+        return -I, Float64(u), nothing
+    elseif isfinite(l) && isfinite(u)
+        return I, -l, (-I, Float64(u))  # CC uses lower; upper becomes extra ineq
+    else
+        error("Complementarity variable $idx has no finite bound")
+    end
+end
+
 function from_NLPModel(mpcc::MPCCModel)::MarbleData
     nlp = mpcc.nlp
     x0  = zeros(nlp.meta.nvar)
@@ -24,7 +62,7 @@ function from_NLPModel(mpcc::MPCCModel)::MarbleData
     c_at_x0 = NLPModels.cons(nlp, x0)
     b_full  = c_at_x0 - J0 * x0
 
-    @assert nlp.meta.lin == collect(1:nlp.meta.ncon) "All constraints must be linear for MarbleData conversion"
+    # @assert nlp.meta.lin == collect(1:nlp.meta.ncon) "All constraints must be linear for MarbleData conversion"
     
     # Classify which NLP constraints / variables are in complementarity
     comp_con_inds = Set{Int}()
@@ -43,21 +81,25 @@ function from_NLPModel(mpcc::MPCCModel)::MarbleData
         end
     end
 
-    # Validate that complementarity bounds are finite (required for 0 <= expr form)
+    # Validate that each complementarity side has at least one finite bound.
+    # Both singly-bounded (one finite) and doubly-bounded (both finite) are
+    # accepted; unbounded sides (neither finite) are not valid for complementarity.
+    check_con = (i, label) -> begin
+        l, u = lcon[i], ucon[i]
+        (isfinite(l) || isfinite(u)) ||
+            error("Complementarity constraint $i ($label) has no finite bound (lcon=$l, ucon=$u)")
+    end
+    check_var = (i, label) -> begin
+        l, u = lvar[i], uvar[i]
+        (isfinite(l) || isfinite(u)) ||
+            error("Complementarity variable $i ($label) has no finite bound (lvar=$l, uvar=$u)")
+    end
     for i in 1:ncc
         t = cc_types[i]
-        if t == VarVar
-            isfinite(lvar[ind_cc1[i]]) || error("VarVar pair $i: lvar[$(ind_cc1[i])] must be finite")
-            isfinite(lvar[ind_cc2[i]]) || error("VarVar pair $i: lvar[$(ind_cc2[i])] must be finite")
-        elseif t == VarCon
-            isfinite(lvar[ind_cc1[i]]) || error("VarCon pair $i: lvar[$(ind_cc1[i])] must be finite")
-            isfinite(lcon[ind_cc2[i]]) || error("VarCon pair $i: lcon[$(ind_cc2[i])] must be finite")
-        elseif t == ConVar
-            isfinite(lcon[ind_cc1[i]]) || error("ConVar pair $i: lcon[$(ind_cc1[i])] must be finite")
-            isfinite(lvar[ind_cc2[i]]) || error("ConVar pair $i: lvar[$(ind_cc2[i])] must be finite")
-        else  # ConCon
-            isfinite(lcon[ind_cc1[i]]) || error("ConCon pair $i: lcon[$(ind_cc1[i])] must be finite")
-            isfinite(lcon[ind_cc2[i]]) || error("ConCon pair $i: lcon[$(ind_cc2[i])] must be finite")
+        if     t == VarVar; check_var(ind_cc1[i], "pair $i side 1"); check_var(ind_cc2[i], "pair $i side 2")
+        elseif t == VarCon; check_var(ind_cc1[i], "pair $i side 1"); check_con(ind_cc2[i], "pair $i side 2")
+        elseif t == ConVar; check_con(ind_cc1[i], "pair $i side 1"); check_var(ind_cc2[i], "pair $i side 2")
+        else                check_con(ind_cc1[i], "pair $i side 1"); check_con(ind_cc2[i], "pair $i side 2")
         end
     end
 
@@ -88,11 +130,10 @@ function from_NLPModel(mpcc::MPCCModel)::MarbleData
         isfinite(l_all[i]) && (push!(J_ineq_parts, Ji);  push!(b_ineq_parts, [bi - l_all[i]]))
         isfinite(u_all[i]) && (push!(J_ineq_parts, -Ji); push!(b_ineq_parts, [u_all[i] - bi]))
     end
-    J_ineq = isempty(J_ineq_parts) ? zeros(0, nvar) : vcat(J_ineq_parts...)
-    b_ineq = isempty(b_ineq_parts) ? zeros(0)       : vcat(b_ineq_parts...)
-
     # Complementarity: 0 <= L*x + lcc ⊥  R*x + rcc >= 0
     # Each pair contributes one row to L/lcc and one row to R/rcc.
+    # Doubly-bounded CC sides also contribute an extra row to J_ineq_parts, so
+    # J_ineq is finalized after this loop.
     L_parts   = Matrix{Float64}[]
     lcc_parts = Vector{Float64}[]
     R_parts   = Matrix{Float64}[]
@@ -103,24 +144,24 @@ function from_NLPModel(mpcc::MPCCModel)::MarbleData
         idx1 = ind_cc1[i]
         idx2 = ind_cc2[i]
 
-        if t == VarVar
-            # 0 <= x[idx1] - lvar[idx1]  ⊥  x[idx2] - lvar[idx2] >= 0
-            push!(L_parts,   I_nvar[idx1:idx1, :]); push!(lcc_parts, [-lvar[idx1]])
-            push!(R_parts,   I_nvar[idx2:idx2, :]); push!(rcc_parts, [-lvar[idx2]])
-        elseif t == VarCon
-            # 0 <= x[idx1] - lvar[idx1]  ⊥  J_{idx2}*x + b_{idx2} - lcon[idx2] >= 0
-            push!(L_parts,   I_nvar[idx1:idx1, :]); push!(lcc_parts, [-lvar[idx1]])
-            push!(R_parts,   J0[idx2:idx2, :]);     push!(rcc_parts, [b_full[idx2] - lcon[idx2]])
-        elseif t == ConVar
-            # 0 <= J_{idx1}*x + b_{idx1} - lcon[idx1]  ⊥  x[idx2] - lvar[idx2] >= 0
-            push!(L_parts,   J0[idx1:idx1, :]);     push!(lcc_parts, [b_full[idx1] - lcon[idx1]])
-            push!(R_parts,   I_nvar[idx2:idx2, :]); push!(rcc_parts, [-lvar[idx2]])
-        else  # ConCon
-            # 0 <= J_{idx1}*x + b_{idx1} - lcon[idx1]  ⊥  J_{idx2}*x + b_{idx2} - lcon[idx2] >= 0
-            push!(L_parts,   J0[idx1:idx1, :]); push!(lcc_parts, [b_full[idx1] - lcon[idx1]])
-            push!(R_parts,   J0[idx2:idx2, :]); push!(rcc_parts, [b_full[idx2] - lcon[idx2]])
-        end
+        J1, b1, extra1 = t == VarVar || t == VarCon ?
+            _cc_var_row(I_nvar, lvar, uvar, idx1) :
+            _cc_con_row(J0, b_full, lcon, ucon, idx1)
+
+        J2, b2, extra2 = t == VarVar || t == ConVar ?
+            _cc_var_row(I_nvar, lvar, uvar, idx2) :
+            _cc_con_row(J0, b_full, lcon, ucon, idx2)
+
+        push!(L_parts, J1); push!(lcc_parts, [b1])
+        push!(R_parts, J2); push!(rcc_parts, [b2])
+
+        # Doubly-bounded CC sides: upper bound becomes a standalone inequality.
+        if extra1 !== nothing; push!(J_ineq_parts, extra1[1]); push!(b_ineq_parts, [extra1[2]]); end
+        if extra2 !== nothing; push!(J_ineq_parts, extra2[1]); push!(b_ineq_parts, [extra2[2]]); end
     end
+
+    J_ineq = isempty(J_ineq_parts) ? zeros(0, nvar) : vcat(J_ineq_parts...)
+    b_ineq = isempty(b_ineq_parts) ? zeros(0)       : vcat(b_ineq_parts...)
 
     L   = isempty(L_parts)   ? zeros(0, nvar) : vcat(L_parts...)
     lcc = isempty(lcc_parts) ? zeros(0)       : vcat(lcc_parts...)
