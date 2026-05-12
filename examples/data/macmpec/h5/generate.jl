@@ -2,7 +2,7 @@ using JSON
 
 include(joinpath(@__DIR__, "../parser.jl"))
 
-# Read the LCQP MacMPEC problems from the filtered list
+# Read the QPCC MacMPEC problems from the filtered list
 json_path = joinpath(@__DIR__, "../macmpec_lcqp.json")
 json_data = JSON.parsefile(json_path)
 

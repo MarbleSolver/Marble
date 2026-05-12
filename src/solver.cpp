@@ -16,10 +16,10 @@ namespace {
     static const int COL_HEADER_REPRINT = 25;  // reprint column headers every N rows
 
     static void print_col_header() {
-        printf("%5s  %-5s  %7s  %7s  %12s  %12s  %12s  %12s  %12s\n",
-               "iter", "type", "lg(ρ)", "lg(κ)",
+        printf("%5s  %-5s  %7s  %7s  %7s  %12s  %12s  %12s  %12s  %12s\n",
+               "iter", "type", "lg(ρ)", "lg(κ)", "lg(reg)",
                "||kkt||", "||eq||", "||ineq||", "||comp||", "obj");
-        printf("%s\n", std::string(100, '-').c_str());
+        printf("%s\n", std::string(110, '-').c_str());
     }
 
     static void print_solve_header(int nz, int n_eq, int n_ineq, int n_comp) {
@@ -31,10 +31,16 @@ namespace {
     static void print_iter_row(int iter, const char* type,
                                double penalty, double relax,
                                double kkt, double eq_vio, double ineq_vio,
-                               double comp_vio, double obj) {
-        printf("%5d  %-5s  %7.1f  %7.1f  %12.3e  %12.3e  %12.3e  %12.3e  %12.3e\n",
+                               double comp_vio, double obj,
+                               double regularizer) {
+        char reg_str[8] = "    ---";
+        if (!std::isnan(regularizer)) {
+            if (regularizer == 0.0) std::snprintf(reg_str, sizeof(reg_str), "      0");
+            else                    std::snprintf(reg_str, sizeof(reg_str), "%7.0f", std::log10(regularizer));
+        }
+        printf("%5d  %-5s  %7.1f  %7.1f  %7s  %12.3e  %12.3e  %12.3e  %12.3e  %12.3e\n",
                iter, type,
-               std::log10(penalty), std::log10(relax),
+               std::log10(penalty), std::log10(relax), reg_str,
                kkt, eq_vio, ineq_vio, comp_vio, obj);
         std::fflush(stdout);
     }
@@ -452,6 +458,7 @@ SolveResult Solver::solve(const Solver::Options& options) {
 
     const bool verbose = options.verbosity >= 1;
     const char* last_step_type = "---";
+    double last_regularizer = NAN;
     int rows_printed = 0;
 
     if (verbose) {
@@ -486,7 +493,8 @@ SolveResult Solver::solve(const Solver::Options& options) {
             auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
             print_iter_row(iter, last_step_type,
                            workspace->penalty_param, workspace->relax_param,
-                           kkt, eq_vio, ineq_vio, comp_vio, obj);
+                           kkt, eq_vio, ineq_vio, comp_vio, obj,
+                           last_regularizer);
             ++rows_printed;
         }
 
@@ -500,6 +508,7 @@ SolveResult Solver::solve(const Solver::Options& options) {
             // Outer step: update multiplier estimates and increase penalty
             n_iter_outer++;
             last_step_type = "O";
+            last_regularizer = NAN;
 
             // Check if we need to decrease the outer step KKT norm requirement, which is done only if
             // there have been 2 consecutive outer steps without an inner step in between
@@ -549,6 +558,7 @@ SolveResult Solver::solve(const Solver::Options& options) {
                 linesearch_succeeded = filter_linesearch(sqrt_relaxation_param, inv_penalty_param, options.max_iters_linesearch);
 
                 if (linesearch_succeeded) {
+                    last_regularizer = regularizer;
                     break;
                 }
 

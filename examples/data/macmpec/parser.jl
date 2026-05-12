@@ -43,7 +43,7 @@ function problem_data(; nl_path::String, dense=false)::NamedTuple
     q_cost = obj_sign * NLPModels.grad(nlp, z0)
     f0_cost = NLPModels.obj(nlp, z0)
 
-    #  Evaluate the NLP constraint Jacobian once (constant for LCQP) 
+    #  Evaluate the NLP constraint Jacobian once (constant for QPCC) 
     nlp_J = jac(nlp, z0)
 
     #  Variable equality constraints: J*z + b = 0 

@@ -3,207 +3,270 @@ using LinearAlgebra
 
 @enum CompFormulation COMP_PERP COMP_SOS1
 
-function _marbledata_to_jump(data::MarbleData;
-                             comp::CompFormulation=COMP_PERP)::JuMP.Model
-    model = JuMP.Model()
-    nvar  = length(data.q)
-    ncc   = length(data.l)
+# Convert a MarbleData (canonical QPCC form) to a JuMP model.
+# Introduces explicit slack variables s1 = L*x+l and s2 = R*x+r for the two
+# complementarity sides so the same comp formulation options apply.
+function Base.convert(::Type{JuMP.Model}, data::MarbleData)::JuMP.Model
+    nvar = length(data.q)
+    ncc  = isnothing(data.l) ? 0 : length(data.l)
 
+    model = JuMP.Model()
     @variable(model, x[1:nvar])
 
-    # Objective: Min c0 + q'x + 0.5 x'Qx
-    @objective(model, Min, data.c0 + data.q' * x + 0.5 * x' * data.Q * x)
+    @objective(model, Min, data.c0 + dot(data.q, x) + 0.5 * dot(x, data.Q * x))
 
-    # Equality: J_eq * x + b_eq = 0
-    if !isempty(data.J_eq)
+    if !isnothing(data.J_eq) && !isempty(data.J_eq)
         @constraint(model, data.J_eq * x + data.b_eq .== 0)
     end
-
-    # Inequality: J_ineq * x + b_ineq >= 0
-    if !isempty(data.J_ineq)
+    if !isnothing(data.J_ineq) && !isempty(data.J_ineq)
         @constraint(model, data.J_ineq * x + data.b_ineq .>= 0)
     end
 
     if ncc > 0
-        # Auxiliary variable s = R*x + r so both comp sides are named variables
-        @variable(model, s[1:ncc])
-        @constraint(model, s .== data.R * x + data.r)
-        @constraint(model, data.L * x + data.l .>= 0)
-        @constraint(model, s .>= 0)
+        @variable(model, s1[1:ncc] >= 0)
+        @variable(model, s2[1:ncc] >= 0)
+        @constraint(model, s1 .== data.L * x + data.l)
+        @constraint(model, s2 .== data.R * x + data.r)
 
-        if comp == COMP_PERP
-            # (L*x + l) ⟂ s
-            @constraint(model, (data.L * x + data.l) ⟂ s)
-
-        else  # COMP_SOS1
-            # Each pair (g_k, s_k) is an SOS1 set: at most one can be nonzero
-            g = data.L * x + data.l
-            for k in 1:ncc
-                @constraint(model, [g[k], s[k]] in SOS1())
-            end
+        for k in 1:ncc
+            @constraint(model, [s1[k], s2[k]] in SOS1())
         end
     end
 
     return model
 end
 
-to_JuMP(nlp::NLPModels.AbstractNLPModel)::JuMP.Model = _marbledata_to_jump(from_NLPModel(nlp))
+# # Partition MPCCModel indices into CC-involved vs regular sets.
+# function _cc_index_sets(mpcc::MPCCModel)
+#     nlp = mpcc.nlp
+#     nvar, ncon = nlp.meta.nvar, nlp.meta.ncon
+#     ind_cc1, ind_cc2, cc_types, ncc =
+#         mpcc.meta.ind_cc1, mpcc.meta.ind_cc2, mpcc.meta.cc_types, mpcc.meta.ncc
 
-# # function parse_model(model::JuMP.Model)
-
-# const GUROBI_AMPL = "/Applications/AMPL/gurobi"
-
-# model = Model()
-
-# @variable(model, x[1:4])
-
-# @objective(model, Min, 1/2 * x' * x)
-# @constraint(model, sum(x) == 1)
-# @constraint(model, x[1:2] ⟂ x[3:4])
-# @constraint(model, x .>= 0.0)
-# # @constraint(model, x in Nonnegatives())
-# # @constraint(model, x[2]^2 <= 1)
-
-# # # Inner model that will store the scalarized reformulation
-# # inner = MOIU.Model{Float64}()
-
-# # # Force ScalarizeBridge
-# # bridged = MOIB.Constraint.SingleBridgeOptimizer{
-# #     MOIB.Constraint.ScalarizeBridge{Float64}
-# # }(inner)
-
-# # # Copy the JuMP model into the bridged optimizer
-# # MOI.copy_to(bridged, JuMP.backend(model))
-
-# # Verify that the model is in a form that we can handle
-
-# @assert objective_function_type(model) ∈ [AffExpr, QuadExpr] "Objective function is not affine or quadratic"
-# @assert objective_sense(model) == MOI.MIN_SENSE "Objective must be a minimization problem"
-
-# const GEQ_SETS  = [MOI.GreaterThan, MOI.Nonnegatives]
-# const LEQ_SETS  = [MOI.LessThan, MOI.Nonpositives]
-# const EQ_SETS   = [MOI.EqualTo, MOI.Zeros]
-# const COMP_SETS = [MOI.Complements]
-# const VALID_SETS = [GEQ_SETS; LEQ_SETS; EQ_SETS; COMP_SETS]
-
-# cons = all_constraints(model; include_variable_in_set_constraints=true)
-# for c in cons
-#     obj = constraint_object(c)
-#     etype = typeof(obj.func)
-#     ctype = typeof(obj.set)
-
-#     @assert any(ctype <: T for T in VALID_SETS) "Constraint $c has unsupported set type $ctype"
-#     @assert etype <: Union{AffExpr, Vector{AffExpr}, VariableRef, Vector{VariableRef}} "Constraint $c has unsupported expression type $etype"
-# end
-
-# vars = all_variables(model)
-# n_vars = length(vars)
-# var_idx = Dict(v => i for (i, v) in enumerate(vars))
-
-# function extract_row(expr, n_vars, var_idx)
-#     row = zeros(n_vars)
-#     if expr isa AffExpr
-#         for (var, coeff) in expr.terms
-#             row[var_idx[var]] = coeff
-#         end
-#     elseif expr isa VariableRef
-#         row[var_idx[expr]] = 1.0
+#     comp_con = Set{Int}(); comp_var = Set{Int}()
+#     for i in 1:ncc
+#         t = cc_types[i]
+#         (t == VarVar || t == VarCon) ? push!(comp_var, ind_cc1[i]) : push!(comp_con, ind_cc1[i])
+#         (t == VarVar || t == ConVar) ? push!(comp_var, ind_cc2[i]) : push!(comp_con, ind_cc2[i])
 #     end
-#     return row
+#     reg_con = [i for i in 1:ncon if i ∉ comp_con]
+#     reg_var = [i for i in 1:nvar if i ∉ comp_var]
+#     return reg_con, reg_var
 # end
 
-# expr_constant(expr) = expr isa AffExpr ? expr.constant : 0.0
+# # Algebraic (QPCC) formulation: linearizes constraints and uses Hessian at x₀=0 for
+# # the objective. Produces a JuMP model with only affine/quadratic expressions, which
+# # QP-based solvers (Gurobi, CPLEX, Mosek) can accept. Only exact for LP/QPCCs.
+# function _to_JuMP_algebraic(mpcc::MPCCModel, comp::CompFormulation)::JuMP.Model
+#     nlp  = mpcc.nlp
+#     x0   = zeros(nlp.meta.nvar)
+#     nvar = nlp.meta.nvar
+#     ncon = nlp.meta.ncon
+#     lvar, uvar = nlp.meta.lvar, nlp.meta.uvar
+#     lcon, ucon = nlp.meta.lcon, nlp.meta.ucon
+#     ind_cc1, ind_cc2, cc_types, ncc =
+#         mpcc.meta.ind_cc1, mpcc.meta.ind_cc2, mpcc.meta.cc_types, mpcc.meta.ncc
 
-# function to_variable_ref(expr)
-#     expr isa VariableRef && return expr
-#     if expr isa AffExpr && length(expr.terms) == 1
-#         var, coeff = first(expr.terms)
-#         coeff == 1.0 && iszero(expr.constant) && return var
+#     J0     = Matrix(NLPModels.jac(nlp, x0))
+#     H0     = Matrix(NLPModels.hess(nlp, x0))
+#     b_full = NLPModels.cons(nlp, x0)
+
+#     reg_con, reg_var = _cc_index_sets(mpcc)
+
+#     model = JuMP.Model()
+#     @variable(model, x[1:nvar])
+
+#     obj_sign = nlp.meta.minimize ? 1.0 : -1.0
+#     Q  = obj_sign * H0
+#     q  = obj_sign * NLPModels.grad(nlp, x0)
+#     c0 = obj_sign * NLPModels.obj(nlp, x0)
+#     @objective(model, Min, c0 + dot(q, x) + 0.5 * dot(x, Q * x))
+
+#     for i in reg_var
+#         isfinite(lvar[i]) && set_lower_bound(x[i], lvar[i])
+#         isfinite(uvar[i]) && set_upper_bound(x[i], uvar[i])
 #     end
-#     error("Both sides of a complementarity constraint must be variable references, got: $(expr)")
-# end
 
-# # First pass: collect all variables appearing in complementarity constraints,
-# # asserting both sides are pure variable references
-# comp_vars = Set{VariableRef}()
-# for c in cons
-#     obj = constraint_object(c)
-#     obj.set isa MOI.Complements || continue
-#     n_pairs = div(obj.set.dimension, 2)
-#     for i in 1:n_pairs
-#         push!(comp_vars, to_variable_ref(obj.func[i]))
-#         push!(comp_vars, to_variable_ref(obj.func[n_pairs + i]))
-#     end
-# end
-
-# # Returns true if expr is a single comp variable with no offset (x >= 0 bound)
-# function is_comp_var_nonneg(expr, comp_vars)
-#     expr isa VariableRef && return expr ∈ comp_vars
-#     expr isa AffExpr || return false
-#     length(expr.terms) == 1 || return false
-#     var, coeff = first(expr.terms)
-#     return coeff == 1.0 && iszero(expr.constant) && var ∈ comp_vars
-# end
-
-# eq_rows,    eq_rhs   = Vector{Float64}[], Float64[]
-# ineq_rows,  ineq_rhs = Vector{Float64}[], Float64[]
-# comp_rows_f, m_comp  = Vector{Float64}[], Float64[]
-# comp_rows_g, n_comp  = Vector{Float64}[], Float64[]
-
-# # Second pass: build Jacobians
-# # Convention: A_eq*x + b_eq = 0, A_ineq*x + b_ineq >= 0
-# for c in cons
-#     obj = constraint_object(c)
-#     set, func = obj.set, obj.func
-
-#     if set isa MOI.EqualTo
-#         push!(eq_rows, extract_row(func, n_vars, var_idx))
-#         push!(eq_rhs, expr_constant(func) - set.value)
-
-#     elseif set isa MOI.Zeros
-#         for f in func
-#             push!(eq_rows, extract_row(f, n_vars, var_idx))
-#             push!(eq_rhs, expr_constant(f))
-#         end
-
-#     elseif set isa MOI.GreaterThan
-#         # Drop 0 <= x_i for any variable that appears in a complementarity constraint
-#         iszero(set.lower) && is_comp_var_nonneg(func, comp_vars) && continue
-#         push!(ineq_rows, extract_row(func, n_vars, var_idx))
-#         push!(ineq_rhs, expr_constant(func) - set.lower)
-
-#     elseif set isa MOI.Nonnegatives
-#         for f in func
-#             is_comp_var_nonneg(f, comp_vars) && continue
-#             push!(ineq_rows, extract_row(f, n_vars, var_idx))
-#             push!(ineq_rhs, expr_constant(f))
-#         end
-
-#     elseif set isa MOI.LessThan
-#         # Negate to convert a'x + c <= u  →  -a'x + (u - c) >= 0
-#         push!(ineq_rows, -extract_row(func, n_vars, var_idx))
-#         push!(ineq_rhs, set.upper - expr_constant(func))
-
-#     elseif set isa MOI.Nonpositives
-#         for f in func
-#             push!(ineq_rows, -extract_row(f, n_vars, var_idx))
-#             push!(ineq_rhs, -expr_constant(f))
-#         end
-
-#     elseif set isa MOI.Complements
-#         n_pairs = div(set.dimension, 2)
-#         for i in 1:n_pairs
-#             push!(comp_rows_f, extract_row(obj.func[i], n_vars, var_idx))
-#             push!(m_comp, expr_constant(obj.func[i]))
-#             push!(comp_rows_g, extract_row(obj.func[n_pairs + i], n_vars, var_idx))
-#             push!(n_comp, expr_constant(obj.func[n_pairs + i]))
+#     for i in reg_con
+#         expr = dot(J0[i, :], x) + b_full[i]
+#         l, u = lcon[i], ucon[i]
+#         if isfinite(l) && l == u
+#             @constraint(model, expr == l)
+#         else
+#             isfinite(l) && @constraint(model, expr >= l)
+#             isfinite(u) && @constraint(model, expr <= u)
 #         end
 #     end
+
+#     ncc == 0 && return model
+
+#     @variable(model, s1[1:ncc] >= 0)
+#     @variable(model, s2[1:ncc] >= 0)
+
+#     function add_slack!(s_var, is_var::Bool, idx::Int)
+#         if is_var
+#             l, u = lvar[idx], uvar[idx]
+#             isfinite(l) || isfinite(u) || error("CC variable $idx has no finite bound")
+#             if isfinite(l)
+#                 @constraint(model, s_var == x[idx] - l)
+#                 isfinite(u) && @constraint(model, x[idx] <= u)
+#             else
+#                 @constraint(model, s_var == u - x[idx])
+#             end
+#         else
+#             expr = dot(J0[idx, :], x) + b_full[idx]
+#             l, u = lcon[idx], ucon[idx]
+#             isfinite(l) || isfinite(u) || error("CC constraint $idx has no finite bound")
+#             if isfinite(l)
+#                 @constraint(model, s_var == expr - l)
+#                 isfinite(u) && @constraint(model, expr <= u)
+#             else
+#                 @constraint(model, s_var == u - expr)
+#             end
+#         end
+#     end
+
+#     for i in 1:ncc
+#         t = cc_types[i]
+#         add_slack!(s1[i], t == VarVar || t == VarCon, ind_cc1[i])
+#         add_slack!(s2[i], t == VarVar || t == ConVar, ind_cc2[i])
+#     end
+
+#     if comp == COMP_PERP
+#         @constraint(model, s1 ⟂ s2)
+#     else
+#         for k in 1:ncc; @constraint(model, [s1[k], s2[k]] in SOS1()); end
+#     end
+
+#     return model
 # end
 
-# to_matrix(rows) = isempty(rows) ? zeros(0, n_vars) : mapreduce(transpose, vcat, rows)
+# # Nonlinear formulation: wraps NLPModels functions as JuMP nonlinear operators so the
+# # full nonlinear MPCC is preserved. Requires a solver that supports UserDefinedFunction
+# # (e.g., Ipopt, KNITRO) — QP solvers like Gurobi will reject this form.
+# function _to_JuMP_nonlinear(mpcc::MPCCModel, comp::CompFormulation)::JuMP.Model
+#     nlp  = mpcc.nlp
+#     nvar = nlp.meta.nvar
+#     ncon = nlp.meta.ncon
+#     lvar, uvar = nlp.meta.lvar, nlp.meta.uvar
+#     lcon, ucon = nlp.meta.lcon, nlp.meta.ucon
+#     ind_cc1, ind_cc2, cc_types, ncc =
+#         mpcc.meta.ind_cc1, mpcc.meta.ind_cc2, mpcc.meta.cc_types, mpcc.meta.ncc
 
-# A_eq   = to_matrix(eq_rows);   b_eq   = eq_rhs
-# A_ineq = to_matrix(ineq_rows); b_ineq = ineq_rhs
-# M_comp = to_matrix(comp_rows_f)
-# N_comp = to_matrix(comp_rows_g)
+#     reg_con, reg_var = _cc_index_sets(mpcc)
+
+#     model = JuMP.Model()
+#     @variable(model, x[1:nvar])
+
+#     op_obj = add_nonlinear_operator(
+#         model, nvar,
+#         (xv...) -> NLPModels.obj(nlp, collect(Float64, xv)),
+#         (g, xv...) -> (NLPModels.grad!(nlp, collect(Float64, xv), g); nothing);
+#         name = :nlp_obj,
+#     )
+#     @objective(model, nlp.meta.minimize ? Min : Max, op_obj(x...))
+
+#     # Lazily register c_i(x) as a JuMP operator; gradient via jtprod! with eᵢ.
+#     con_ops = Dict{Int, Any}()
+#     function get_con_op(i::Int)
+#         haskey(con_ops, i) && return con_ops[i]
+#         ei   = (e = zeros(ncon); e[i] = 1.0; e)
+#         f_i  = let i = i;  (xv...) -> NLPModels.cons(nlp, collect(Float64, xv))[i]; end
+#         g!_i = let ei = ei; (g, xv...) -> (NLPModels.jtprod!(nlp, collect(Float64, xv), ei, g); nothing); end
+#         return con_ops[i] = add_nonlinear_operator(model, nvar, f_i, g!_i; name = Symbol("nlp_con_", i))
+#     end
+
+#     for i in reg_var
+#         isfinite(lvar[i]) && set_lower_bound(x[i], lvar[i])
+#         isfinite(uvar[i]) && set_upper_bound(x[i], uvar[i])
+#     end
+
+#     for i in reg_con
+#         op_i = get_con_op(i)
+#         l, u = lcon[i], ucon[i]
+#         if isfinite(l) && l == u
+#             @constraint(model, op_i(x...) == l)
+#         else
+#             isfinite(l) && @constraint(model, op_i(x...) >= l)
+#             isfinite(u) && @constraint(model, op_i(x...) <= u)
+#         end
+#     end
+
+#     ncc == 0 && return model
+
+#     @variable(model, s1[1:ncc] >= 0)
+#     @variable(model, s2[1:ncc] >= 0)
+
+#     function add_slack!(s_var, is_var::Bool, idx::Int)
+#         if is_var
+#             l, u = lvar[idx], uvar[idx]
+#             isfinite(l) || isfinite(u) || error("CC variable $idx has no finite bound")
+#             if isfinite(l)
+#                 @constraint(model, s_var == x[idx] - l)
+#                 isfinite(u) && @constraint(model, x[idx] <= u)
+#             else
+#                 @constraint(model, s_var == u - x[idx])
+#             end
+#         else
+#             op_i = get_con_op(idx)
+#             l, u = lcon[idx], ucon[idx]
+#             isfinite(l) || isfinite(u) || error("CC constraint $idx has no finite bound")
+#             if isfinite(l)
+#                 @constraint(model, s_var == op_i(x...) - l)
+#                 isfinite(u) && @constraint(model, op_i(x...) <= u)
+#             else
+#                 @constraint(model, s_var == u - op_i(x...))
+#             end
+#         end
+#     end
+
+#     for i in 1:ncc
+#         t = cc_types[i]
+#         add_slack!(s1[i], t == VarVar || t == VarCon, ind_cc1[i])
+#         add_slack!(s2[i], t == VarVar || t == ConVar, ind_cc2[i])
+#     end
+
+#     if comp == COMP_PERP
+#         @constraint(model, s1 ⟂ s2)
+#     else
+#         for k in 1:ncc; @constraint(model, [s1[k], s2[k]] in SOS1()); end
+#     end
+
+#     return model
+# end
+
+# # algebraic=true  → affine/quadratic expressions only; compatible with Gurobi/CPLEX/Mosek.
+# #                   Only exact when the underlying NLP is an LP or QP.
+# # algebraic=false → full nonlinear operators; requires Ipopt, KNITRO, or similar.
+# function to_JuMP(mpcc::MPCCModel;
+#                  comp::CompFormulation = COMP_PERP,
+#                  algebraic::Bool = false)::JuMP.Model
+#     algebraic ? _to_JuMP_algebraic(mpcc, comp) : _to_JuMP_nonlinear(mpcc, comp)
+# end
+
+
+# ------ Old MarbleData → JuMP reference (QPCC only) ------
+# function _marbledata_to_jump(data::MarbleData;
+#                              comp::CompFormulation=COMP_PERP)::JuMP.Model
+#     model = JuMP.Model()
+#     nvar  = length(data.q)
+#     ncc   = length(data.l)
+#     @variable(model, x[1:nvar])
+#     @objective(model, Min, data.c0 + data.q' * x + 0.5 * x' * data.Q * x)
+#     if !isempty(data.J_eq);   @constraint(model, data.J_eq * x + data.b_eq .== 0); end
+#     if !isempty(data.J_ineq); @constraint(model, data.J_ineq * x + data.b_ineq .>= 0); end
+#     if ncc > 0
+#         @variable(model, s[1:ncc])
+#         @constraint(model, s .== data.R * x + data.r)
+#         @constraint(model, data.L * x + data.l .>= 0)
+#         @constraint(model, s .>= 0)
+#         if comp == COMP_PERP
+#             @constraint(model, (data.L * x + data.l) ⟂ s)
+#         else
+#             g = data.L * x + data.l
+#             for k in 1:ncc; @constraint(model, [g[k], s[k]] in SOS1()); end
+#         end
+#     end
+#     return model
+# end
+# to_JuMP(nlp::NLPModels.AbstractNLPModel) = _marbledata_to_jump(from_mpcc(nlp))

@@ -46,7 +46,7 @@ module Marble
     # Functions to convert stuff to MarbleData
     include("nlpmodels_parser.jl")
     include("jump_parser.jl")
-    export from_NLPModel, to_JuMP, _marbledata_to_jump, CompFormulation, COMP_PERP, COMP_SOS1
+    export from_mpcc, to_JuMP, _marbledata_to_jump, CompFormulation, COMP_PERP, COMP_SOS1
 
     include("indexed_components.jl")
     export indexed_components

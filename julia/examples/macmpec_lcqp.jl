@@ -1,4 +1,4 @@
-# Run all of the MacMPEC LCQP problems with Marble and extract the results
+# Run all of the MacMPEC QPCC problems with Marble and extract the results
 
 using HDF5
 using JSON
@@ -21,7 +21,7 @@ function solve_macmpec_lcqp(name)
     nl_path = joinpath(@__DIR__, "..", "..", "examples", "data", "macmpec", "ampl_nl", name * ".nl")
     ampl_model = AmplModel(nl_path)
     mpcc_model = mpcc_from_ampl(ampl_model)
-    data = from_NLPModel(mpcc_model)
+    data = from_mpcc(mpcc_model)
 
     # Instantiate probem
     problem = Marble.Problem(data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
@@ -45,13 +45,13 @@ function solve_macmpec_lcqp(name)
     # )
 end
 
-## Run the function for MacMPEC LCQP problems
+## Run the function for MacMPEC QPCC problems
 
 json_path = joinpath(@__DIR__, "../../examples/data/macmpec/macmpec_lcqp.json")
 json_data = JSON.parsefile(json_path)
 
-for key in sort(collect(keys(json_data)))[1:1]
+for key in sort(collect(keys(json_data)))[end:end]
     solve_macmpec_lcqp(key)
 end
 
-@info("All MacMPEC LCQP problems solved successfully")
+@info("All MacMPEC QPCC problems solved successfully")

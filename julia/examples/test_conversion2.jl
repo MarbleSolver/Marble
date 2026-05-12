@@ -16,5 +16,5 @@ name = "bard1"
 nl_path = joinpath(@__DIR__, "..", "..", "examples", "data", "macmpec", "ampl_nl", name * ".nl")
 ampl_model = AmplModel(nl_path)
 mpcc_model = mpcc_from_ampl(ampl_model)
-marble_data = from_NLPModel(mpcc_model)
-marble_data2 = from_NLPModel(ampl_model)
+marble_data = from_mpcc(mpcc_model)
+marble_data2 = from_mpcc(ampl_model)
