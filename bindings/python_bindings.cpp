@@ -282,7 +282,7 @@ PYBIND11_MODULE(marble, m) {
         .def(py::init<>())
         .def(py::init<const Solver::Options&>(), py::arg("options"))
         // Problem setup
-        .def("set_problem", [](Solver& s, Problem& prob) {
+        .def("set_problem", [](Solver& s, const Problem& prob) {
                  s.set_problem(prob);
              },
              py::arg("problem"))
@@ -294,7 +294,10 @@ PYBIND11_MODULE(marble, m) {
         .def("get_problem", &Solver::get_problem,
              py::return_value_policy::reference_internal)
         // Main solve
-        .def("solve", &Solver::solve, py::arg("options"))
+        .def("solve", py::overload_cast<const Solver::Options&>(&Solver::solve),
+             py::arg("options"))
+        .def("solve", py::overload_cast<const Solver::Options&, const Problem&>(&Solver::solve),
+             py::arg("options"), py::arg("problem"))
         .def("convergence", &Solver::convergence, py::arg("options"))
         // Workspace / filter access
         .def("get_workspace", &Solver::get_workspace,

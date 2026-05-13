@@ -20,11 +20,30 @@ module Marble
     export obj, residual_eq, residual_ineq, residual_comp
 
     @Base.kwdef mutable struct MarbleData
-        Q::Union{AbstractMatrix, Nothing}; q::Union{AbstractVector, Nothing}; c0::Union{Number, Nothing}
-        J_eq::Union{AbstractMatrix, Nothing}; b_eq::Union{AbstractVector, Nothing}
-        J_ineq::Union{AbstractMatrix, Nothing}; b_ineq::Union{AbstractVector, Nothing}
-        L::Union{AbstractMatrix, Nothing}; l::Union{AbstractVector, Nothing}
-        R::Union{AbstractMatrix, Nothing}; r::Union{AbstractVector, Nothing}
+        Q::AbstractMatrix; q::AbstractVector; c0::Number
+        J_eq::AbstractMatrix; b_eq::AbstractVector
+        J_ineq::AbstractMatrix; b_ineq::AbstractVector
+        L::AbstractMatrix; l::AbstractVector
+        R::AbstractMatrix; r::AbstractVector
+    end
+
+    function MarbleData(Q::AbstractMatrix, q::AbstractVector, c0::Number;
+                        J_eq=nothing, b_eq=nothing,
+                        J_ineq=nothing, b_ineq=nothing,
+                        L=nothing, l=nothing, R=nothing, r=nothing)
+        n = size(Q, 2)
+        T = eltype(Q)
+        return MarbleData(
+            Q=Q, q=q, c0=c0,
+            J_eq  = isnothing(J_eq)   ? zeros(T, 0, n) : J_eq,
+            b_eq  = isnothing(b_eq)   ? zeros(T, 0)    : b_eq,
+            J_ineq = isnothing(J_ineq) ? zeros(T, 0, n) : J_ineq,
+            b_ineq = isnothing(b_ineq) ? zeros(T, 0)    : b_ineq,
+            L = isnothing(L) ? zeros(T, 0, n) : L,
+            l = isnothing(l) ? zeros(T, 0)    : l,
+            R = isnothing(R) ? zeros(T, 0, n) : R,
+            r = isnothing(r) ? zeros(T, 0)    : r,
+        )
     end
 
     function obj(data::MarbleData, x)
@@ -43,10 +62,19 @@ module Marble
         (data.L * x + data.l) .* (data.R * x + data.r)
     end
 
+    function solve(data::MarbleData; opts)
+        problem = Marble.Problem(data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
+        solver = Marble.Solver()
+        Marble.set_problem!(solver, problem)
+        Marble.verbosity!(opts, true)
+
+        return Marble.solve!(solver, opts)
+    end
+
     # Functions to convert stuff to MarbleData
     include("nlpmodels_parser.jl")
     include("jump_parser.jl")
-    export from_mpcc, to_JuMP, _marbledata_to_jump, CompFormulation, COMP_PERP, COMP_SOS1
+    export from_NLPModel, to_JuMP, _marbledata_to_jump, CompFormulation, COMP_PERP, COMP_SOS1
 
     include("indexed_components.jl")
     export indexed_components

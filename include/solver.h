@@ -6,6 +6,7 @@
 #include "problem.h"
 #include "workspace.h"
 #include "filter.h"
+#include <chrono>
 #include <filesystem>
 #include <utility>
 
@@ -15,6 +16,8 @@ struct SolveResult {
     int iterations_outer;
     int iterations_inner;
     int factorizations;
+    double setup_time_s;
+    double solve_time_s;
     Vec z;
     Vec s_ineq;
     Vec s_comp;
@@ -135,7 +138,7 @@ public:
     /**
      * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
      */
-    void set_problem(Problem& prob);
+    void set_problem(const Problem& prob);
 
     /**
      * Returns the problem currently set for the solver
@@ -241,6 +244,10 @@ public:
      * Solve the current problem instance
      */
     SolveResult solve(const Options &options);
+    SolveResult solve(const Options &options, const Problem& prob) {
+        set_problem(prob);
+        return solve(options);
+    }
 
     /**
      * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
@@ -253,6 +260,10 @@ private:
 
     // Counts numerical_factorization() calls; reset at the start of each solve()
     int n_factorizations{0};
+
+    // Timing for set_problem and solve, in seconds
+    double setup_time_s{0.0};
+    double solve_time_s{0.0};
 
     // KKT system regularizers to try in Newton step
     const std::vector<double> kkt_system_regularizers = {

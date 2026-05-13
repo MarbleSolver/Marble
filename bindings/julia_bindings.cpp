@@ -270,12 +270,17 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             Workspace& workspace = solver.get_workspace();
             return std::vector<double>(workspace.scaling.data(), workspace.scaling.data() + workspace.scaling.size());
         })
-        .method("set_problem!", [](Solver& s, Problem& prob) {
+        .method("set_problem!", [](Solver& s, const Problem& prob) {
             s.set_problem(prob);
         })
         .method("get_problem",   &Solver::get_problem)
         // Main solve
-        .method("solve!",       &Solver::solve)
+        .method("solve!", [](Solver& s, const Solver::Options& opts) {
+            return s.solve(opts);
+        })
+        .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob) {
+            return s.solve(opts, prob);
+        })
         .method("convergence", &Solver::convergence)
         // Workspace / filter access
         .method("get_workspace", &Solver::get_workspace)

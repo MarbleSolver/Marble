@@ -80,9 +80,9 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
-void Solver::set_problem(Problem& prob) {
-    // Move problem
-    this->prob = std::make_shared<Problem>(std::move(prob));
+void Solver::set_problem(const Problem& prob) {
+    const auto t0 = std::chrono::steady_clock::now();
+    this->prob = std::make_shared<Problem>(prob);
 
     // Define subproblem dimensions
     n_primals =
@@ -120,6 +120,8 @@ void Solver::set_problem(Problem& prob) {
 
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
+
+    setup_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 }
 
 void Solver::initialize_kkt_sparsity() {
@@ -442,6 +444,7 @@ bool Solver::convergence(const Solver::Options& options) {
 }
 
 SolveResult Solver::solve(const Solver::Options& options) {
+    const auto t0 = std::chrono::steady_clock::now();
     bool converged = false;
     n_factorizations = 0;
 
@@ -589,12 +592,16 @@ SolveResult Solver::solve(const Solver::Options& options) {
                            kkt, eq_vio, ineq_vio, comp_vio, obj);
     }
 
+    solve_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
     return SolveResult{
         converged,
         n_iter_outer + n_iter_inner,
         n_iter_outer,
         n_iter_inner,
         n_factorizations,
+        setup_time_s,
+        solve_time_s,
         Vec(workspace->z),
         Vec(workspace->s_ineq),
         Vec(workspace->s_comp),
