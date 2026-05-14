@@ -176,7 +176,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             return new Filter(gamma_objective, gamma_constraint);
         })
         .method("clear",   &Filter::clear)
-        .method("size",    [](const Filter& f) { return f.entries.size(); })
+        .method("num_entries", [](const Filter& f) { return f.entries.size(); })
         // Returns a flat vector [feas0, merit0, feas1, merit1, ...]
         // Use reshape(entries(f), 2, :) in Julia to get a 2×n matrix
         .method("entries", [](const Filter& f) {

@@ -2,7 +2,7 @@
 
 julia_version = "1.11.9"
 manifest_format = "2.0"
-project_hash = "128419ed2c5c9dcd65f8b0c81e3b582c08da5457"
+project_hash = "c579e631c4ea79873ca33606544d51273a8a86c2"
 
 [[deps.ADNLPModels]]
 deps = ["ADTypes", "ForwardDiff", "LinearAlgebra", "NLPModels", "Requires", "ReverseDiff", "SparseArrays", "SparseConnectivityTracer", "SparseMatrixColorings"]
@@ -987,6 +987,12 @@ git-tree-sha1 = "5919b1be82ca6ebfc9754cb22ddfb54f56f1d9ac"
 uuid = "a4795742-8479-5a88-8948-cc11e1c8c1a6"
 version = "0.21.12"
 
+[[deps.NLPModelsJuMP]]
+deps = ["JuMP", "LinearAlgebra", "MathOptInterface", "NLPModels", "Printf", "SolverCore", "SparseArrays"]
+git-tree-sha1 = "2c8d080e2cf5e068a817f743031c3c5ebb08804e"
+uuid = "792afdf1-32c1-5681-94e0-d7bf7a5df49e"
+version = "0.13.5"
+
 [[deps.NLPModelsModifiers]]
 deps = ["FastClosures", "LinearAlgebra", "LinearOperators", "NLPModels", "Printf", "SparseArrays"]
 git-tree-sha1 = "15bd5325aaa45090019f43b49cb3cb938b195f04"
@@ -1028,7 +1034,7 @@ uuid = "e7412a2a-1a6e-54c0-be00-318e2571c051"
 version = "1.3.6+0"
 
 [[deps.OpenBLAS32_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "libblastrampoline_jll"]
 git-tree-sha1 = "dd0d9979377e43918a80486a562ddedcc6d9bdf3"
 uuid = "656ef2d0-ae68-5445-9ca0-591084a874a2"
 version = "0.3.33+0"

@@ -72,16 +72,16 @@ println("  PASSED")
 println("Test 4: Filter")
 
 filt = Marble.Filter()
-@assert Marble.size(filt) == 0
+@assert Marble.num_entries(filt) == 0
 Marble.update(filt, Marble.FilterEntry(1.0, 1.0))
-@assert Marble.size(filt) == 1
+@assert Marble.num_entries(filt) == 1
 # entries() returns a flat [feas, merit, ...] vector
 flat = Marble.entries(filt)
 @assert flat[1] ≈ 1.0 && flat[2] ≈ 1.0
 # A candidate strictly better on both axes should be acceptable
 @assert Marble.acceptable(filt, Marble.FilterEntry(0.5, 0.5))
 Marble.clear(filt)
-@assert Marble.size(filt) == 0
+@assert Marble.num_entries(filt) == 0
 println("  PASSED")
 
 # ---------------------------------------------------------------------------

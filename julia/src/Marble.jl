@@ -1,7 +1,7 @@
 module Marble
     using CxxWrap
     using SparseArrays
-    using NLPModels, ADNLPModels
+    using NLPModels, ADNLPModels, JuMP, NLPModelsJuMP
     using LinearAlgebra
     using AmplNLReader
     using Preferences
@@ -72,10 +72,6 @@ module Marble
     end
 
     # Functions to convert stuff to MarbleData
-    include("nlpmodels_parser.jl")
-    include("jump_parser.jl")
-    export from_NLPModel, to_JuMP, _marbledata_to_jump, CompFormulation, COMP_PERP, COMP_SOS1
-
-    include("indexed_components.jl")
-    export indexed_components
+    include("conversion.jl")
+    export to_vertical_mpcc, to_jump
 end
