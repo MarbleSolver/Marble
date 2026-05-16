@@ -3,6 +3,7 @@
 #include <fstream>
 #include <cstdio>
 #include <cmath>
+#include <limits>
 
 namespace {
     Eigen::VectorXi safe_linspaced(int n, int start) {
@@ -459,6 +460,8 @@ SolveResult Solver::solve(const Solver::Options& options) {
     int n_iter_outer = 0;
     int n_iter_inner = 0;
 
+    double theta_prev = std::numeric_limits<double>::max();
+
     const bool verbose = options.verbosity >= 1;
     const char* last_step_type = "---";
     double last_regularizer = NAN;
@@ -519,20 +522,51 @@ SolveResult Solver::solve(const Solver::Options& options) {
                 outer_step_kkt_norm_adjustment /= 10.0;
             }
 
-            if (workspace->penalty_param >= options.penalty_max) {
-                // If we are at the maximum penalty, we can just update multiplier estimates without increasing penalty
-                workspace->m_eq_est = workspace->m_eq;
-                workspace->m_ineq_est = workspace->m_ineq;
-                workspace->m_comp_est = workspace->m_comp;
+            workspace->m_eq_est = workspace->m_eq;
+            workspace->m_ineq_est = workspace->m_ineq;
+            workspace->m_comp_est = workspace->m_comp;
 
-                // Scale relaxation parameter
-                workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
-            } else {
-                // Otherwise, increase penalty and update multiplier estimates with scaling
-                workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
-            }
+            // Scale relaxation parameter
+            workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
+            workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
+
+            // if (workspace->penalty_param >= options.penalty_max) {
+            //     // If we are at the maximum penalty, we can just update multiplier estimates without increasing penalty
+            //     workspace->m_eq_est = workspace->m_eq;
+            //     workspace->m_ineq_est = workspace->m_ineq;
+            //     workspace->m_comp_est = workspace->m_comp;
+
+            //     // Scale relaxation parameter
+            //     workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
+            // } else {
+            //     // Otherwise, increase penalty and update multiplier estimates with scaling
+            //     workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
+            // }
+
+            // Check constraint violation
+            // Primal feasibility
+            // double eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
+            // double ineq_violation = workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>();
+            
+            // Vec comp_strict = workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds));
+            // double comp_violation = (comp_strict - Eigen::VectorXd::Constant(comp_strict.size(), workspace->relax_param)).lpNorm<Eigen::Infinity>();
+            
+            // double theta = std::max({eq_violation, ineq_violation, comp_violation});
+
+            // if (theta < 0.75 * theta_prev) {
+            //     workspace->m_eq_est = workspace->m_eq;
+            //     workspace->m_ineq_est = workspace->m_ineq;
+            //     workspace->m_comp_est = workspace->m_comp;
+
+            //     // Scale relaxation parameter
+            //     workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
+            // } else {
+            //     // Otherwise, increase penalty and update multiplier estimates with scaling
+            //     workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
+            // }
 
             // Clear the filter
+            // theta_prev = theta;
             filter->clear();
             last_outer_step_iter = iter;
         } else {
@@ -544,41 +578,57 @@ SolveResult Solver::solve(const Solver::Options& options) {
 
             update_KKT_system(sqrt_relaxation_param, inv_penalty_param);
 
-            for (double regularizer : kkt_system_regularizers) {
-                update_KKT_primal_regularizer(regularizer);
+            auto bump_reg = [](double r) {
+                return r == 0.0 ? 1e-8 : 10.0 * r;
+            };
+
+            double regularizer_to_try =
+                std::isnan(last_regularizer) ? 0.0 : last_regularizer;
+
+            bool any_factorization_succeeded = false;
+            bool any_inertia_succeeded = false;
+
+            while (!linesearch_succeeded && regularizer_to_try <= 1e8) {
+                update_KKT_primal_regularizer(regularizer_to_try);
+
                 if (!numerical_factorization()) {
+                    regularizer_to_try = bump_reg(regularizer_to_try);
                     continue;
                 }
-                factorization_succeeded = true;
+
+                any_factorization_succeeded = true;
 
                 if (!check_inertia()) {
+                    regularizer_to_try = bump_reg(regularizer_to_try);
                     continue;
                 }
-                inertia_correction_succeeded = true;
 
-                backsolve(); // Computes Newton step
+                any_inertia_succeeded = true;
 
-                linesearch_succeeded = filter_linesearch(sqrt_relaxation_param, inv_penalty_param, options.max_iters_linesearch);
+                backsolve();
+
+                linesearch_succeeded = filter_linesearch(
+                    sqrt_relaxation_param,
+                    inv_penalty_param,
+                    options.max_iters_linesearch
+                );
 
                 if (linesearch_succeeded) {
-                    last_regularizer = regularizer;
+                    last_regularizer = regularizer_to_try == 0.0 ? 0.0 : regularizer_to_try / 10.0;
                     break;
                 }
 
-                factorization_succeeded = false;
-                inertia_correction_succeeded = false;
-            }
-
-            if (!factorization_succeeded) {
-                throw std::runtime_error("Numerical factorization failed for all regularization values!");
-            }
-
-            if (!inertia_correction_succeeded) {
-                throw std::runtime_error("Inertia correction failed for all regularization values!");
+                regularizer_to_try = bump_reg(regularizer_to_try);
             }
 
             if (!linesearch_succeeded) {
-                throw std::runtime_error("Linesearch failed to find an acceptable point!");
+                if (!any_factorization_succeeded) {
+                    throw std::runtime_error("Numerical factorization failed for all regularization values!");
+                }
+                if (!any_inertia_succeeded) {
+                    throw std::runtime_error("Inertia correction failed for all regularization values!");
+                }
+                throw std::runtime_error("Linesearch failed for all regularization values!");
             }
         }
     }

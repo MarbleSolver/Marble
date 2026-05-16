@@ -1,7 +1,7 @@
 module Marble
     using CxxWrap
     using SparseArrays
-    using NLPModels, ADNLPModels, JuMP, NLPModelsJuMP
+    using NLPModels, JuMP, NLPModelsJuMP
     using LinearAlgebra
     using AmplNLReader
     using Preferences
@@ -27,7 +27,7 @@ module Marble
         R::AbstractMatrix; r::AbstractVector
     end
 
-    function MarbleData(Q::AbstractMatrix, q::AbstractVector, c0::Number;
+    function MarbleData(Q::AbstractMatrix, q::AbstractVector, c0::Number=0.0;
                         J_eq=nothing, b_eq=nothing,
                         J_ineq=nothing, b_ineq=nothing,
                         L=nothing, l=nothing, R=nothing, r=nothing)
@@ -66,7 +66,6 @@ module Marble
         problem = Marble.Problem(data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
         solver = Marble.Solver()
         Marble.set_problem!(solver, problem)
-        Marble.verbosity!(opts, true)
 
         return Marble.solve!(solver, opts)
     end

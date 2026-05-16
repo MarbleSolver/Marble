@@ -254,9 +254,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("z",      [](SolveResult& r) { return to_julia(r.z); })
         .method("s_ineq", [](SolveResult& r) { return to_julia(r.s_ineq); })
         .method("s_comp", [](SolveResult& r) { return to_julia(r.s_comp); })
-        .method("m_eq",   [](SolveResult& r) { return to_julia(r.m_eq); })
-        .method("m_ineq", [](SolveResult& r) { return to_julia(r.m_ineq); })
-        .method("m_comp", [](SolveResult& r) { return to_julia(r.m_comp); });
+        .method("m_eq",         [](SolveResult& r) { return to_julia(r.m_eq); })
+        .method("m_ineq",       [](SolveResult& r) { return to_julia(r.m_ineq); })
+        .method("m_comp",       [](SolveResult& r) { return to_julia(r.m_comp); })
+        .method("setup_time_s", [](const SolveResult& r) { return r.setup_time_s; })
+        .method("solve_time_s", [](const SolveResult& r) { return r.solve_time_s; });
 
     // -----------------------------------------------------------------------
     // Solver
