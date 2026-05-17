@@ -444,7 +444,7 @@ bool Solver::convergence(const Solver::Options& options) {
            ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
 }
 
-SolveResult Solver::solve(const Solver::Options& options) {
+SolveResult Solver::solve(const Solver::Options& options, const Vec* initial_z) {
     const auto t0 = std::chrono::steady_clock::now();
     bool converged = false;
     n_factorizations = 0;
@@ -455,7 +455,15 @@ SolveResult Solver::solve(const Solver::Options& options) {
     int last_outer_step_iter = -1;
     double outer_step_kkt_norm_adjustment = 1.0;
 
-    workspace->solution.setZero(); // TODO: warm-starting options
+    workspace->solution.setZero();
+    if (initial_z != nullptr) {
+        if (initial_z->size() != prob->nz) {
+            throw std::invalid_argument(
+                "initial_z size " + std::to_string(initial_z->size()) +
+                " does not match nz=" + std::to_string(prob->nz));
+        }
+        workspace->z = *initial_z;
+    }
 
     int n_iter_outer = 0;
     int n_iter_inner = 0;
@@ -469,6 +477,29 @@ SolveResult Solver::solve(const Solver::Options& options) {
 
     if (verbose) {
         print_solve_header(prob->nz, prob->n_eq, prob->n_ineq, prob->n_comp);
+    }
+
+    auto vec_to_json = [](const Eigen::Map<Vec>& v) {
+        return std::vector<double>(v.data(), v.data() + v.size());
+    };
+
+    std::ofstream debug_file;
+    const bool debug = options.debug && !options.debug_output_path.empty();
+    if (debug) {
+        debug_file.open(options.debug_output_path, std::ios::trunc);
+        nlohmann::json header;
+        header["type"]               = "header";
+        header["nz"]                 = prob->nz;
+        header["n_eq"]               = prob->n_eq;
+        header["n_ineq"]             = prob->n_ineq;
+        header["n_comp"]             = prob->n_comp;
+        header["penalty_initial"]    = options.penalty_initial;
+        header["penalty_max"]        = options.penalty_max;
+        header["penalty_scaling"]    = options.penalty_scaling;
+        header["relaxation_initial"] = options.relaxation_initial;
+        header["relaxation_min"]     = options.relaxation_min;
+        header["relaxation_scaling"] = options.relaxation_scaling;
+        debug_file << header.dump() << "\n";
     }
 
     auto compute_metrics = [&]() {
@@ -492,16 +523,41 @@ SolveResult Solver::solve(const Solver::Options& options) {
 
         update_KKT_residual(sqrt_relaxation_param, inv_penalty_param);
 
-        if (verbose && iter % options.print_every == 0) {
-            if (rows_printed > 0 && rows_printed % COL_HEADER_REPRINT == 0) {
-                print_col_header();
-            }
+        const bool should_print = verbose && iter % options.print_every == 0;
+        const bool should_log   = debug   && iter % options.debug_log_every == 0;
+        if (should_print || should_log) {
             auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
-            print_iter_row(iter, last_step_type,
-                           workspace->penalty_param, workspace->relax_param,
-                           kkt, eq_vio, ineq_vio, comp_vio, obj,
-                           last_regularizer);
-            ++rows_printed;
+            if (should_print) {
+                if (rows_printed > 0 && rows_printed % COL_HEADER_REPRINT == 0) {
+                    print_col_header();
+                }
+                print_iter_row(iter, last_step_type,
+                               workspace->penalty_param, workspace->relax_param,
+                               kkt, eq_vio, ineq_vio, comp_vio, obj,
+                               last_regularizer);
+                ++rows_printed;
+            }
+            if (should_log) {
+                nlohmann::json rec;
+                rec["type"]          = "iterate";
+                rec["iter"]          = iter;
+                rec["step_type"]     = std::string(last_step_type);
+                rec["penalty_param"] = workspace->penalty_param;
+                rec["relax_param"]   = workspace->relax_param;
+                rec["regularizer"]   = std::isnan(last_regularizer) ? nlohmann::json(nullptr) : nlohmann::json(last_regularizer);
+                rec["kkt"]           = kkt;
+                rec["eq_vio"]        = eq_vio;
+                rec["ineq_vio"]      = ineq_vio;
+                rec["comp_vio"]      = comp_vio;
+                rec["obj"]           = obj;
+                rec["z"]             = vec_to_json(workspace->z);
+                rec["s_ineq"]        = vec_to_json(workspace->s_ineq);
+                rec["s_comp"]        = vec_to_json(workspace->s_comp);
+                rec["m_eq"]          = vec_to_json(workspace->m_eq);
+                rec["m_ineq"]        = vec_to_json(workspace->m_ineq);
+                rec["m_comp"]        = vec_to_json(workspace->m_comp);
+                debug_file << rec.dump() << "\n";
+            }
         }
 
         if (convergence(options)) {
@@ -522,26 +578,26 @@ SolveResult Solver::solve(const Solver::Options& options) {
                 outer_step_kkt_norm_adjustment /= 10.0;
             }
 
-            workspace->m_eq_est = workspace->m_eq;
-            workspace->m_ineq_est = workspace->m_ineq;
-            workspace->m_comp_est = workspace->m_comp;
+            // workspace->m_eq_est = workspace->m_eq;
+            // workspace->m_ineq_est = workspace->m_ineq;
+            // workspace->m_comp_est = workspace->m_comp;
 
-            // Scale relaxation parameter
-            workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
-            workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
+            // // Scale relaxation parameter
+            // workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
+            // workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
 
-            // if (workspace->penalty_param >= options.penalty_max) {
-            //     // If we are at the maximum penalty, we can just update multiplier estimates without increasing penalty
-            //     workspace->m_eq_est = workspace->m_eq;
-            //     workspace->m_ineq_est = workspace->m_ineq;
-            //     workspace->m_comp_est = workspace->m_comp;
+            if (workspace->penalty_param >= options.penalty_max) {
+                // If we are at the maximum penalty, we can just update multiplier estimates without increasing penalty
+                workspace->m_eq_est = workspace->m_eq;
+                workspace->m_ineq_est = workspace->m_ineq;
+                workspace->m_comp_est = workspace->m_comp;
 
-            //     // Scale relaxation parameter
-            //     workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
-            // } else {
-            //     // Otherwise, increase penalty and update multiplier estimates with scaling
-            //     workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
-            // }
+                // Scale relaxation parameter
+                workspace->relax_param = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
+            } else {
+                // Otherwise, increase penalty and update multiplier estimates with scaling
+                workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
+            }
 
             // Check constraint violation
             // Primal feasibility
@@ -633,13 +689,36 @@ SolveResult Solver::solve(const Solver::Options& options) {
         }
     }
 
-    if (verbose) {
+    if (verbose || debug) {
         double sqrt_relax = sqrt(workspace->relax_param);
         double inv_pen    = 1.0 / workspace->penalty_param;
         update_KKT_residual(sqrt_relax, inv_pen);
         auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
-        print_solve_footer(converged, n_iter_outer, n_iter_inner, n_factorizations,
-                           kkt, eq_vio, ineq_vio, comp_vio, obj);
+        if (verbose) {
+            print_solve_footer(converged, n_iter_outer, n_iter_inner, n_factorizations,
+                               kkt, eq_vio, ineq_vio, comp_vio, obj);
+        }
+        if (debug) {
+            nlohmann::json footer;
+            footer["type"]            = "footer";
+            footer["converged"]       = converged;
+            footer["iterations"]      = n_iter_outer + n_iter_inner;
+            footer["iterations_outer"]= n_iter_outer;
+            footer["iterations_inner"]= n_iter_inner;
+            footer["factorizations"]  = n_factorizations;
+            footer["kkt"]             = kkt;
+            footer["eq_vio"]          = eq_vio;
+            footer["ineq_vio"]        = ineq_vio;
+            footer["comp_vio"]        = comp_vio;
+            footer["obj"]             = obj;
+            footer["z"]               = vec_to_json(workspace->z);
+            footer["s_ineq"]          = vec_to_json(workspace->s_ineq);
+            footer["s_comp"]          = vec_to_json(workspace->s_comp);
+            footer["m_eq"]            = vec_to_json(workspace->m_eq);
+            footer["m_ineq"]          = vec_to_json(workspace->m_ineq);
+            footer["m_comp"]          = vec_to_json(workspace->m_comp);
+            debug_file << footer.dump() << "\n";
+        }
     }
 
     solve_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();

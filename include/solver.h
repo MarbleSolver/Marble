@@ -67,6 +67,12 @@ public:
         int verbosity{0};
         // Print a row every N iterations (only used when verbosity >= 1)
         int print_every{1};
+        // Write a JSONL debug log with iterates and solver state (one JSON object per line)
+        bool debug{false};
+        // Path to the debug log file (used when debug=true)
+        std::string debug_output_path{"solver_debug.jsonl"};
+        // Log every N iterations (1 = every iteration)
+        int debug_log_every{1};
 
         Options() = default;
     };
@@ -241,12 +247,20 @@ public:
     bool filter_linesearch(const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
 
     /**
-     * Solve the current problem instance
+     * Solve the current problem instance.
+     * Optionally provide initial_z (size nz) to warm-start the primal variables.
      */
-    SolveResult solve(const Options &options);
-    SolveResult solve(const Options &options, const Problem& prob) {
+    SolveResult solve(const Options& options, const Vec* initial_z = nullptr);
+    SolveResult solve(const Options& options, const Vec& initial_z) {
+        return solve(options, &initial_z);
+    }
+    SolveResult solve(const Options& options, const Problem& prob, const Vec* initial_z = nullptr) {
         set_problem(prob);
-        return solve(options);
+        return solve(options, initial_z);
+    }
+    SolveResult solve(const Options& options, const Problem& prob, const Vec& initial_z) {
+        set_problem(prob);
+        return solve(options, &initial_z);
     }
 
     /**

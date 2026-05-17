@@ -149,6 +149,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(ruiz_iterations,            int)
         OPTION_RW(verbosity,                  int)
         OPTION_RW(print_every,                int)
+        OPTION_RW(debug,                      bool)
+        OPTION_RW(debug_output_path,          std::string)
+        OPTION_RW(debug_log_every,            int)
         .method("output_dir",  [](const Solver::Options& o) { return o.output_dir.string(); })
         .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; });
 
@@ -280,8 +283,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("solve!", [](Solver& s, const Solver::Options& opts) {
             return s.solve(opts);
         })
+        .method("solve!", [](Solver& s, const Solver::Options& opts, jlcxx::ArrayRef<double, 1> initial_z) {
+            Vec z = to_eigen(initial_z);
+            return s.solve(opts, z);
+        })
         .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob) {
             return s.solve(opts, prob);
+        })
+        .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob, jlcxx::ArrayRef<double, 1> initial_z) {
+            Vec z = to_eigen(initial_z);
+            return s.solve(opts, prob, z);
         })
         .method("convergence", &Solver::convergence)
         // Workspace / filter access

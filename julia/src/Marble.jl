@@ -62,15 +62,23 @@ module Marble
         (data.L * x + data.l) .* (data.R * x + data.r)
     end
 
-    function solve(data::MarbleData; opts)
+    function solve(data::MarbleData; opts, initial_z=nothing)
         problem = Marble.Problem(data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
         solver = Marble.Solver()
         Marble.set_problem!(solver, problem)
 
-        return Marble.solve!(solver, opts)
+        if isnothing(initial_z)
+            return Marble.solve!(solver, opts)
+        else
+            return Marble.solve!(solver, opts, convert(Vector{Float64}, initial_z))
+        end
     end
 
     # Functions to convert stuff to MarbleData
     include("conversion.jl")
     export to_vertical_mpcc, to_jump
+
+    # Debug log loader
+    include("debug.jl")
+    export SolverDebugLog, load_debug_log, get_field, get_iterates
 end
