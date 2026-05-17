@@ -7,6 +7,7 @@
 namespace jlcxx {
     template<> struct IsMirroredType<Filter::Entry> : std::false_type {};
     template<> struct IsMirroredType<SolveResult>  : std::false_type {};
+    template<> struct IsMirroredType<InitialPoint> : std::false_type {};
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +265,39 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("solve_time_s", [](const SolveResult& r) { return r.solve_time_s; });
 
     // -----------------------------------------------------------------------
+    // InitialPoint
+    // -----------------------------------------------------------------------
+    mod.add_type<InitialPoint>("InitialPoint")
+        .constructor()
+        .method("z!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.z = to_eigen(v);
+        })
+        .method("s_ineq!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.s_ineq = to_eigen(v);
+        })
+        .method("s_comp!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.s_comp = to_eigen(v);
+        })
+        .method("m_eq!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.m_eq = to_eigen(v);
+        })
+        .method("m_ineq!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.m_ineq = to_eigen(v);
+        })
+        .method("m_comp!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.m_comp = to_eigen(v);
+        })
+        .method("m_eq_est!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.m_eq_est = to_eigen(v);
+        })
+        .method("m_ineq_est!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.m_ineq_est = to_eigen(v);
+        })
+        .method("m_comp_est!", [](InitialPoint& p, jlcxx::ArrayRef<double, 1> v) {
+            p.m_comp_est = to_eigen(v);
+        });
+
+    // -----------------------------------------------------------------------
     // Solver
     // -----------------------------------------------------------------------
     mod.add_type<Solver>("Solver")
@@ -283,16 +317,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("solve!", [](Solver& s, const Solver::Options& opts) {
             return s.solve(opts);
         })
-        .method("solve!", [](Solver& s, const Solver::Options& opts, jlcxx::ArrayRef<double, 1> initial_z) {
-            Vec z = to_eigen(initial_z);
-            return s.solve(opts, z);
+        .method("solve!", [](Solver& s, const Solver::Options& opts, const InitialPoint& initial_point) {
+            return s.solve(opts, initial_point);
         })
         .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob) {
             return s.solve(opts, prob);
         })
-        .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob, jlcxx::ArrayRef<double, 1> initial_z) {
-            Vec z = to_eigen(initial_z);
-            return s.solve(opts, prob, z);
+        .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob, const InitialPoint& initial_point) {
+            return s.solve(opts, prob, initial_point);
         })
         .method("convergence", &Solver::convergence)
         // Workspace / filter access

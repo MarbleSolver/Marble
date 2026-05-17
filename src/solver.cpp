@@ -444,7 +444,7 @@ bool Solver::convergence(const Solver::Options& options) {
            ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
 }
 
-SolveResult Solver::solve(const Solver::Options& options, const Vec* initial_z) {
+SolveResult Solver::solve(const Solver::Options& options, const InitialPoint* initial_point) {
     const auto t0 = std::chrono::steady_clock::now();
     bool converged = false;
     n_factorizations = 0;
@@ -456,13 +456,45 @@ SolveResult Solver::solve(const Solver::Options& options, const Vec* initial_z) 
     double outer_step_kkt_norm_adjustment = 1.0;
 
     workspace->solution.setZero();
-    if (initial_z != nullptr) {
-        if (initial_z->size() != prob->nz) {
+    workspace->m_eq_est.setZero();
+    workspace->m_ineq_est.setZero();
+    workspace->m_comp_est.setZero();
+
+    auto check_size = [](const char* name, const Vec& value, int expected) {
+        if (value.size() != expected) {
             throw std::invalid_argument(
-                "initial_z size " + std::to_string(initial_z->size()) +
-                " does not match nz=" + std::to_string(prob->nz));
+                std::string(name) + " size " + std::to_string(value.size()) +
+                " does not match expected size " + std::to_string(expected));
         }
-        workspace->z = *initial_z;
+    };
+
+    if (initial_point != nullptr) {
+        check_size("initial z", initial_point->z, prob->nz);
+        workspace->z = initial_point->z;
+
+        check_size("initial s_ineq", initial_point->s_ineq, prob->n_ineq);
+        workspace->s_ineq = initial_point->s_ineq;
+    
+        check_size("initial s_comp", initial_point->s_comp, prob->n_comp);
+        workspace->s_comp = initial_point->s_comp;
+    
+        check_size("initial m_eq", initial_point->m_eq, prob->n_eq);
+        workspace->m_eq = initial_point->m_eq;
+    
+        check_size("initial m_ineq", initial_point->m_ineq, prob->n_ineq);
+        workspace->m_ineq = initial_point->m_ineq;
+    
+        check_size("initial m_comp", initial_point->m_comp, 2 * prob->n_comp);
+        workspace->m_comp = initial_point->m_comp;
+    
+        check_size("initial m_eq_est", initial_point->m_eq_est, prob->n_eq);
+        workspace->m_eq_est = initial_point->m_eq_est;
+    
+        check_size("initial m_ineq_est", initial_point->m_ineq_est, prob->n_ineq);
+        workspace->m_ineq_est = initial_point->m_ineq_est;
+    
+        check_size("initial m_comp_est", initial_point->m_comp_est, 2 * prob->n_comp);
+        workspace->m_comp_est = initial_point->m_comp_est;
     }
 
     int n_iter_outer = 0;

@@ -26,6 +26,30 @@ struct SolveResult {
     Vec m_comp;
 };
 
+struct InitialPoint {
+    // Stacked solution vector [z; s_ineq; s_comp; m_eq; m_ineq; m_comp]
+    Vec solution;
+
+    // // Views into the solution vector
+    // Eigen::Map<Vec> z;
+    // Eigen::Map<Vec> s_ineq;
+    // Eigen::Map<Vec> s_comp;
+    // Eigen::Map<Vec> m_eq;
+    // Eigen::Map<Vec> m_ineq;
+    // Eigen::Map<Vec> m_comp;
+    Vec z;
+    Vec s_ineq;
+    Vec s_comp;
+    Vec m_eq;
+    Vec m_ineq;
+    Vec m_comp;
+    Vec m_eq_est;
+    Vec m_ineq_est;
+    Vec m_comp_est;
+    // double relax_param{0.0};
+    // double penalty_param{0.0};
+};
+
 class Solver {
 public:
     struct Options {
@@ -250,17 +274,17 @@ public:
      * Solve the current problem instance.
      * Optionally provide initial_z (size nz) to warm-start the primal variables.
      */
-    SolveResult solve(const Options& options, const Vec* initial_z = nullptr);
-    SolveResult solve(const Options& options, const Vec& initial_z) {
-        return solve(options, &initial_z);
-    }
-    SolveResult solve(const Options& options, const Problem& prob, const Vec* initial_z = nullptr) {
+    SolveResult solve(const Options& options, const InitialPoint* initial_point = nullptr);
+    SolveResult solve(const Options& options, const Problem& prob) {
         set_problem(prob);
-        return solve(options, initial_z);
+        return solve(options);
     }
-    SolveResult solve(const Options& options, const Problem& prob, const Vec& initial_z) {
+    SolveResult solve(const Options& options, const InitialPoint& initial_point) {
+        return solve(options, &initial_point);
+    }
+    SolveResult solve(const Options& options, const Problem& prob, const InitialPoint& initial_point) {
         set_problem(prob);
-        return solve(options, &initial_z);
+        return solve(options, &initial_point);
     }
 
     /**
