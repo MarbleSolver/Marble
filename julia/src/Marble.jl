@@ -76,7 +76,7 @@ module Marble
 
     # Functions to convert stuff to MarbleData
     include("conversion.jl")
-    export to_vertical_mpcc, to_jump
+    export to_jump
 
     # Debug log loader
     include("debug.jl")
