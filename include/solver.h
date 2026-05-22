@@ -10,6 +10,11 @@
 #include <filesystem>
 #include <utility>
 
+/**
+ * A brief description of your class.
+ * 
+ * A more detailed description of what the class does.
+ */
 struct SolveResult {
     bool converged;
     int iterations;
@@ -26,6 +31,11 @@ struct SolveResult {
     Vec m_comp;
 };
 
+/**
+ * A brief description of your class.
+ * 
+ * A more detailed description of what the class does.
+ */
 struct InitialPoint {
     // Stacked solution vector [z; s_ineq; s_comp; m_eq; m_ineq; m_comp]
     Vec solution;
@@ -52,50 +62,53 @@ struct InitialPoint {
 
 class Solver {
 public:
+    /**
+     * Solver options
+     */
     struct Options {
-        // KKT Inf norm must be less than this value for convergence
+        /// KKT Inf norm must be less than this value for convergence
         double convergence_kkt_norm{1e-4};
-        // Equality constraint violation Inf norm must be less than this value for convergence
+        /// Equality constraint violation Inf norm must be less than this value for convergence
         double convergence_eq_violation{1e-4};
-        // Inequality constraint violation Inf norm must be less than this value for convergence
+        /// Inequality constraint violation Inf norm must be less than this value for convergence
         double convergence_ineq_violation{1e-4};
-        // Complementarity constraint violation Inf norm must be less than this value for convergence
+        /// Complementarity constraint violation Inf norm must be less than this value for convergence
         double convergence_comp_violation{1e-5};
-        // KKT Inf norm must be less than this value to take an outer step in the algorithm
+        /// KKT Inf norm must be less than this value to take an outer step in the algorithm
         double outer_step_kkt_norm{1e-6};
-        // Initial AL penalty parameter
+        /// Initial AL penalty parameter
         double penalty_initial{10.0};
-        // Maximum AL penalty parameter
+        /// Maximum AL penalty parameter
         double penalty_max{1e6};
-        // AL penalty parameter scaling factor, multiplies current penalty parameter
+        /// AL penalty parameter scaling factor, multiplies current penalty parameter
         double penalty_scaling{10.0};
-        // Initial relaxation parameter for complementarity and inequality constraints
+        /// Initial relaxation parameter for complementarity and inequality constraints
         double relaxation_initial{1e-1};
-        // Minimum relaxation parameter for complementarity and inequality constraints
+        /// Minimum relaxation parameter for complementarity and inequality constraints
         double relaxation_min{1e-7};
-        // Relaxation parameter scaling factor, multiplies current relaxation parameter
+        /// Relaxation parameter scaling factor, multiplies current relaxation parameter
         double relaxation_scaling{0.5};
-        // Maximum number of iterations for the solver, iterations refers to outer + inner iterations
+        /// Maximum number of iterations for the solver, iterations refers to outer + inner iterations
         int max_iters{1000};
-        // Maximum number of iterations for the filter linesearch
+        /// Maximum number of iterations for the filter linesearch
         int max_iters_linesearch{10};
-        // (filter) Sufficient progress parameter for objective value decrease
+        /// (filter) Sufficient progress parameter for objective value decrease
         double gamma_objective{1e-5};
-        // (filter) Sufficient progress parameter for constraint violation decrease
+        /// (filter) Sufficient progress parameter for constraint violation decrease
         double gamma_constraint{1e-5};
-        // Number of ruiz iterations for scaling
+        /// Number of ruiz iterations for scaling
         int ruiz_iterations{10};
-        // Output directory for solution and solve information
+        /// Output directory for solution and solve information
         std::filesystem::path output_dir{"/dev/null"};
-        // Verbosity level: 0=silent, 1=per-iteration table + footer
+        /// Verbosity level: 0=silent, 1=per-iteration table + footer
         int verbosity{0};
-        // Print a row every N iterations (only used when verbosity >= 1)
+        /// Print a row every N iterations (only used when verbosity >= 1)
         int print_every{1};
-        // Write a JSONL debug log with iterates and solver state (one JSON object per line)
+        /// Write a JSONL debug log with iterates and solver state (one JSON object per line)
         bool debug{false};
-        // Path to the debug log file (used when debug=true)
+        /// Path to the debug log file (used when debug=true)
         std::string debug_output_path{"solver_debug.jsonl"};
-        // Log every N iterations (1 = every iteration)
+        /// Log every N iterations (1 = every iteration)
         int debug_log_every{1};
 
         Options() = default;
@@ -248,7 +261,7 @@ public:
     }
 
     /**
-     * @brief Get the filter object
+     * Get the filter object
      * 
      * @return Filter& Filter object used for linesearch in the solver
      */
@@ -259,7 +272,7 @@ public:
     Filter::Entry entry_from_solution(double sqrt_relax_param, double inv_penalty_param) const;
 
     /**
-     * @brief Perform backtracking filter linesearch given a step direction
+     * Perform backtracking filter linesearch given a step direction
      * 
      * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
      * @param inv_penalty_param Inverse of the AL penalty parameter

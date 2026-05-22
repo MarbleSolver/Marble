@@ -10,6 +10,11 @@ using SMat = Eigen::SparseMatrix<double, Eigen::ColMajor, QDLDL_int>;
 using Mat = Eigen::MatrixXd;
 using Vec = Eigen::VectorXd;
 
+/**
+ * A brief description of your class.
+ * 
+ * A more detailed description of what the class does.
+ */
 class Problem {
 public:
     // Problem dimensions

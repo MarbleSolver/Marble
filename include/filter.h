@@ -14,14 +14,14 @@ public:
     std::vector<Entry> entries;
 
     /**
-     * @brief Construct a new Filter object
+     * Construct a new Filter object
      */
     Filter() : Filter(1e-5, 1e-5) {}
     Filter(const double gamma_objective, const double gamma_constraint) : gamma_objective(gamma_objective), 
                                                 gamma_constraint(gamma_constraint), entries(std::vector<Entry>()) {}
 
     /**
-     * @brief Determine if a candidate point makes sufficient progress with respect to feasibility and merit
+     * Determine if a candidate point makes sufficient progress with respect to feasibility and merit
      * decrease compared to an entry in the filter
      * 
      * @param candidate Candidate filter entry 
@@ -31,7 +31,7 @@ public:
     std::pair<bool, bool> sufficient_progress(const Entry& candidate, const Entry& entry) const;
 
     /**
-     * @brief Determine if a candidate point is acceptable compared to an existing entry in the filter. Defined as making either
+     * Determine if a candidate point is acceptable compared to an existing entry in the filter. Defined as making either
      * sufficient feasibility progress or sufficient merit decrease compared to any entry in the filter.
      * 
      * @param candidate Candidate filter entry
@@ -42,7 +42,7 @@ public:
     bool candidate_acceptable(const Entry& candidate, const Entry& entry) const;
 
     /**
-     * @brief Determine if a candidate point is dominated by an existing entry in the filter. Defined as not making sufficient
+     * Determine if a candidate point is dominated by an existing entry in the filter. Defined as not making sufficient
      * progress in either feasibility or merit decrease compared to the existing entry.
      * 
      * @param candidate Candidate filter entry
@@ -53,7 +53,7 @@ public:
     bool candidate_dominated(const Entry& candidate, const Entry& entry) const;
 
     /**
-     * @brief Determine if a candidate point is acceptable compared to any entry in the filter. Defined as making either
+     * Determine if a candidate point is acceptable compared to any entry in the filter. Defined as making either
      * sufficient feasibility progress or sufficient merit decrease compared to any entry in the filter.
      * 
      * @param candidate Candidate filter entry
@@ -63,14 +63,14 @@ public:
     bool acceptable(const Entry& candidate);
 
     /**
-     * @brief Add a new entry to the filter and remove any entries that are dominated by the new entry
+     * Add a new entry to the filter and remove any entries that are dominated by the new entry
      * 
      * @param new_entry New filter entry to add
      */
     void update(const Entry& new_entry);
 
     /**
-     * @brief Clear all entries from the filter
+     * Clear all entries from the filter
      */
     void clear();
 private:
