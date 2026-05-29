@@ -23,41 +23,27 @@ struct SolveResult {
     int factorizations;
     double setup_time_s;
     double solve_time_s;
-    Vec z;
-    Vec s_ineq;
-    Vec s_comp;
-    Vec m_eq;
-    Vec m_ineq;
-    Vec m_comp;
+    Vec z;        // Primal solution
+    Vec s_ineq;   // Inequality slack solution
+    Vec s_comp;   // Complementarity slack solution
+    Vec m_eq;     // Equality multiplier solution
+    Vec m_ineq;   // Inequality multiplier solution
+    Vec m_comp;   // Complementarity multiplier solution
 };
 
 /**
- * A brief description of your class.
- * 
- * A more detailed description of what the class does.
+ * Stores an initial guess for primal, dual, slack, and multiplier estimate variables for the solver.
  */
 struct InitialPoint {
-    // Stacked solution vector [z; s_ineq; s_comp; m_eq; m_ineq; m_comp]
-    Vec solution;
-
-    // // Views into the solution vector
-    // Eigen::Map<Vec> z;
-    // Eigen::Map<Vec> s_ineq;
-    // Eigen::Map<Vec> s_comp;
-    // Eigen::Map<Vec> m_eq;
-    // Eigen::Map<Vec> m_ineq;
-    // Eigen::Map<Vec> m_comp;
-    Vec z;
-    Vec s_ineq;
-    Vec s_comp;
-    Vec m_eq;
-    Vec m_ineq;
-    Vec m_comp;
-    Vec m_eq_est;
-    Vec m_ineq_est;
-    Vec m_comp_est;
-    // double relax_param{0.0};
-    // double penalty_param{0.0};
+    Vec z;          // Primal
+    Vec s_ineq;     // Inequality slacks (in the retraction domain)
+    Vec s_comp;     // Complementarity slacks (in the retraction domain)
+    Vec m_eq;       // Equality multipliers
+    Vec m_ineq;     // Inequality multipliers
+    Vec m_comp;     // Complementarity multipliers
+    Vec m_eq_est;   // Equality multiplier estimates for AL
+    Vec m_ineq_est; // Inequality multiplier estimates for AL
+    Vec m_comp_est; // Complementarity multiplier estimates for AL
 };
 
 class Solver {
