@@ -29,6 +29,52 @@ module Marble
         return nothing
     end
 
+    function setup!(solver::Marble.Solver, Q::AbstractMatrix, q::AbstractVector, c0::Real=0.0;
+                    J_eq=nothing, b_eq=nothing, J_ineq=nothing, b_ineq=nothing,
+                    L=nothing, l=nothing, R=nothing, r=nothing, kwargs...)
+        Marble.update_settings!(solver; kwargs...)
+        opts = Marble.options(solver)
+
+        n = length(q)
+        J_eq   = isnothing(J_eq)   ? zeros(0, n) : J_eq
+        b_eq   = isnothing(b_eq)   ? zeros(0)    : b_eq
+        J_ineq = isnothing(J_ineq) ? zeros(0, n) : J_ineq
+        b_ineq = isnothing(b_ineq) ? zeros(0)    : b_ineq
+        L = isnothing(L) ? zeros(0, n) : L
+        l = isnothing(l) ? zeros(0)    : l
+        R = isnothing(R) ? zeros(0, n) : R
+        r = isnothing(r) ? zeros(0)    : r
+
+        _set_problem!(solver, opts, Q, q, Float64(c0),
+                      J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+        return nothing
+    end
+
+    # Dispatch to the dense or sparse set_problem! binding based on storage. When
+    # any block is sparse every block is converted to a SparseMatrixCSC so the
+    # solver sees consistent compressed-sparse data
+    function _set_problem!(solver::Marble.Solver, opts, Q, q, c0,
+                           J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+        blocks = (Q, J_eq, J_ineq, L, R)
+        fvec(v) = collect(Float64, v)
+        if any(b -> b isa AbstractSparseMatrix, blocks)
+            Qs, Es, Is, Ls, Rs = sparse(Q), sparse(J_eq), sparse(J_ineq), sparse(L), sparse(R)
+            Marble.set_problem!(solver, size(Q, 2),
+                Qs.colptr, Qs.rowval, Qs.nzval, fvec(q), c0,
+                length(b_eq),   Es.colptr, Es.rowval, Es.nzval, fvec(b_eq),
+                length(b_ineq), Is.colptr, Is.rowval, Is.nzval, fvec(b_ineq),
+                length(l),      Ls.colptr, Ls.rowval, Ls.nzval, fvec(l),
+                                Rs.colptr, Rs.rowval, Rs.nzval, fvec(r), opts)
+        else
+            fmat(M) = Matrix{Float64}(M)
+            Marble.set_problem!(solver,
+                fmat(Q), fvec(q), c0,
+                fmat(J_eq), fvec(b_eq), fmat(J_ineq), fvec(b_ineq),
+                fmat(L), fvec(l), fmat(R), fvec(r), opts)
+        end
+        return nothing
+    end
+
     const OPTIONS = [
         :convergence_kkt_norm, :convergence_eq_violation, :convergence_ineq_violation,
         :convergence_comp_violation, :outer_step_kkt_norm,

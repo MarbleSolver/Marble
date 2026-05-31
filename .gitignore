@@ -1,6 +1,7 @@
 .vscode/
 .claude/
 build/*
-.venv/
 .DS_Store
 julia/examples/Manifest.toml
+python/marble/__pycache__/
+python/.venv/

@@ -5,9 +5,9 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "marble"
 version = "0.1.0"
-description = "Marble: constrained optimization solver with complementarity constraints"
+description = "Marble: constrained optimization solver for complementarity constraints"
 requires-python = ">=3.8"
-dependencies = ["numpy"]
+dependencies = ["numpy", "scipy"]
 
 [tool.scikit-build]
 cmake.source-dir = ".."
@@ -17,4 +17,5 @@ cmake.args = [
     "-DMARBLE_BUILD_JULIA=OFF",
     "-DMARBLE_GENERATE_PYI=OFF",
 ]
-wheel.packages = []
+# Ship the pure Python package; the compiled _core is installed into it by CMake
+wheel.packages = ["marble"]
