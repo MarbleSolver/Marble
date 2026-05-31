@@ -15,16 +15,16 @@ module Marble
         @initcxx
     end
 
-    function setup!(solver::Marble.Solver,model::Model, ind_cc1, ind_cc2, comp_type; kwargs...)
+    function setup!(solver::Marble.Solver,model::Model, ind_cc1, ind_cc2, cc_type; kwargs...)
         Marble.update_settings!(solver; kwargs...)
-        setup!(solver, MathOptNLPModel(model), ind_cc1, ind_cc2, comp_type; kwargs...)
+        setup!(solver, MathOptNLPModel(model), ind_cc1, ind_cc2, cc_type; kwargs...)
         return nothing
     end
 
-    function setup!(solver::Marble.Solver,nlp::AbstractNLPModel, ind_cc1, ind_cc2, comp_type; kwargs...)
+    function setup!(solver::Marble.Solver,nlp::AbstractNLPModel, ind_cc1, ind_cc2, cc_type; kwargs...)
         Marble.update_settings!(solver; kwargs...)
         opts = Marble.options(solver)
-        data = jump_to_marble(nlp, ind_cc1, ind_cc2, comp_type)
+        data = jump_to_marble(nlp, ind_cc1, ind_cc2, cc_type)
         Marble.set_problem!(solver, data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r, opts)
         return nothing
     end
