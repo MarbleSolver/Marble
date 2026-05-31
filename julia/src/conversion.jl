@@ -34,7 +34,7 @@ function jump_to_marble(
     nlp::AbstractNLPModel,
     ind_cc1,
     ind_cc2,
-    comp_type::Union{
+    cc_type::Union{
         Tuple{Symbol,Symbol},
         AbstractVector{<:Tuple{Symbol,Symbol}},
     },
@@ -44,20 +44,20 @@ function jump_to_marble(
 
     ncc = length(ind_cc1)
 
-    comp_type = comp_type isa Tuple ? fill(comp_type, ncc) : collect(comp_type)
+    cc_type = cc_type isa Tuple ? fill(cc_type, ncc) : collect(cc_type)
 
     nvar = nlp.meta.nvar
     ncon = nlp.meta.ncon
 
     @assert nlp.meta.nnln == 0 "Expected no nonlinear constraints in `nlp`"
     @assert length(ind_cc2) == ncc "Expected equal number of complementarity endpoints"
-    @assert length(comp_type) == ncc "Expected one complementarity type per pair"
-    @assert all(t -> all(in((:var, :con)), t), comp_type) """
-    Expected comp_type entries of form (:var, :var), (:var, :con), (:con, :var), or (:con, :con)
+    @assert length(cc_type) == ncc "Expected one complementarity type per pair"
+    @assert all(t -> all(in((:var, :con)), t), cc_type) """
+    Expected cc_type entries of form (:var, :var), (:var, :con), (:con, :var), or (:con, :con)
     """
 
-    kind1 = first.(comp_type)
-    kind2 = last.(comp_type)
+    kind1 = first.(cc_type)
+    kind2 = last.(cc_type)
 
     valid(k, i) = 1 <= i <= (k === :var ? nvar : ncon)
     row(k, i) = k === :var ? ncon + i : i

@@ -91,26 +91,39 @@ if(MARBLE_BUILD_PYTHON)
         FetchContent_MakeAvailable(pybind11)
     endif()
 
+    # The compiled extension is the private submodule `marble._core`; the pure
+    # Python `marble` package (python/marble/) wraps it with the high-level API.
     pybind11_add_module(marble_python MODULE bindings/python_bindings.cpp)
     target_link_libraries(marble_python PRIVATE marble)
     set_target_properties(marble_python PROPERTIES
-        OUTPUT_NAME            marble
-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python
+        OUTPUT_NAME            _core
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python/marble
     )
 
-    # .pyi stub generation (for VSCode / Pylance autocomplete)
+    # Stage the pure Python package next to the freshly built extension so that
+    # adding build/python to sys.path is enough to `import marble` from the tree.
+    add_custom_command(TARGET marble_python POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_SOURCE_DIR}/python/marble ${CMAKE_BINARY_DIR}/python/marble
+        COMMENT "Staging marble package into build/python/marble"
+        VERBATIM
+    )
+
+    # .pyi stub generation for the compiled core (VSCode / Pylance autocomplete)
     if(MARBLE_GENERATE_PYI)
         find_program(PYBIND11_STUBGEN pybind11-stubgen)
         if(PYBIND11_STUBGEN)
             add_custom_command(TARGET marble_python POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/python/typings
                 COMMAND ${CMAKE_COMMAND} -E env
                         PYTHONPATH=${CMAKE_BINARY_DIR}/python
-                        ${PYBIND11_STUBGEN} marble
-                        --output-dir ${CMAKE_SOURCE_DIR}/python/typings
+                        ${PYBIND11_STUBGEN} marble._core
+                        --output-dir ${CMAKE_SOURCE_DIR}/python
                         --numpy-array-remove-parameters
                         --ignore-unresolved-names "^(m|n)$"
-                COMMENT "Generating marble.pyi stubs"
+                COMMAND ${CMAKE_COMMAND} -E copy
+                        ${CMAKE_SOURCE_DIR}/python/marble/_core.pyi
+                        ${CMAKE_BINARY_DIR}/python/marble/_core.pyi
+                COMMENT "Generating marble/_core.pyi stubs"
                 VERBATIM
             )
         else()
@@ -120,7 +133,8 @@ if(MARBLE_BUILD_PYTHON)
         endif()
     endif()
 
-    install(TARGETS marble_python LIBRARY DESTINATION .)
+    # Wheel layout: site-packages/marble/{__init__.py, _core.so}
+    install(TARGETS marble_python LIBRARY DESTINATION marble)
 endif()
 
 # ---------------------------------------------------------------------------

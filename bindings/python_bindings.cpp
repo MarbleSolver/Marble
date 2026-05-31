@@ -38,8 +38,8 @@ static Vec arr_to_vec(py::array_t<double> arr) {
     return Eigen::Map<const Vec>(arr.data(), arr.size());
 }
 
-PYBIND11_MODULE(marble, m) {
-    m.doc() = "Marble: constrained optimization solver with complementarity constraints";
+PYBIND11_MODULE(_core, m) {
+    m.doc() = "Marble compiled core: constrained optimization solver with complementarity constraints";
 
     // -------------------------------------------------------------------------
     // Problem
@@ -78,6 +78,10 @@ PYBIND11_MODULE(marble, m) {
         .def_readonly("n_eq",   &Problem::n_eq)
         .def_readonly("n_ineq", &Problem::n_ineq)
         .def_readonly("n_comp", &Problem::n_comp)
+        .def("obj",           [](const Problem& p, const Vec& z) { return p.obj(z); }, py::arg("z"))
+        .def("residual_eq",   [](const Problem& p, const Vec& z) { return p.residual_eq(z); },   py::arg("z"))
+        .def("residual_ineq", [](const Problem& p, const Vec& z) { return p.residual_ineq(z); }, py::arg("z"))
+        .def("residual_comp", [](const Problem& p, const Vec& z) { return p.residual_comp(z); }, py::arg("z"))
         .def_property_readonly("cost_gradient", [](const Problem& p) { return p.cost_gradient; })
         .def_readonly("cost_const", &Problem::cost_const)
         // Constraint matrices (returned as scipy-compatible CSC tuple: rows, cols, colptr, rowval, nzval)
@@ -325,6 +329,8 @@ PYBIND11_MODULE(marble, m) {
              },
              py::arg("niter"))
         .def("get_problem", &Solver::get_problem,
+             py::return_value_policy::reference_internal)
+        .def("get_options", [](Solver& s) -> Solver::Options& { return s.options; },
              py::return_value_policy::reference_internal)
         // Main solve
         .def("solve", [](Solver& s) { return s.solve(); })
