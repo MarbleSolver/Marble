@@ -1,34 +1,34 @@
-function to_jump(marble_data::MarbleData) 
-    model = Model()
+# function to_jump(marble_data::MarbleData) 
+#     model = Model()
 
-    (; Q, q, c0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r) = marble_data
+#     (; Q, q, c0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r) = marble_data
 
-    nvar = length(q)
-    ncc = length(l)
+#     nvar = length(q)
+#     ncc = length(l)
 
-    @variable(model, x[1:nvar])
-    @variable(model, sL[1:ncc] >= 0)
-    @variable(model, sR[1:ncc] >= 0)
+#     @variable(model, x[1:nvar])
+#     @variable(model, sL[1:ncc] >= 0)
+#     @variable(model, sR[1:ncc] >= 0)
 
-    # Quadratic objective
-    @objective(model, Min, 1/2 * dot(x, Q, x) + q' * x + c0)
+#     # Quadratic objective
+#     @objective(model, Min, 1/2 * dot(x, Q, x) + q' * x + c0)
 
-    # Eq/Ineq constraints
-    @constraints(model, begin
-        J_eq * x + b_eq .== 0
-        J_ineq * x + b_ineq .>= 0
-    end)
+#     # Eq/Ineq constraints
+#     @constraints(model, begin
+#         J_eq * x + b_eq .== 0
+#         J_ineq * x + b_ineq .>= 0
+#     end)
 
-    # Complementarity slacks
-    @constraints(model, begin
-        L * x .+ l .== sL
-        R * x .+ r .== sR
-    end)
+#     # Complementarity slacks
+#     @constraints(model, begin
+#         L * x .+ l .== sL
+#         R * x .+ r .== sR
+#     end)
 
-    @constraint(model, [j = 1:ncc], [sL[j], sR[j]] in SOS1())
+#     @constraint(model, [j = 1:ncc], [sL[j], sR[j]] in SOS1())
 
-    return model
-end
+#     return model
+# end
 
 function jump_to_marble(
     nlp::AbstractNLPModel,

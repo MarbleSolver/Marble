@@ -15,41 +15,6 @@ module Marble
         @initcxx
     end
 
-    # Solver data struct
-    export MarbleData
-    export obj, residual_eq, residual_ineq, residual_comp
-
-    @Base.kwdef mutable struct MarbleData
-        Q::AbstractMatrix; q::AbstractVector; c0::Number
-        J_eq::AbstractMatrix; b_eq::AbstractVector
-        J_ineq::AbstractMatrix; b_ineq::AbstractVector
-        L::AbstractMatrix; l::AbstractVector
-        R::AbstractMatrix; r::AbstractVector
-    end
-
-    function MarbleData(Q::AbstractMatrix, q::AbstractVector, c0::Number=0.0;
-                        J_eq=nothing, b_eq=nothing,
-                        J_ineq=nothing, b_ineq=nothing,
-                        L=nothing, l=nothing, R=nothing, r=nothing)
-        n = size(Q, 2)
-        T = eltype(Q)
-        return MarbleData(
-            Q=Q, q=q, c0=c0,
-            J_eq  = isnothing(J_eq)   ? zeros(T, 0, n) : J_eq,
-            b_eq  = isnothing(b_eq)   ? zeros(T, 0)    : b_eq,
-            J_ineq = isnothing(J_ineq) ? zeros(T, 0, n) : J_ineq,
-            b_ineq = isnothing(b_ineq) ? zeros(T, 0)    : b_ineq,
-            L = isnothing(L) ? zeros(T, 0, n) : L,
-            l = isnothing(l) ? zeros(T, 0)    : l,
-            R = isnothing(R) ? zeros(T, 0, n) : R,
-            r = isnothing(r) ? zeros(T, 0)    : r,
-        )
-    end
-
-    
-    include("conversion.jl")
-
-
     function setup!(solver::Marble.Solver,model::Model, ind_cc1, ind_cc2, comp_type; kwargs...)
         opts = Marble.SolverOptions()
         Marble.update_settings!(opts; kwargs...)
@@ -63,12 +28,6 @@ module Marble
         data = jump_to_marble(nlp, ind_cc1, ind_cc2, comp_type)
         Marble.set_problem!(solver, data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r, opts)
         return nothing
-    end
-
-    function solve(data::MarbleData; opts)
-        solver = Marble.Solver()
-        Marble.set_problem!(solver, data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r, opts)
-        return Marble.solve!(solver)
     end
 
     const OPTIONS = [
@@ -124,7 +83,7 @@ module Marble
 
     # Functions to convert stuff to MarbleData
     include("conversion.jl")
-    export to_jump
+    export jump_to_marble
 
     # Debug log loader
     include("debug.jl")
