@@ -22,6 +22,16 @@ julia -e 'using Pkg; Pkg.add("CxxWrap")'
 
 ## Building
 
+First install the system build dependencies:
+
+```bash
+# macOS
+brew install cmake eigen nlohmann-json
+
+# Ubuntu/Debian
+sudo apt install cmake libeigen3-dev nlohmann-json3-dev
+```
+
 The project uses CMake presets defined in `CMakePresets.json`. Execute the commands below from the root of the repository.
 
 ### Python bindings (default)
@@ -46,7 +56,7 @@ cmake --preset all
 cmake --build --preset all
 ```
 
-## Docker
+<!-- ## Docker
 
 The included `Dockerfile` builds both Python and Julia bindings inside a self-contained image.
 
@@ -57,7 +67,7 @@ docker run -it marble
 
 Inside the container:
 - `python` uses the venv at `/opt/venv`; `import marble` works immediately
-- Julia shared library is at `build/lib/libmarble_julia.so`
+- Julia shared library is at `build/lib/libmarble_julia.so` -->
 
 
 ## Julia: use from your own environment
@@ -83,8 +93,7 @@ Pkg.develop(path="/path/to/RCQP/julia")
 Pkg.instantiate()      # pulls in CxxWrap and the other dependencies
 ```
 
-**3. Use it:** build a solver, set up the problem matrices, then solve. Matrices may be
-dense or sparse, and solver options are passed to `setup!` as keyword arguments.
+**3. Use it:** 
 ```julia
 using Marble
 using LinearAlgebra
@@ -107,42 +116,41 @@ The path omits the file extension; `Marble.jl` appends the platform's `.dylib` /
 
 ## Python: use from your own virtual environment
 
-marble is not on PyPI, so install it from a local checkout of this repository. This
-works with any virtual environment, a fresh one or an existing project's.
+marble is not on PyPI, so build the bindings from this repository and use them from your
+own virtual environment (a fresh one or an existing project's).
 
-**1. Install the system build dependencies** (CMake, Eigen3, and nlohmann-json are
-needed at build time):
+**1. Build the Python bindings** (this needs the build dependencies from
+[Building](#building) above):
 ```bash
-# macOS
-brew install cmake eigen nlohmann-json
-
-# Ubuntu/Debian
-sudo apt install cmake libeigen3-dev nlohmann-json3-dev
+cmake --preset python
+cmake --build --preset python
 ```
+This stages the `marble` package at `build/python/marble/`.
 
-**2. Create and activate a virtual environment:**
+**2. Make it importable in your environment.** Either install it into your virtual
+environment from the repo's `python/` directory (pip recompiles the extension and pulls
+in `numpy` and `scipy`):
 ```bash
 python -m venv .venv                 # or activate an existing environment
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
-```
-
-**3. Install marble from the repo's `python/` directory:**
-```bash
 pip install /path/to/RCQP/python
 ```
-pip builds the C++ extension in an isolated environment, fetching `scikit-build-core`
-and `pybind11` automatically, and pulls in `numpy` and `scipy`. Nothing else needs to
-be installed first.
+or, without installing, add the staged package to your path at runtime:
+```python
+import sys
+sys.path.insert(0, "/path/to/RCQP/build/python")
+```
 
-After this, `import marble` works wherever that environment is active:
+**3. Use it:**
 ```python
 import numpy as np
 import marble
 
-# min 1/2 x'x + q'x  ->  x* = -q
+# min 1/2 x'x  s.t.  x1 + x2 = 2  ->  x* = [1, 1]
 solver = marble.Solver()
-solver.setup(np.eye(2), np.array([1.0, 2.0]))
-print(solver.solve().z)              # [-1. -2.]
+solver.setup(np.eye(2), np.zeros(2), J_eq=np.array([[1.0, 1.0]]), b_eq=np.array([-2.0]))
+res = solver.solve()
+print(res.converged, res.z)          # True  [1. 1.]
 ```
 
 **Developing marble itself:** install the build tools into your environment and use an
@@ -150,20 +158,6 @@ editable install so source edits are picked up without reinstalling:
 ```bash
 pip install scikit-build-core pybind11
 pip install -e /path/to/RCQP/python --no-build-isolation
-```
-
-## Python: usage without installing
-
-After building (`cmake --build --preset python`), the `marble` package is staged at
-`build/python/marble/`. Add `build/python/` to your path at runtime, then import it:
-
-```python
-import sys
-
-rcqp_root = "/path/to/RCQP"            # your checkout of this repo
-sys.path.insert(0, rcqp_root + "/build/python")
-
-import marble
 ```
 
 ## VSCode: Python autocomplete
