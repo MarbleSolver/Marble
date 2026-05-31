@@ -2,3 +2,4 @@
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 Marble = "b3638fc0-1f6f-44b7-b12a-1e2f3108bdcf"
 NLPModelsJuMP = "792afdf1-32c1-5681-94e0-d7bf7a5df49e"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"

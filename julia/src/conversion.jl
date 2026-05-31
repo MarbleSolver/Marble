@@ -30,7 +30,7 @@ function to_jump(marble_data::MarbleData)
     return model
 end
 
-function MarbleData(
+function jump_to_marble(
     nlp::AbstractNLPModel,
     ind_cc1,
     ind_cc2,
@@ -38,7 +38,7 @@ function MarbleData(
         Tuple{Symbol,Symbol},
         AbstractVector{<:Tuple{Symbol,Symbol}},
     },
-)::MarbleData
+)
     ind_cc1 = Int.(collect(ind_cc1))
     ind_cc2 = Int.(collect(ind_cc2))
 
@@ -143,8 +143,8 @@ function MarbleData(
         u_all[cc_extra_ub] .- b_all[cc_extra_ub];
     ]
 
-    return MarbleData(
-        Q, q, c0;
+    return (
+        Q=Q, q=q, c0=c0,
         J_eq=J_eq, b_eq=b_eq,
         J_ineq=J_ineq, b_ineq=b_ineq,
         L=L, l=l,

@@ -3,6 +3,7 @@
 #       x[2] ≥ 1
 #       0 ≤ (x[3] + 1) ⟂ (x[4] - 1) ≥ 0 --> solution is x[3] = 0, x[4] = 1
 using Pkg; Pkg.activate(@__DIR__)
+using Revise
 using JuMP, Marble, NLPModelsJuMP
 
 # Construct problem using JuMP
@@ -19,11 +20,7 @@ model = JuMP.Model()
 @constraint(model, x4_comp, x[4] - 1 >= 0)
 comps = con_con_complementarities(model, [x3_comp,], [x4_comp,])
 
-# Construct a marble problem struct (completely unclear why we do this in Julia)
-marble_data = MarbleData(MathOptNLPModel(model), first.(comps), last.(comps), [(:con, :con),])
-
-# Solve the problem (again unclear why we have a wrapper function for this)
-opts = Marble.SolverOptions()
-Marble.verbosity!(opts, 1)
-result = Marble.solve(marble_data; opts = opts)
-println(Marble.z(result))
+solver = Marble.Solver()
+Marble.setup!(solver, model, first.(comps), last.(comps), [(:con, :con),]; verbosity = 1)
+results = Marble.solve!(solver)
+println(Marble.z(results))

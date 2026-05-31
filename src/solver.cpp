@@ -81,10 +81,27 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
-void Solver::set_problem(const Problem& prob) {
-    const auto t0 = std::chrono::steady_clock::now();
-    this->prob = std::make_shared<Problem>(prob);
+void Solver::set_problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
+            SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
+            SMat L, Vec l, SMat R, Vec r, Solver::Options& options) {
+    this->prob = std::make_shared<Problem>(cost_hessian, cost_gradient, cost_const,
+                                            J_eq, c_eq, J_ineq, c_ineq,
+                                            L, l, R, r);
+    set_problem(options);
+}
 
+void Solver::set_problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
+            Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
+            Mat L, Vec l, Mat R, Vec r, Solver::Options& options) {
+    this->prob = std::make_shared<Problem>(cost_hessian, cost_gradient, cost_const,
+                                            J_eq, c_eq, J_ineq, c_ineq,
+                                            L, l, R, r);
+    set_problem(options);
+}
+
+void Solver::set_problem(const Solver::Options& options) {
+    const auto t0 = std::chrono::steady_clock::now();
+    this->options = options;
     // Define subproblem dimensions
     n_primals =
         this->prob->nz + this->prob->n_ineq + this->prob->n_comp;  // Primal variables include original and slacks
@@ -444,7 +461,7 @@ bool Solver::convergence(const Solver::Options& options) {
            ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
 }
 
-SolveResult Solver::solve(const Solver::Options& options, const InitialPoint* initial_point) {
+SolveResult Solver::solve(const InitialPoint* initial_point) {
     const auto t0 = std::chrono::steady_clock::now();
     bool converged = false;
     n_factorizations = 0;

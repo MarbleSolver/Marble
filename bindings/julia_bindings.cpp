@@ -133,6 +133,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("residual_eq",   [](Problem& p, jlcxx::ArrayRef<double, 1> z) {return make_julia_owned(p.residual_eq(to_eigen(z))); })
         .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_ineq(to_eigen(z))); })
         .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); });
+        // .method("cost_hessian", [](Problem& p) { 
+        //     // Assumes cost_hessian is compressed
+        //     auto colptr = jlcxx::make_julia_array(p.cost_hessian().outerIndexPtr(), p.cost_hessian().outerSize() + 1);
+        //     auto rowval = jlcxx::make_julia_array(p.cost_hessian().innerIndexPtr(), p.cost_hessian().nonZeros());
+        //     auto nzval  = jlcxx::make_julia_array(p.cost_hessian().valuePtr(),      p.cost_hessian().nonZeros());
+        //     return std::make_tuple((int)p.cost_hessian().rows(), (int)p.cost_hessian().cols(), colptr, rowval, nzval);
+        // });
 
     // -----------------------------------------------------------------------
     // SolverOptions
@@ -313,29 +320,57 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     // -----------------------------------------------------------------------
     mod.add_type<Solver>("Solver")
         .constructor()
-        .constructor([](const Solver::Options& opts) { return new Solver(opts); })
         // Problem setup
         .method("ruiz_equilibration!", [](Solver& solver, int niter) {
             solver.ruiz_equilibration(niter);
             Workspace& workspace = solver.get_workspace();
             return std::vector<double>(workspace.scaling.data(), workspace.scaling.data() + workspace.scaling.size());
         })
-        .method("set_problem!", [](Solver& s, const Problem& prob) {
-            s.set_problem(prob);
+        .method("set_problem!", [](Solver& s, jlcxx::ArrayRef<double, 2> cost_hessian,
+                        jlcxx::ArrayRef<double, 1> cost_gradient,
+                        double cost_const,
+                        jlcxx::ArrayRef<double, 2> J_eq,   jlcxx::ArrayRef<double, 1> c_eq,
+                        jlcxx::ArrayRef<double, 2> J_ineq, jlcxx::ArrayRef<double, 1> c_ineq,
+                        jlcxx::ArrayRef<double, 2> L,      jlcxx::ArrayRef<double, 1> l,
+                        jlcxx::ArrayRef<double, 2> R,      jlcxx::ArrayRef<double, 1> r, Solver::Options& opts) {
+            int nz     = cost_gradient.size();
+            int n_eq   = c_eq.size();
+            int n_ineq = c_ineq.size();
+            int n_comp = l.size();
+            s.set_problem(to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient), cost_const,
+                to_eigen(J_eq,   n_eq,   nz),   to_eigen(c_eq),
+                to_eigen(J_ineq, n_ineq, nz),   to_eigen(c_ineq),
+                to_eigen(L, n_comp, nz),         to_eigen(l),
+                to_eigen(R, n_comp, nz),         to_eigen(r), opts);
+        })
+        .method("set_problem!", [](Solver& s, int nz,
+                        jlcxx::ArrayRef<int64_t,1> Hcp,  jlcxx::ArrayRef<int64_t,1> Hrv,  jlcxx::ArrayRef<double,1> Hnz,
+                        jlcxx::ArrayRef<double,1> grad, double cost_const,
+                        int n_eq,
+                        jlcxx::ArrayRef<int64_t,1> Ecp,  jlcxx::ArrayRef<int64_t,1> Erv,  jlcxx::ArrayRef<double,1> Enz,
+                        jlcxx::ArrayRef<double,1> c_eq,
+                        int n_ineq,
+                        jlcxx::ArrayRef<int64_t,1> Icp,  jlcxx::ArrayRef<int64_t,1> Irv,  jlcxx::ArrayRef<double,1> Inz,
+                        jlcxx::ArrayRef<double,1> c_ineq,
+                        int n_comp,
+                        jlcxx::ArrayRef<int64_t,1> Lcp,  jlcxx::ArrayRef<int64_t,1> Lrv,  jlcxx::ArrayRef<double,1> Lnz,
+                        jlcxx::ArrayRef<double,1> l,
+                        jlcxx::ArrayRef<int64_t,1> Rcp,  jlcxx::ArrayRef<int64_t,1> Rrv,  jlcxx::ArrayRef<double,1> Rnz,
+                        jlcxx::ArrayRef<double,1> r, Solver::Options& opts) {
+            s.set_problem(
+                csc_to_smat(nz,     nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
+                csc_to_smat(n_eq,   nz, Ecp, Erv, Enz), to_eigen(c_eq),
+                csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
+                csc_to_smat(n_comp, nz, Lcp, Lrv, Lnz), to_eigen(l),
+                csc_to_smat(n_comp, nz, Rcp, Rrv, Rnz), to_eigen(r), opts);
         })
         .method("get_problem",   &Solver::get_problem)
         // Main solve
-        .method("solve!", [](Solver& s, const Solver::Options& opts) {
-            return s.solve(opts);
+        .method("solve!", [](Solver& s) {
+            return s.solve();
         })
-        .method("solve!", [](Solver& s, const Solver::Options& opts, const InitialPoint& initial_point) {
-            return s.solve(opts, initial_point);
-        })
-        .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob) {
-            return s.solve(opts, prob);
-        })
-        .method("solve!", [](Solver& s, const Solver::Options& opts, const Problem& prob, const InitialPoint& initial_point) {
-            return s.solve(opts, prob, initial_point);
+        .method("solve!", [](Solver& s, const InitialPoint& initial_point) {
+            return s.solve(initial_point);
         })
         .method("convergence", &Solver::convergence)
         // Workspace / filter access

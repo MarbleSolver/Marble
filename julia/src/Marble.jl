@@ -46,6 +46,10 @@ module Marble
         )
     end
 
+    
+    include("conversion.jl")
+
+
     function estimate_initial_point(data::MarbleData, z0; opts, κ=nothing, eps=1e-12, multiplier_rtol=1e-8)
         z = convert(Vector{Float64}, z0)
         κ = isnothing(κ) ? Float64(Marble.relaxation_initial(opts)) : Float64(κ)
@@ -110,6 +114,21 @@ module Marble
         Marble.m_ineq_est!(ip, init.m_ineq_est)
         Marble.m_comp_est!(ip, init.m_comp_est)
         return ip
+    end
+
+    function setup!(solver::Marble.Solver,model::Model, ind_cc1, ind_cc2, comp_type; kwargs...)
+        opts = Marble.SolverOptions()
+        Marble.update_settings!(opts; kwargs...)
+        setup!(solver, MathOptNLPModel(model), ind_cc1, ind_cc2, comp_type; kwargs...)
+        return nothing
+    end
+
+    function setup!(solver::Marble.Solver,nlp::AbstractNLPModel, ind_cc1, ind_cc2, comp_type; kwargs...)
+        opts = Marble.SolverOptions()
+        Marble.update_settings!(opts; kwargs...)
+        data = jump_to_marble(nlp, ind_cc1, ind_cc2, comp_type)
+        Marble.set_problem!(solver, data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r, opts)
+        return nothing
     end
 
     function solve(data::MarbleData; opts, z0=nothing)

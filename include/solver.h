@@ -138,11 +138,7 @@ public:
     // TODO: initialize filter with options, should be private member of solver
     std::shared_ptr<Filter> filter;
 
-    Solver() : Solver(Options()) {}
-
-    Solver(const Options& options)
-        : options(options),
-          filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)) {}
+    Solver() : filter(std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint)) {}
     
     /**
      * Retraction map (elementwise)
@@ -166,9 +162,23 @@ public:
     void ruiz_equilibration(int niter = 10);
 
     /**
-     * Sets the problem for the solver, populates the KKT system, computes sparsity indexing
+     * Sets the problem for the solver given sparse matrices, computes sparsity indexing
      */
-    void set_problem(const Problem& prob);
+    void set_problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
+            SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
+            SMat L, Vec l, SMat R, Vec r, Solver::Options& options);    
+
+    /**
+    * Sets the problem for the solver given dense matrices, computes sparsity indexing
+    */
+   void set_problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
+            Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
+            Mat L, Vec l, Mat R, Vec r, Solver::Options& options);
+
+    /**
+     * Populates the KKT system, computes sparsity indexing
+     */
+    void set_problem(const Solver::Options& options);
 
     /**
      * Returns the problem currently set for the solver
@@ -274,17 +284,9 @@ public:
      * Solve the current problem instance.
      * Optionally provide initial_z (size nz) to warm-start the primal variables.
      */
-    SolveResult solve(const Options& options, const InitialPoint* initial_point = nullptr);
-    SolveResult solve(const Options& options, const Problem& prob) {
-        set_problem(prob);
-        return solve(options);
-    }
-    SolveResult solve(const Options& options, const InitialPoint& initial_point) {
-        return solve(options, &initial_point);
-    }
-    SolveResult solve(const Options& options, const Problem& prob, const InitialPoint& initial_point) {
-        set_problem(prob);
-        return solve(options, &initial_point);
+    SolveResult solve(const InitialPoint* initial_point = nullptr);
+    SolveResult solve(const InitialPoint& initial_point) {
+        return solve(&initial_point);
     }
 
     /**
@@ -294,7 +296,7 @@ public:
 
 private:
     // Solver options
-    const Options options;
+    Options options;
 
     // Counts numerical_factorization() calls; reset at the start of each solve()
     int n_factorizations{0};
