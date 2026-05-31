@@ -3,3 +3,4 @@
 build/*
 .venv/
 .DS_Store
+julia/examples/Manifest.toml

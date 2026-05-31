@@ -2,7 +2,7 @@
 # where x[1] = 1
 #       x[2] ≥ 1
 #       0 ≤ (x[3] + 1) ⟂ (x[4] - 1) ≥ 0 --> solution is x[3] = 0, x[4] = 1
-using Pkg; Pkg.activate(joinpath(@__DIR__, "../../../MarbleBenchmarks"))
+using Pkg; Pkg.activate(@__DIR__)
 using JuMP, Marble, NLPModelsJuMP
 
 # Construct problem using JuMP
