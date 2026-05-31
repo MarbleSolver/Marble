@@ -393,5 +393,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_ineq_s_ineq_inds", [](Solver& s) { return to_julia(s.s_ineq_s_ineq_inds); })
         .method("s_ineq_m_ineq_inds", [](Solver& s) { return to_julia(s.s_ineq_m_ineq_inds); })
         .method("s_comp_s_comp_inds", [](Solver& s) { return to_julia(s.s_comp_s_comp_inds); })
-        .method("s_comp_m_comp_inds", [](Solver& s) { return to_julia(s.s_comp_m_comp_inds); });
+        .method("s_comp_m_comp_inds", [](Solver& s) { return to_julia(s.s_comp_m_comp_inds); })
+        .method("options", [](Solver& s) -> Solver::Options& { return s.options; });
 }

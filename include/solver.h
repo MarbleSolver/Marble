@@ -275,10 +275,10 @@ public:
      */
     bool convergence(const Options &options);
 
-private:
     // Solver options
     Options options;
 
+private:
     // Counts numerical_factorization() calls; reset at the start of each solve()
     int n_factorizations{0};
 
