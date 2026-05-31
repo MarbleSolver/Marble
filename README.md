@@ -1,6 +1,17 @@
 # Marble
-[![CMake Build](https://github.com/MarbleSolver/Marble/actions/workflows/cmake-build.yml/badge.svg)](https://github.com/Marble/Marble/actions/workflows/cmake-build.yml)
-[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://roboticexplorationlab.org/Marble/)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/marble-solver-logos-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/marble-solver-logos-light.svg">
+    <img alt="Marble" src="assets/marble-solver-logos-light.svg" width="360">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Marble/Marble/actions/workflows/cmake-build.yml"><img alt="CMake Build" src="https://github.com/MarbleSolver/Marble/actions/workflows/cmake-build.yml/badge.svg"></a>
+  <a href="https://roboticexplorationlab.org/Marble/"><img alt="Docs" src="https://img.shields.io/badge/docs-dev-blue.svg"></a>
+</p>
 
 A C++ solver for quadratic programs with linear complementarity constraints, with Python and Julia bindings.
 
