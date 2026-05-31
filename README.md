@@ -1,28 +1,38 @@
 # Marble
-[![CMake Build](https://github.com/MarbleSolver/RCQP/actions/workflows/cmake-build.yml/badge.svg)](https://github.com/MarbleSolver/RCQP/actions/workflows/cmake-build.yml)
+[![CMake Build](https://github.com/MarbleSolver/Marble/actions/workflows/cmake-build.yml/badge.svg)](https://github.com/Marble/Marble/actions/workflows/cmake-build.yml)
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://roboticexplorationlab.org/Marble/)
 
 A C++ solver for quadratic programs with linear complementarity constraints, with Python and Julia bindings.
 
 ## Prerequisites
 
-| Dependency | Required for |
-|---|---|
-| CMake ≥ 3.28 | all |
-| Eigen3 | all |
-| nlohmann-json | all |
-| Python ≥ 3.8 + dev headers | Python bindings |
-| pybind11-stubgen | `.pyi` autocomplete stubs |
-| Julia ≥ 1.9 + CxxWrap.jl | Julia bindings |
+Install these yourself:
 
-**Julia setup** (only needed for Julia bindings):
+| Dependency | Version | Needed for |
+|---|---|---|
+| CMake | ≥ 3.28 | everything |
+| A C++17 compiler | — | everything |
+| Eigen3 | ≥ 3.3 | everything |
+| nlohmann-json | — | everything |
+| Python + dev headers | ≥ 3.8 | Python bindings |
+| Julia + CxxWrap.jl | ≥ 1.10 | Julia bindings |
+| pybind11-stubgen | — | optional: `.pyi` autocomplete stubs |
+
+CMake fetches the rest automatically (from source if they aren't already installed), so you don't need to install them yourself:
+
+| Dependency | Version | Needed for |
+|---|---|---|
+| QDLDL | — | everything |
+| pybind11 | ≥ 2.13 | Python bindings |
+
+**Julia setup** (only for the Julia bindings): make `CxxWrap.jl` available to the Julia that CMake will use.
 ```bash
 julia -e 'using Pkg; Pkg.add("CxxWrap")'
 ```
 
-## Building
+## Building from source
 
-First install the system build dependencies:
+Install the system build dependencies:
 
 ```bash
 # macOS
@@ -32,23 +42,23 @@ brew install cmake eigen nlohmann-json
 sudo apt install cmake libeigen3-dev nlohmann-json3-dev
 ```
 
-The project uses CMake presets defined in `CMakePresets.json`. Execute the commands below from the root of the repository.
+The project ships CMake presets in `CMakePresets.json`. Run the commands below from the repository root.
 
 ### Python bindings (default)
 ```bash
 cmake --preset python
 cmake --build --preset python
 ```
-Output: `build/python/marble/_core.cpython-<version>-<platform>.so` (the compiled core inside the `marble` package)
+Output: `build/python/marble/_core.cpython-<version>-<platform>.so` — the compiled core staged inside the `marble` package.
 
 ### Julia bindings
 ```bash
 cmake --preset julia
 cmake --build --preset julia
 ```
-CMake auto-detects JlCxx by calling `julia -e 'using CxxWrap; print(CxxWrap.prefix_path())'`
+CMake auto-detects JlCxx by running `julia -e 'using CxxWrap; print(CxxWrap.prefix_path())'`; override with `-DJlCxx_DIR=<path>` if needed.
 
-Output: `build/lib/libmarble_julia.dylib` (macOS) / `build/lib/libmarble_julia.so` (Linux)
+Output: `build/lib/libmarble_julia.dylib` (macOS) / `build/lib/libmarble_julia.so` (Linux).
 
 ### Both
 ```bash
@@ -69,76 +79,27 @@ Inside the container:
 - `python` uses the venv at `/opt/venv`; `import marble` works immediately
 - Julia shared library is at `build/lib/libmarble_julia.so` -->
 
+## Using Marble from Python
 
-## Julia: use from your own environment
+marble is not on PyPI, so build the bindings from this repository and use them from your own virtual environment (a fresh one or an existing project's).
 
-The Julia bindings in `julia/` form a package named `Marble`. It is not registered, so
-add it to your environment with `Pkg.develop`.
-
-**1. Build the Julia shared library** (this needs `CxxWrap` available to the Julia that
-CMake uses, see [Julia bindings](#julia-bindings) above):
-```bash
-julia -e 'using Pkg; Pkg.add("CxxWrap")'
-cmake --preset julia
-cmake --build --preset julia
-```
-This writes `build/lib/libmarble_julia.{dylib,so}`, which `Marble.jl` loads on import.
-By default it looks in this repo's `build/lib/`, so an in-repo build needs no extra
-configuration.
-
-**2. Add the package to your environment and install its dependencies:**
-```julia
-using Pkg
-Pkg.develop(path="/path/to/RCQP/julia")
-Pkg.instantiate()      # pulls in CxxWrap and the other dependencies
-```
-
-**3. Use it:** 
-```julia
-using Marble
-using LinearAlgebra
-
-# min 1/2 x'x  s.t.  x1 + x2 = 2  ->  x* = [1, 1]
-solver = Marble.Solver()
-Marble.setup!(solver, Matrix(1.0I, 2, 2), [0.0, 0.0]; J_eq = [1.0 1.0], b_eq = [-2.0])
-res = Marble.solve!(solver)
-println(Marble.converged(res), " ", collect(Marble.z(res)))   # true  ~[1.0, 1.0]
-```
-
-If you build or move the shared library elsewhere, point the package at it with a
-Preference, then restart Julia so the new path takes effect:
-```julia
-using Preferences
-set_preferences!("Marble", "libmarble_julia_path" => "/abs/path/to/libmarble_julia")
-```
-The path omits the file extension; `Marble.jl` appends the platform's `.dylib` / `.so`.
-
-
-## Python: use from your own virtual environment
-
-marble is not on PyPI, so build the bindings from this repository and use them from your
-own virtual environment (a fresh one or an existing project's).
-
-**1. Build the Python bindings** (this needs the build dependencies from
-[Building](#building) above):
+**1. Build the Python bindings** (needs the dependencies from [Building from source](#building-from-source)):
 ```bash
 cmake --preset python
 cmake --build --preset python
 ```
 This stages the `marble` package at `build/python/marble/`.
 
-**2. Make it importable in your environment.** Either install it into your virtual
-environment from the repo's `python/` directory (pip recompiles the extension and pulls
-in `numpy` and `scipy`):
+**2. Make it importable.** Either install it into your virtual environment from the repo's `python/` directory (pip recompiles the extension and pulls in `numpy` and `scipy`):
 ```bash
 python -m venv .venv                 # or activate an existing environment
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install /path/to/RCQP/python
+pip install /path/to/Marble/python
 ```
 or, without installing, add the staged package to your path at runtime:
 ```python
 import sys
-sys.path.insert(0, "/path/to/RCQP/build/python")
+sys.path.insert(0, "/path/to/Marble/build/python")
 ```
 
 **3. Use it:**
@@ -153,39 +114,73 @@ res = solver.solve()
 print(res.converged, res.z)          # True  [1. 1.]
 ```
 
-**Developing marble itself:** install the build tools into your environment and use an
-editable install so source edits are picked up without reinstalling:
+## Using Marble from Julia
+
+The Julia bindings in `julia/` form a package named `Marble`. It is not registered, so add it to your environment with `Pkg.develop`.
+
+**1. Build the Julia shared library** (needs `CxxWrap` available to the Julia that CMake uses, see [Julia bindings](#julia-bindings)):
 ```bash
-pip install scikit-build-core pybind11
-pip install -e /path/to/RCQP/python --no-build-isolation
+julia -e 'using Pkg; Pkg.add("CxxWrap")'
+cmake --preset julia
+cmake --build --preset julia
+```
+This writes `build/lib/libmarble_julia.{dylib,so}`, which `Marble.jl` loads on import. By default it looks in this repo's `build/lib/`, so an in-repo build needs no extra configuration.
+
+**2. Add the package to your environment and install its dependencies:**
+```julia
+using Pkg
+Pkg.develop(path="/path/to/Marble/julia")
+Pkg.instantiate()      # pulls in CxxWrap and the other dependencies
 ```
 
-## VSCode: Python autocomplete
+**3. Use it:**
+```julia
+using Marble
+using LinearAlgebra
 
-The high-level API in `python/marble/__init__.py` is type-annotated, and the
-compiled core ships a `python/marble/_core.pyi` stub that is regenerated each time
-you build `marble_python` (requires `pybind11-stubgen`). Pylance reads both from the
-`marble` package, so a single setting wires everything up:
+# min 1/2 x'x  s.t.  x1 + x2 = 2  ->  x* = [1, 1]
+solver = Marble.Solver()
+Marble.setup!(solver, Matrix(1.0I, 2, 2), [0.0, 0.0]; J_eq = [1.0 1.0], b_eq = [-2.0])
+res = Marble.solve!(solver)
+println(Marble.converged(res), " ", collect(Marble.z(res)))   # true  ~[1.0, 1.0]
+```
 
-### `.vscode/settings.json`
+If you build or move the shared library elsewhere, point the package at it with a Preference, then restart Julia so the new path takes effect:
+```julia
+using Preferences
+set_preferences!("Marble", "libmarble_julia_path" => "/abs/path/to/libmarble_julia")
+```
+The path omits the file extension; `Marble.jl` appends the platform's `.dylib` / `.so`.
+
+## Developing Marble
+
+### Editable Python install
+Install the build tools into your environment and use an editable install so source edits are picked up without reinstalling:
+```bash
+pip install scikit-build-core pybind11
+pip install -e /path/to/Marble/python --no-build-isolation
+```
+
+### VSCode: Python autocomplete
+
+The high-level API in `python/marble/__init__.py` is type-annotated, and the compiled core ships a `python/marble/_core.pyi` stub that is regenerated each time you build `marble_python` (requires `pybind11-stubgen`). Pylance reads both from the `marble` package, so a single setting wires everything up.
+
+Add to `.vscode/settings.json`:
 ```json
 {
   "python.analysis.extraPaths": ["${workspaceFolder}/build/python"],
   "python.analysis.useLibraryCodeForTypes": true
 }
 ```
+`extraPaths` tells Pylance where the staged `marble` package (with `_core.so` and `_core.pyi`) lives so it can be imported.
 
-- `extraPaths`:  tells Pylance where the staged `marble` package (with `_core.so` and `_core.pyi`) lives so it can be imported
-
-### Install the Pylance extension
-Install the **Pylance** extension in VSCode (`ms-python.vscode-pylance`). It picks up the above setting automatically.
+Then install the **Pylance** extension (`ms-python.vscode-pylance`); it picks up the setting automatically.
 
 If stubs are stale or missing, rebuild:
 ```bash
 cmake --build --preset python --target marble_python
 ```
-
-If `pybind11-stubgen` is not installed, CMake will warn but the build still succeeds. Install it with:
+If `pybind11-stubgen` is not installed, CMake warns but the build still succeeds. Install it with:
 ```bash
 pip install pybind11-stubgen
 ```
