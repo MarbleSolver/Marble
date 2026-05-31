@@ -23,6 +23,7 @@ module Marble
 
     function setup!(solver::Marble.Solver,nlp::AbstractNLPModel, ind_cc1, ind_cc2, comp_type; kwargs...)
         Marble.update_settings!(solver; kwargs...)
+        opts = Marble.options(solver)
         data = jump_to_marble(nlp, ind_cc1, ind_cc2, comp_type)
         Marble.set_problem!(solver, data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r, opts)
         return nothing
@@ -35,6 +36,7 @@ module Marble
                     R=zeros(0, size(Q, 1)), r=zeros(0); kwargs...)
                     println(J_eq)
         Marble.update_settings!(solver; kwargs...)
+        opts = Marble.options(solver)
         Marble.set_problem!(solver, Q, q, 0.0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r, opts)
         return nothing
     end
