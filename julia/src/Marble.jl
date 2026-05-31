@@ -51,15 +51,14 @@ module Marble
 
 
     function setup!(solver::Marble.Solver,model::Model, ind_cc1, ind_cc2, comp_type; kwargs...)
-        opts = Marble.SolverOptions()
-        Marble.update_settings!(opts; kwargs...)
+        Marble.update_settings!(solver; kwargs...)
         setup!(solver, MathOptNLPModel(model), ind_cc1, ind_cc2, comp_type; kwargs...)
         return nothing
     end
 
     function setup!(solver::Marble.Solver,nlp::AbstractNLPModel, ind_cc1, ind_cc2, comp_type; kwargs...)
-        opts = Marble.SolverOptions()
-        Marble.update_settings!(opts; kwargs...)
+        Marble.update_settings!(solver; kwargs...)
+        opts = Marble.options(solver)
         data = jump_to_marble(nlp, ind_cc1, ind_cc2, comp_type)
         Marble.set_problem!(solver, data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r, opts)
         return nothing
@@ -82,7 +81,8 @@ module Marble
         :debug_output_path, :debug_log_every
     ]
 
-    function update_settings!(opts::Marble.SolverOptions; kwargs...)
+    function update_settings!(solver::Marble.Solver; kwargs...)
+        opts = Marble.options(solver)
         for (opt_name, opt_val) in kwargs
             try
                 opt_setter = getfield(Marble, Symbol(opt_name, :!))
@@ -117,14 +117,22 @@ module Marble
         printstyled(io, "─"^total_width * "\n", color=:light_black)
     end
 
+    Base.getproperty(solver::Marble.Solver, sym::Symbol) = solver_property(solver, Val(sym))
+    solver_property(solver::Marble.Solver, ::Val{:options}) = CxxWrap.dereference_argument(Marble.options(solver))
+    solver_property(solver::Marble.Solver, ::Val{:problem}) = CxxWrap.dereference_argument(Marble.get_problem(solver))
+    solver_property(solver::Marble.Solver, ::Val{sym}) where sym = getfield(solver, sym)
+
+    Base.propertynames(solver::Marble.Solver, private::Bool=false) = (:options, :problem,fieldnames(typeof(solver))...)
+
+    obj(solver::Marble.Solver, z::Vector{Float64}) = Marble.obj(Marble.get_problem(solver), z)
+    residual_eq(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_eq(Marble.get_problem(solver), z)
+    residual_ineq(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_ineq(Marble.get_problem(solver), z)
+    residual_comp(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_comp(Marble.get_problem(solver), z)
+
     # Utility functions for problem construction with JuMP
     include("jump_mpcc.jl")
     export nlp_con_row_map, nlp_var_col_map, var_var_complementarities, var_con_complementarities, con_con_complementarities
     export var_inds, reformulate_sos1, reformulate_lie
-
-    # Functions to convert stuff to MarbleData
-    include("conversion.jl")
-    export to_jump
 
     # Debug log loader
     include("debug.jl")
