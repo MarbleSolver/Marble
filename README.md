@@ -3,6 +3,8 @@
 
 A C++ solver for quadratic programs with linear complementarity constraints, with Python and Julia bindings.
 
+This repository is currently a work-in-progress and will receive some significant clean up. If you want to get started we recommend checking out the Getting Started with [Julia](https://roboticexplorationlab.org/Marble/getting_started/julia/) or [Python](https://roboticexplorationlab.org/Marble/getting_started/python/) pages. We will try to make sure that the interfaces (Julia and Python) do not change, just the internals.
+
 ## Prerequisites
 
 | Dependency | Required for |
