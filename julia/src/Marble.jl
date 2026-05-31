@@ -46,22 +46,6 @@ module Marble
         )
     end
 
-    function obj(data::MarbleData, x)
-        0.5 * x' * data.Q * x + data.q' * x + data.c0
-    end
-
-    function residual_eq(data::MarbleData, x)
-        data.J_eq * x + data.b_eq
-    end
-
-    function residual_ineq(data::MarbleData, x)
-        min.(data.J_ineq * x + data.b_ineq, 0.0)
-    end
-
-    function residual_comp(data::MarbleData, x)
-        (data.L * x + data.l) .* (data.R * x + data.r)
-    end
-
     function estimate_initial_point(data::MarbleData, z0; opts, κ=nothing, eps=1e-12, multiplier_rtol=1e-8)
         z = convert(Vector{Float64}, z0)
         κ = isnothing(κ) ? Float64(Marble.relaxation_initial(opts)) : Float64(κ)
@@ -139,6 +123,52 @@ module Marble
             ip = _initialize_point(data; opts=opts, z0=z0)
             return Marble.solve!(solver, opts, ip)
         end
+    end
+
+    const OPTIONS = [
+        :convergence_kkt_norm, :convergence_eq_violation, :convergence_ineq_violation,
+        :convergence_comp_violation, :outer_step_kkt_norm,
+        :penalty_initial, :penalty_max, :penalty_scaling,
+        :relaxation_initial, :relaxation_min, :relaxation_scaling,
+        :max_iters, :max_iters_linesearch,
+        :gamma_objective, :gamma_constraint, :ruiz_iterations,
+        :output_dir, :verbosity, :print_every, :debug,
+        :debug_output_path, :debug_log_every
+    ]
+
+    function update_settings!(opts::Marble.SolverOptions; kwargs...)
+        for (opt_name, opt_val) in kwargs
+            try
+                opt_setter = getfield(Marble, Symbol(opt_name, :!))
+                opt_setter(opts, opt_val)
+            catch err
+                if err isa UndefVarError || err isa MethodError
+                    @warn "Option $(opt_name) not found in Marble.SolverOptions. Skipping."
+                else
+                    rethrow(err)
+                end
+            end
+        end
+    end
+
+    function Base.show(io::IO, opts::Marble.SolverOptions)
+        title = " Marble Options "
+        
+        max_key_len = maximum(length, string.(Marble.OPTIONS))
+        total_width = max(max_key_len + 25, length(title) + 10)
+        pad_left = (total_width - length(title)) ÷ 2
+        
+        printstyled(io, "─"^total_width * "\n", color=:light_black)
+        printstyled(io, " "^pad_left * title * "\n", bold=true, color=:cyan)
+        printstyled(io, "─"^total_width * "\n", color=:light_black)
+        for opt in Marble.OPTIONS
+            opt_val = getfield(Marble, opt)(opts)
+            key_str = rpad(string(opt), max_key_len)
+            print(io, "  ", key_str, " ")
+            printstyled(io, "│ ", color=:light_black)
+            println(io, opt_val)
+        end
+        printstyled(io, "─"^total_width * "\n", color=:light_black)
     end
 
     # Utility functions for problem construction with JuMP

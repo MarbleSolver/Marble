@@ -40,6 +40,13 @@ jlcxx::ArrayRef<T, 1> to_julia(Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>>& 
     return jlcxx::make_julia_array(vec.data(), vec.size());
 }
 
+template <typename T>
+jlcxx::Array<T> make_julia_owned(Eigen::Matrix<T, Eigen::Dynamic, 1> vec) {
+    jlcxx::Array<T> arr(vec.size());
+    std::copy(vec.data(), vec.data() + vec.size(), jl_array_data(arr.wrapped(), T));
+    return arr;
+}
+
 // Build an Eigen sparse matrix from Julia SparseMatrixCSC components.
 // Julia uses 1-based indices; Eigen uses 0-based.
 // Accepts Int64 colptr/rowval (Julia's default index type) and casts to QDLDL_int internally.
@@ -121,7 +128,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("nz",     [](const Problem& p) { return p.nz; })
         .method("n_eq",   [](const Problem& p) { return p.n_eq; })
         .method("n_ineq", [](const Problem& p) { return p.n_ineq; })
-        .method("n_comp", [](const Problem& p) { return p.n_comp; });
+        .method("n_comp", [](const Problem& p) { return p.n_comp; })
+        .method("obj",    [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return p.obj(to_eigen(z)); })
+        .method("residual_eq",   [](Problem& p, jlcxx::ArrayRef<double, 1> z) {return make_julia_owned(p.residual_eq(to_eigen(z))); })
+        .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_ineq(to_eigen(z))); })
+        .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); });
 
     // -----------------------------------------------------------------------
     // SolverOptions

@@ -37,6 +37,11 @@ public:
     SMat J_comp;
     Vec c_comp;
 
+    // Complementarity indices
+    Eigen::VectorXi comp_L_inds;
+    Eigen::VectorXi comp_R_inds;
+
+    //Constructors
     Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
             SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
             SMat L, Vec l, SMat R, Vec r);
@@ -44,4 +49,19 @@ public:
     Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
             Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
             Mat L, Vec l, Mat R, Vec r);
+
+    // Utilities to stack J_comp and c_comp from L, R, l, and r
+    void build_c_comp(const Vec& l, const Vec& r);
+
+    /* Returns the objective given primal variables z*/
+    double obj(const Vec& z) const;
+
+    /* Returns the residual of the equality constraints */
+    Vec residual_eq(const Vec& z) const;
+
+    /* Returns the residual of the inequality constraints */
+    Vec residual_ineq(const Vec& z) const;
+
+    /* Returns the residual of the complementarity constraints */
+    Vec residual_comp(const Vec& z) const;
 };

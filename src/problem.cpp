@@ -16,14 +16,12 @@ static SMat build_J_comp(const SMat& L, const SMat& R) {
     return result;
 }
 
-static Vec build_c_comp(const Vec& l, const Vec& r) {
-    int n = l.size();
-    Vec c(2 * n);
-    for (int i = 0; i < n; ++i) {
-        c(2 * i)     = l(i);
-        c(2 * i + 1) = r(i);
-    }
-    return c;
+void Problem::build_c_comp(const Vec& l, const Vec& r) {
+    comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(n_comp, 0, n_comp - 1);
+    comp_R_inds = comp_L_inds.array() + 1;
+    c_comp.resize(2 * n_comp);
+    c_comp(comp_L_inds) = l;
+    c_comp(comp_R_inds) = r;
 }
 
 Problem::Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
@@ -34,7 +32,7 @@ Problem::Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
       J_eq(std::move(J_eq)), c_eq(std::move(c_eq)),
       J_ineq(std::move(J_ineq)), c_ineq(std::move(c_ineq)) {
     J_comp = build_J_comp(L, R);
-    c_comp = build_c_comp(l, r);
+    build_c_comp(l, r);
     cost_hessian_diag = this->cost_hessian.diagonal();
 }
 
@@ -49,6 +47,23 @@ Problem::Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
     J_comp_dense(Eigen::seq(0, Eigen::last, 2), Eigen::all) = L;
     J_comp_dense(Eigen::seq(1, Eigen::last, 2), Eigen::all) = R;
     J_comp = J_comp_dense.sparseView();
-    c_comp = build_c_comp(l, r);
+    build_c_comp(l, r);
     cost_hessian_diag = this->cost_hessian.diagonal();
+}
+
+double Problem::obj(const Vec& z) const {
+    return 0.5 * z.dot(cost_hessian * z) + cost_gradient.dot(z) + cost_const;
+}
+
+Vec Problem::residual_eq(const Vec& z) const {
+    return J_eq * z + c_eq;
+}
+
+Vec Problem::residual_ineq(const Vec& z) const {
+    return (J_ineq * z + c_ineq).cwiseMin(0);
+}
+
+Vec Problem::residual_comp(const Vec& z) const {
+    Vec res = J_comp * z + c_comp;
+    return res(comp_L_inds).cwiseProduct(res(comp_R_inds));
 }

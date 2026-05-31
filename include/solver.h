@@ -120,6 +120,7 @@ public:
     Eigen::VectorXi m_comp_inds; // Complementarity multipliers
 
     // Indices into the complementarity residual for extracting the comp residual violation for filter evaluation
+    // TODO: currently a duplicate of the one in Problems, remove
     Eigen::VectorXi comp_L_inds;
     Eigen::VectorXi comp_R_inds;
 

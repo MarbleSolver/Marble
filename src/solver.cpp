@@ -459,6 +459,7 @@ SolveResult Solver::solve(const Solver::Options& options, const InitialPoint* in
     workspace->m_eq_est.setZero();
     workspace->m_ineq_est.setZero();
     workspace->m_comp_est.setZero();
+    filter->clear();
 
     auto check_size = [](const char* name, const Vec& value, int expected) {
         if (value.size() != expected) {
