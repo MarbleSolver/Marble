@@ -31,21 +31,6 @@ struct SolveResult {
     Vec m_comp;   // Complementarity multiplier solution
 };
 
-/**
- * Stores an initial guess for primal, dual, slack, and multiplier estimate variables for the solver.
- */
-struct InitialPoint {
-    Vec z;          // Primal
-    Vec s_ineq;     // Inequality slacks (in the retraction domain)
-    Vec s_comp;     // Complementarity slacks (in the retraction domain)
-    Vec m_eq;       // Equality multipliers
-    Vec m_ineq;     // Inequality multipliers
-    Vec m_comp;     // Complementarity multipliers
-    Vec m_eq_est;   // Equality multiplier estimates for AL
-    Vec m_ineq_est; // Inequality multiplier estimates for AL
-    Vec m_comp_est; // Complementarity multiplier estimates for AL
-};
-
 class Solver {
 public:
     /**
@@ -282,12 +267,8 @@ public:
 
     /**
      * Solve the current problem instance.
-     * Optionally provide initial_z (size nz) to warm-start the primal variables.
      */
-    SolveResult solve(const InitialPoint* initial_point = nullptr);
-    SolveResult solve(const InitialPoint& initial_point) {
-        return solve(&initial_point);
-    }
+    SolveResult solve();
 
     /**
      * Determine if the solver has converged based on KKT residual norm, constraint satisfaction

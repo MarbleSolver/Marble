@@ -127,6 +127,8 @@ PYBIND11_MODULE(marble, m) {
         .def_readonly("iterations_outer",  &SolveResult::iterations_outer)
         .def_readonly("iterations_inner",  &SolveResult::iterations_inner)
         .def_readonly("factorizations",    &SolveResult::factorizations)
+        .def_readonly("setup_time_s",      &SolveResult::setup_time_s)
+        .def_readonly("solve_time_s",      &SolveResult::solve_time_s)
         .def_property_readonly("z",        [](const SolveResult& r) { return r.z; })
         .def_property_readonly("s_ineq",   [](const SolveResult& r) { return r.s_ineq; })
         .def_property_readonly("s_comp",   [](const SolveResult& r) { return r.s_comp; })
@@ -162,6 +164,9 @@ PYBIND11_MODULE(marble, m) {
         .def_readwrite("ruiz_iterations",            &Solver::Options::ruiz_iterations)
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
         .def_readwrite("print_every",                &Solver::Options::print_every)
+        .def_readwrite("debug",                      &Solver::Options::debug)
+        .def_readwrite("debug_output_path",          &Solver::Options::debug_output_path)
+        .def_readwrite("debug_log_every",            &Solver::Options::debug_log_every)
         .def_property("output_dir",
             [](const Solver::Options& o) { return o.output_dir.string(); },
             [](Solver::Options& o, const std::string& v) { o.output_dir = v; })
@@ -280,12 +285,40 @@ PYBIND11_MODULE(marble, m) {
     // -------------------------------------------------------------------------
     py::class_<Solver>(m, "Solver")
         .def(py::init<>())
-        .def(py::init<const Solver::Options&>(), py::arg("options"))
-        // Problem setup
-        .def("set_problem", [](Solver& s, const Problem& prob) {
-                 s.set_problem(prob);
+        // Problem setup: dense numpy arrays
+        .def("set_problem", [](Solver& s,
+                               const Mat& cost_hessian, const Vec& cost_gradient, double cost_const,
+                               const Mat& J_eq,   const Vec& c_eq,
+                               const Mat& J_ineq, const Vec& c_ineq,
+                               const Mat& L,      const Vec& l,
+                               const Mat& R,      const Vec& r,
+                               Solver::Options& options) {
+                 s.set_problem(cost_hessian, cost_gradient, cost_const,
+                               J_eq, c_eq, J_ineq, c_ineq, L, l, R, r, options);
              },
-             py::arg("problem"))
+             py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
+             py::arg("J_eq"),   py::arg("c_eq"),
+             py::arg("J_ineq"), py::arg("c_ineq"),
+             py::arg("L"), py::arg("l"),
+             py::arg("R"), py::arg("r"),
+             py::arg("options"))
+        // Problem setup: scipy.sparse (CSC) matrices
+        .def("set_problem", [](Solver& s,
+                               const SMat& cost_hessian, const Vec& cost_gradient, double cost_const,
+                               const SMat& J_eq,   const Vec& c_eq,
+                               const SMat& J_ineq, const Vec& c_ineq,
+                               const SMat& L,      const Vec& l,
+                               const SMat& R,      const Vec& r,
+                               Solver::Options& options) {
+                 s.set_problem(cost_hessian, cost_gradient, cost_const,
+                               J_eq, c_eq, J_ineq, c_ineq, L, l, R, r, options);
+             },
+             py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
+             py::arg("J_eq"),   py::arg("c_eq"),
+             py::arg("J_ineq"), py::arg("c_ineq"),
+             py::arg("L"), py::arg("l"),
+             py::arg("R"), py::arg("r"),
+             py::arg("options"))
         .def("ruiz_equilibration", [](Solver& s, int niter) {
                  s.ruiz_equilibration(niter);
                  return s.get_workspace().scaling;
@@ -294,10 +327,7 @@ PYBIND11_MODULE(marble, m) {
         .def("get_problem", &Solver::get_problem,
              py::return_value_policy::reference_internal)
         // Main solve
-        .def("solve", py::overload_cast<const Solver::Options&>(&Solver::solve),
-             py::arg("options"))
-        .def("solve", py::overload_cast<const Solver::Options&, const Problem&>(&Solver::solve),
-             py::arg("options"), py::arg("problem"))
+        .def("solve", [](Solver& s) { return s.solve(); })
         .def("convergence", &Solver::convergence, py::arg("options"))
         // Workspace / filter access
         .def("get_workspace", &Solver::get_workspace,

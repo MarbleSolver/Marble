@@ -461,7 +461,7 @@ bool Solver::convergence(const Solver::Options& options) {
            ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
 }
 
-SolveResult Solver::solve(const InitialPoint* initial_point) {
+SolveResult Solver::solve() {
     const auto t0 = std::chrono::steady_clock::now();
     bool converged = false;
     n_factorizations = 0;
@@ -477,43 +477,6 @@ SolveResult Solver::solve(const InitialPoint* initial_point) {
     workspace->m_ineq_est.setZero();
     workspace->m_comp_est.setZero();
     filter->clear();
-
-    auto check_size = [](const char* name, const Vec& value, int expected) {
-        if (value.size() != expected) {
-            throw std::invalid_argument(
-                std::string(name) + " size " + std::to_string(value.size()) +
-                " does not match expected size " + std::to_string(expected));
-        }
-    };
-
-    if (initial_point != nullptr) {
-        check_size("initial z", initial_point->z, prob->nz);
-        workspace->z = initial_point->z;
-
-        check_size("initial s_ineq", initial_point->s_ineq, prob->n_ineq);
-        workspace->s_ineq = initial_point->s_ineq;
-    
-        check_size("initial s_comp", initial_point->s_comp, prob->n_comp);
-        workspace->s_comp = initial_point->s_comp;
-    
-        check_size("initial m_eq", initial_point->m_eq, prob->n_eq);
-        workspace->m_eq = initial_point->m_eq;
-    
-        check_size("initial m_ineq", initial_point->m_ineq, prob->n_ineq);
-        workspace->m_ineq = initial_point->m_ineq;
-    
-        check_size("initial m_comp", initial_point->m_comp, 2 * prob->n_comp);
-        workspace->m_comp = initial_point->m_comp;
-    
-        check_size("initial m_eq_est", initial_point->m_eq_est, prob->n_eq);
-        workspace->m_eq_est = initial_point->m_eq_est;
-    
-        check_size("initial m_ineq_est", initial_point->m_ineq_est, prob->n_ineq);
-        workspace->m_ineq_est = initial_point->m_ineq_est;
-    
-        check_size("initial m_comp_est", initial_point->m_comp_est, 2 * prob->n_comp);
-        workspace->m_comp_est = initial_point->m_comp_est;
-    }
 
     int n_iter_outer = 0;
     int n_iter_inner = 0;

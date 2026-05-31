@@ -118,14 +118,16 @@ class SolveResult:
     def s_ineq(self) -> numpy.ndarray:
         ...
     @property
+    def setup_time_s(self) -> float:
+        ...
+    @property
+    def solve_time_s(self) -> float:
+        ...
+    @property
     def z(self) -> numpy.ndarray:
         ...
 class Solver:
-    @typing.overload
     def __init__(self) -> None:
-        ...
-    @typing.overload
-    def __init__(self, options: SolverOptions) -> None:
         ...
     def analytical_factorization(self) -> bool:
         ...
@@ -159,13 +161,13 @@ class Solver:
         ...
     def ruiz_equilibration(self, niter: int) -> numpy.ndarray:
         ...
-    def set_problem(self, problem: Problem) -> None:
+    @typing.overload
+    def set_problem(self, cost_hessian: numpy.ndarray, cost_gradient: numpy.ndarray, cost_const: float, J_eq: numpy.ndarray, c_eq: numpy.ndarray, J_ineq: numpy.ndarray, c_ineq: numpy.ndarray, L: numpy.ndarray, l: numpy.ndarray, R: numpy.ndarray, r: numpy.ndarray, options: SolverOptions) -> None:
         ...
     @typing.overload
-    def solve(self, options: SolverOptions) -> SolveResult:
+    def set_problem(self, cost_hessian: scipy.sparse.csc_matrix, cost_gradient: numpy.ndarray, cost_const: float, J_eq: scipy.sparse.csc_matrix, c_eq: numpy.ndarray, J_ineq: scipy.sparse.csc_matrix, c_ineq: numpy.ndarray, L: scipy.sparse.csc_matrix, l: numpy.ndarray, R: scipy.sparse.csc_matrix, r: numpy.ndarray, options: SolverOptions) -> None:
         ...
-    @typing.overload
-    def solve(self, options: SolverOptions, problem: Problem) -> SolveResult:
+    def solve(self) -> SolveResult:
         ...
     def update_KKT_comp(self, s_comp: numpy.ndarray, m_comp: numpy.ndarray, sqrt_relax_param: float) -> None:
         ...
@@ -232,6 +234,9 @@ class SolverOptions:
     convergence_eq_violation: float
     convergence_ineq_violation: float
     convergence_kkt_norm: float
+    debug: bool
+    debug_log_every: int
+    debug_output_path: str
     gamma_constraint: float
     gamma_objective: float
     max_iters: int

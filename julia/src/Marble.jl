@@ -16,7 +16,7 @@ module Marble
     end
 
     # Solver data struct
-    export MarbleData, estimate_initial_point
+    export MarbleData
     export obj, residual_eq, residual_ineq, residual_comp
 
     @Base.kwdef mutable struct MarbleData
@@ -50,72 +50,6 @@ module Marble
     include("conversion.jl")
 
 
-    function estimate_initial_point(data::MarbleData, z0; opts, κ=nothing, eps=1e-12, multiplier_rtol=1e-8)
-        z = convert(Vector{Float64}, z0)
-        κ = isnothing(κ) ? Float64(Marble.relaxation_initial(opts)) : Float64(κ)
-
-        g = convert(Vector{Float64}, data.J_ineq * z + data.b_ineq)
-        a = convert(Vector{Float64}, data.L * z + data.l)
-        b = convert(Vector{Float64}, data.R * z + data.r)
-
-        g_safe = max.(g, eps)
-        a_safe = max.(a, eps)
-        b_safe = max.(b, eps)
-
-        s_ineq = g_safe .- κ ./ g_safe
-        s_comp = a_safe .- b_safe
-
-        n_eq = length(data.b_eq)
-        n_ineq = length(data.b_ineq)
-        n_comp = length(data.l)
-
-        # m_ineq = -κ ./ g_safe
-        # grad = convert(Vector{Float64}, data.Q * z + data.q)
-        # rhs = -(grad + data.J_ineq' * m_ineq)
-
-        # A = Matrix([data.J_eq' data.L' data.R'])
-        # m_free = size(A, 2) == 0 ? Float64[] : pinv(A; rtol=multiplier_rtol) * rhs
-
-        # m_eq = n_eq == 0 ? Float64[] : m_free[1:n_eq]
-        # m_comp_lr = n_comp == 0 ? Float64[] : m_free[(n_eq + 1):end]
-        # m_comp = zeros(2 * n_comp)
-        # for i in 1:n_comp
-        #     m_comp[2i - 1] = m_comp_lr[i]
-        #     m_comp[2i] = m_comp_lr[n_comp + i]
-        # end
-
-        m_ineq = zeros(n_ineq)
-        m_eq = zeros(n_eq)
-        m_comp = zeros(2 * n_comp)
-
-        return (;
-            z,
-            s_ineq,
-            s_comp,
-            m_eq,
-            m_ineq,
-            m_comp,
-            m_eq_est=copy(m_eq),
-            m_ineq_est=copy(m_ineq),
-            m_comp_est=copy(m_comp),
-        )
-    end
-
-    function _initialize_point(data::MarbleData; opts, z0)
-        init = estimate_initial_point(data, z0; opts=opts)
-        ip = Marble.InitialPoint()
-        Marble.z!(ip, init.z)
-        Marble.s_ineq!(ip, init.s_ineq)
-        Marble.s_comp!(ip, init.s_comp)
-        Marble.m_eq!(ip, init.m_eq)
-        Marble.m_ineq!(ip, init.m_ineq)
-        Marble.m_comp!(ip, init.m_comp)
-        Marble.m_eq_est!(ip, init.m_eq_est)
-        Marble.m_ineq_est!(ip, init.m_ineq_est)
-        Marble.m_comp_est!(ip, init.m_comp_est)
-        return ip
-    end
-
     function setup!(solver::Marble.Solver,model::Model, ind_cc1, ind_cc2, comp_type; kwargs...)
         opts = Marble.SolverOptions()
         Marble.update_settings!(opts; kwargs...)
@@ -131,17 +65,10 @@ module Marble
         return nothing
     end
 
-    function solve(data::MarbleData; opts, z0=nothing)
-        problem = Marble.Problem(data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
+    function solve(data::MarbleData; opts)
         solver = Marble.Solver()
-        Marble.set_problem!(solver, problem)
-
-        if isnothing(z0)
-            return Marble.solve!(solver, opts)
-        else
-            ip = _initialize_point(data; opts=opts, z0=z0)
-            return Marble.solve!(solver, opts, ip)
-        end
+        Marble.set_problem!(solver, data.Q, data.q, data.c0, data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r, opts)
+        return Marble.solve!(solver)
     end
 
     const OPTIONS = [
