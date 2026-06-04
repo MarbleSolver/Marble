@@ -30,6 +30,21 @@
 #     return model
 # end
 
+# Convert an NLPModels problem with linear constraints and complementarity pairs
+# into the matrix/vector data Marble consumes
+#
+# `ind_cc1[j]` and `ind_cc2[j]` are the two endpoints of complementarity pair j,
+# each addressed as a variable (`:var`) or constraint (`:con`) row via `cc_type`
+#
+# Returns a NamedTuple describing
+#
+#     minimize    1/2 xᵀ Q x + qᵀ x + c0
+#     subject to  J_eq   x + b_eq   == 0
+#                 J_ineq x + b_ineq >= 0
+#                 0 <= (L x + l) ⊥ (R x + r) >= 0
+#
+# where the last line is the elementwise complementarity condition
+# (L x + l)_j ≥ 0, (R x + r)_j ≥ 0, (L x + l)_j (R x + r)_j = 0 for j = 1..ncc
 function jump_to_marble(
     nlp::AbstractNLPModel,
     ind_cc1,
@@ -86,6 +101,8 @@ function jump_to_marble(
     b0 = T.(b0)
     c0 = T(c0)
 
+    # Stack the constraint rows on top of an identity block so a single row index
+    # addresses either a constraint (rows 1:ncon) or a variable (rows ncon+1:end)
     J_all = vcat(J0, Matrix{T}(I, nvar, nvar))
     b_all = vcat(b0, zeros(T, nvar))
 
@@ -98,12 +115,18 @@ function jump_to_marble(
     mask_cc = falses(ncon + nvar)
     mask_cc[unique(vcat(rows1, rows2))] .= true
 
-    @assert all(has_lb[mask_cc] .| has_ub[mask_cc]) """
-    Expected all complementarity endpoints to have at least one finite bound
-    """
+    # Each endpoint becomes a slack 0 <= A x + b, so it must be bounded on at
+    # least one side, report the offending pair so the input is easy to fix
+    for j in 1:ncc
+        @assert has_lb[rows1[j]] || has_ub[rows1[j]] "Left endpoint of complementarity pair $j (ind_cc1[$j]=$(ind_cc1[j]), $(kind1[j])) has no finite bound"
+        @assert has_lb[rows2[j]] || has_ub[rows2[j]] "Right endpoint of complementarity pair $j (ind_cc2[$j]=$(ind_cc2[j]), $(kind2[j])) has no finite bound"
+    end
 
     rowscale(A, s) = A .* reshape(s, :, 1)
 
+    # Map a bounded row g(x) = A x + b to its nonnegative complementarity slack,
+    # preferring the lower bound (slack g - lb) and flipping sign for an
+    # upper-bound-only row (slack ub - g)
     function residual(rows)
         use_lb = has_lb[rows]
         sgn = ifelse.(use_lb, one(T), -one(T))
@@ -121,11 +144,15 @@ function jump_to_marble(
     L, l = residual(rows1)
     R, r = residual(rows2)
 
+    # A two-sided bound with lb == ub is an equality, everything else bounded and
+    # not part of a complementarity pair becomes a one-sided inequality
     is_eq = has_lb .& has_ub .& (l_all .== u_all) .& .!mask_cc
 
     ineq_lb = has_lb .& .!is_eq .& .!mask_cc
     ineq_ub = has_ub .& .!is_eq .& .!mask_cc
 
+    # A two-sided complementarity endpoint has its lower bound consumed by the
+    # slack above, so emit the leftover upper bound ub - g >= 0 as an inequality
     cc_extra_ub = mask_cc .& has_lb .& has_ub
 
     J_eq = J_all[is_eq, :]
