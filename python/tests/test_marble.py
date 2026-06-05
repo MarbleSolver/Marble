@@ -2,7 +2,8 @@
 
 Mirror of the Julia suite (julia/test/runtests.jl): the same example problem
 written directly as matrices (from julia/examples/simple_test.jl) and the same
-eight test cases in the same order. Each test sets up and runs the solver fresh.
+16 test cases in the same order — nine solve tests followed by seven dimension
+validation cases. Each test sets up and runs the solver fresh.
 Run with ``python -m unittest`` or ``python tests/test_marble.py``.
 """
 import unittest
@@ -93,6 +94,56 @@ class TestMarble(unittest.TestCase):
         self.assertTrue(m.options.max_iters == 123
                         and m.options.convergence_kkt_norm == 1e-8
                         and res.converged)
+
+
+class TestDimensionValidation(unittest.TestCase):
+    """Mismatched / missing blocks must raise ValueError, never segfault.
+
+    Mirror of the Julia suite's "dimension validation" testset: the same seven
+    cases in the same order.
+    """
+
+    def test_missing_l_raises(self):
+        # L given (1 row) but l omitted
+        m = marble.Solver()
+        with self.assertRaises(ValueError):
+            m.setup(Q=np.eye(2), q=np.zeros(2),
+                    L=np.zeros((1, 2)), R=np.zeros((1, 2)), r=np.zeros(1))
+
+    def test_missing_r_raises(self):
+        # L and l given but R, r omitted
+        m = marble.Solver()
+        with self.assertRaises(ValueError):
+            m.setup(Q=np.eye(2), q=np.zeros(2), L=np.zeros((1, 2)), l=np.zeros(1))
+
+    def test_non_square_Q_raises(self):
+        # Non-square Q
+        with self.assertRaises(ValueError):
+            marble.Solver().setup(Q=np.zeros((2, 3)), q=np.zeros(2))
+
+    def test_Q_q_size_mismatch_raises(self):
+        # Q size disagrees with len(q)
+        with self.assertRaises(ValueError):
+            marble.Solver().setup(Q=np.eye(3), q=np.zeros(2))
+
+    def test_eq_row_mismatch_raises(self):
+        # J_eq rows disagree with b_eq length
+        with self.assertRaises(ValueError):
+            marble.Solver().setup(Q=np.eye(2), q=np.zeros(2),
+                                  J_eq=np.zeros((2, 2)), b_eq=np.zeros(1))
+
+    def test_ineq_col_mismatch_raises(self):
+        # J_ineq columns disagree with len(q)
+        with self.assertRaises(ValueError):
+            marble.Solver().setup(Q=np.eye(2), q=np.zeros(2),
+                                  J_ineq=np.zeros((1, 3)), b_ineq=np.zeros(1))
+
+    def test_sparse_mismatch_raises(self):
+        # Sparse blocks: L given but l omitted
+        with self.assertRaises(ValueError):
+            marble.Solver().setup(Q=sp.csc_matrix(np.eye(2)), q=np.zeros(2),
+                                  L=sp.csc_matrix(np.zeros((1, 2))),
+                                  R=sp.csc_matrix(np.zeros((1, 2))), r=np.zeros(1))
 
 
 if __name__ == "__main__":

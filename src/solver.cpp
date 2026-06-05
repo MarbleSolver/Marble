@@ -81,21 +81,8 @@ Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     return p_second_deriv / sqrt_relax_param;
 }
 
-void Solver::set_problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
-            SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
-            SMat L, Vec l, SMat R, Vec r, Solver::Options& options) {
-    this->prob = std::make_shared<Problem>(cost_hessian, cost_gradient, cost_const,
-                                            J_eq, c_eq, J_ineq, c_ineq,
-                                            L, l, R, r);
-    set_problem(options);
-}
-
-void Solver::set_problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
-            Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
-            Mat L, Vec l, Mat R, Vec r, Solver::Options& options) {
-    this->prob = std::make_shared<Problem>(cost_hessian, cost_gradient, cost_const,
-                                            J_eq, c_eq, J_ineq, c_ineq,
-                                            L, l, R, r);
+void Solver::set_problem(Problem problem, Solver::Options& options) {
+    this->prob = std::make_shared<Problem>(std::move(problem));
     set_problem(options);
 }
 

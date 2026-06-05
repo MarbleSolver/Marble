@@ -2,7 +2,8 @@
 #
 # Mirror of the Python suite (python/tests/test_marble.py): the same example
 # problem written directly as matrices (from julia/examples/simple_test.jl) and
-# the same eight test cases in the same order.
+# the same 16 test cases in the same order — nine solve tests followed by seven
+# dimension validation cases.
 
 using Test
 using LinearAlgebra
@@ -96,5 +97,32 @@ end
         @test Marble.max_iters(s2.options) == 123 &&
               isapprox(Marble.convergence_kkt_norm(s2.options), 1e-8) &&
               Marble.converged(r2)
+    end
+
+    @testset "dimension validation" begin
+        # Mismatched / missing blocks must error cleanly, never segfault. Validation
+        # happens in Julia (see _validate_problem_dims) because CxxWrap cannot
+        # translate the core's C++ exception into a catchable Julia error. These
+        # mirror the seven cases in the Python suite (TestDimensionValidation)
+        Q2 = Matrix(1.0I, 2, 2)
+        # L given (1 row) but l omitted
+        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+            L = zeros(1, 2), R = zeros(1, 2), r = zeros(1))
+        # L and l given but R, r omitted
+        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+            L = zeros(1, 2), l = zeros(1))
+        # Non-square Q.
+        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), zeros(2, 3), zeros(2))
+        # Q size disagrees with length(q)
+        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Matrix(1.0I, 3, 3), zeros(2))
+        # J_eq rows disagree with b_eq length
+        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+            J_eq = zeros(2, 2), b_eq = zeros(1))
+        # J_ineq columns disagree with length(q)
+        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+            J_ineq = zeros(1, 3), b_ineq = zeros(1))
+        # Sparse blocks: L given but l omitted
+        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), sparse(Q2), zeros(2);
+            L = sparse(zeros(1, 2)), R = sparse(zeros(1, 2)), r = zeros(1))
     end
 end

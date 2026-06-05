@@ -24,6 +24,7 @@ solver = Marble.Solver()
 Marble.setup!(solver, model, first.(comps), last.(comps), [(:con, :con),]; verbosity = 1)
 results = Marble.solve!(solver)
 z = Marble.z(results)
+
 println(z)
 println(Marble.obj(solver, z))
 println(Marble.residual_eq(solver, z))

@@ -147,18 +147,11 @@ public:
     void ruiz_equilibration(int niter = 10);
 
     /**
-     * Sets the problem for the solver given sparse matrices, computes sparsity indexing
+     * Sets the problem for the solver, computes sparsity indexing. The Problem
+     * is validated on construction (see Problem's constructors), so callers reach
+     * this with consistent dimensions.
      */
-    void set_problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
-            SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
-            SMat L, Vec l, SMat R, Vec r, Solver::Options& options);    
-
-    /**
-    * Sets the problem for the solver given dense matrices, computes sparsity indexing
-    */
-   void set_problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
-            Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
-            Mat L, Vec l, Mat R, Vec r, Solver::Options& options);
+    void set_problem(Problem problem, Solver::Options& options);
 
     /**
      * Populates the KKT system, computes sparsity indexing

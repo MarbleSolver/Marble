@@ -1,5 +1,68 @@
 #include "problem.h"
 
+#include <stdexcept>
+#include <string>
+
+namespace {
+
+std::string dims2(long rows, long cols) {
+    return "(" + std::to_string(rows) + ", " + std::to_string(cols) + ")";
+}
+
+// Verify that every block has consistent dimensions before any indexing happens
+void validate_problem_dims(long H_rows,     long H_cols,     long grad,
+                           long Jeq_rows,   long Jeq_cols,   long ceq,
+                           long Jineq_rows, long Jineq_cols, long cineq,
+                           long L_rows,     long L_cols,     long l_size,
+                           long R_rows,     long R_cols,     long r_size) {
+    if (H_rows != H_cols)
+        throw std::invalid_argument(
+            "Marble problem: cost Hessian Q must be square, got " + dims2(H_rows, H_cols));
+    const long nz = H_cols;
+    if (grad != nz)
+        throw std::invalid_argument(
+            "Marble problem: cost gradient q has length " + std::to_string(grad) +
+            " but Q is " + dims2(nz, nz) + "; expected length " + std::to_string(nz));
+
+    if (ceq != Jeq_rows)
+        throw std::invalid_argument(
+            "Marble problem: J_eq has " + std::to_string(Jeq_rows) +
+            " rows but c_eq/b_eq has length " + std::to_string(ceq) + "; they must match");
+    if (Jeq_rows > 0 && Jeq_cols != nz)
+        throw std::invalid_argument(
+            "Marble problem: J_eq has " + std::to_string(Jeq_cols) +
+            " columns but expected " + std::to_string(nz));
+
+    if (cineq != Jineq_rows)
+        throw std::invalid_argument(
+            "Marble problem: J_ineq has " + std::to_string(Jineq_rows) +
+            " rows but c_ineq/b_ineq has length " + std::to_string(cineq) + "; they must match");
+    if (Jineq_rows > 0 && Jineq_cols != nz)
+        throw std::invalid_argument(
+            "Marble problem: J_ineq has " + std::to_string(Jineq_cols) +
+            " columns but expected " + std::to_string(nz));
+
+    if (!(L_rows == R_rows && L_rows == l_size && L_rows == r_size))
+        throw std::invalid_argument(
+            "Marble problem: complementarity blocks L, l, R, r must share the same number of "
+            "rows; got L rows=" + std::to_string(L_rows) +
+            ", l length=" + std::to_string(l_size) +
+            ", R rows=" + std::to_string(R_rows) +
+            ", r length=" + std::to_string(r_size));
+    if (L_rows > 0) {
+        if (L_cols != nz)
+            throw std::invalid_argument(
+                "Marble problem: L has " + std::to_string(L_cols) +
+                " columns but expected " + std::to_string(nz));
+        if (R_cols != nz)
+            throw std::invalid_argument(
+                "Marble problem: R has " + std::to_string(R_cols) +
+                " columns but expected " + std::to_string(nz));
+    }
+}
+
+} // namespace
+
 static SMat build_J_comp(const SMat& L, const SMat& R) {
     int n_comp = L.rows();
     int nz     = L.cols();
@@ -31,6 +94,11 @@ Problem::Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
       cost_hessian(std::move(cost_hessian)), cost_gradient(std::move(cost_gradient)), cost_const(cost_const),
       J_eq(std::move(J_eq)), c_eq(std::move(c_eq)),
       J_ineq(std::move(J_ineq)), c_ineq(std::move(c_ineq)) {
+    validate_problem_dims(this->cost_hessian.rows(), this->cost_hessian.cols(), this->cost_gradient.size(),
+                          this->J_eq.rows(),   this->J_eq.cols(),   this->c_eq.size(),
+                          this->J_ineq.rows(), this->J_ineq.cols(), this->c_ineq.size(),
+                          L.rows(), L.cols(), l.size(),
+                          R.rows(), R.cols(), r.size());
     J_comp = build_J_comp(L, R);
     build_c_comp(l, r);
     cost_hessian_diag = this->cost_hessian.diagonal();
@@ -43,6 +111,11 @@ Problem::Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
       cost_hessian(cost_hessian.sparseView()), cost_gradient(std::move(cost_gradient)), cost_const(cost_const),
       J_eq(J_eq.sparseView()), c_eq(std::move(c_eq)),
       J_ineq(J_ineq.sparseView()), c_ineq(std::move(c_ineq)) {
+    validate_problem_dims(this->cost_hessian.rows(), this->cost_hessian.cols(), this->cost_gradient.size(),
+                          this->J_eq.rows(),   this->J_eq.cols(),   this->c_eq.size(),
+                          this->J_ineq.rows(), this->J_ineq.cols(), this->c_ineq.size(),
+                          L.rows(), L.cols(), l.size(),
+                          R.rows(), R.cols(), r.size());
     Mat J_comp_dense(2 * n_comp, nz);
     J_comp_dense(Eigen::seq(0, Eigen::last, 2), Eigen::all) = L;
     J_comp_dense(Eigen::seq(1, Eigen::last, 2), Eigen::all) = R;

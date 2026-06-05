@@ -289,40 +289,12 @@ PYBIND11_MODULE(_core, m) {
     // -------------------------------------------------------------------------
     py::class_<Solver>(m, "Solver")
         .def(py::init<>())
-        // Problem setup: dense numpy arrays
-        .def("set_problem", [](Solver& s,
-                               const Mat& cost_hessian, const Vec& cost_gradient, double cost_const,
-                               const Mat& J_eq,   const Vec& c_eq,
-                               const Mat& J_ineq, const Vec& c_ineq,
-                               const Mat& L,      const Vec& l,
-                               const Mat& R,      const Vec& r,
-                               Solver::Options& options) {
-                 s.set_problem(cost_hessian, cost_gradient, cost_const,
-                               J_eq, c_eq, J_ineq, c_ineq, L, l, R, r, options);
+        // Problem setup: takes a Problem (built from dense numpy arrays or scipy
+        // CSC matrices via the Problem constructors, which validate dimensions).
+        .def("set_problem", [](Solver& s, Problem& problem, Solver::Options& options) {
+                 s.set_problem(problem, options);
              },
-             py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
-             py::arg("J_eq"),   py::arg("c_eq"),
-             py::arg("J_ineq"), py::arg("c_ineq"),
-             py::arg("L"), py::arg("l"),
-             py::arg("R"), py::arg("r"),
-             py::arg("options"))
-        // Problem setup: scipy.sparse (CSC) matrices
-        .def("set_problem", [](Solver& s,
-                               const SMat& cost_hessian, const Vec& cost_gradient, double cost_const,
-                               const SMat& J_eq,   const Vec& c_eq,
-                               const SMat& J_ineq, const Vec& c_ineq,
-                               const SMat& L,      const Vec& l,
-                               const SMat& R,      const Vec& r,
-                               Solver::Options& options) {
-                 s.set_problem(cost_hessian, cost_gradient, cost_const,
-                               J_eq, c_eq, J_ineq, c_ineq, L, l, R, r, options);
-             },
-             py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
-             py::arg("J_eq"),   py::arg("c_eq"),
-             py::arg("J_ineq"), py::arg("c_ineq"),
-             py::arg("L"), py::arg("l"),
-             py::arg("R"), py::arg("r"),
-             py::arg("options"))
+             py::arg("problem"), py::arg("options"))
         .def("ruiz_equilibration", [](Solver& s, int niter) {
                  s.ruiz_equilibration(niter);
                  return s.get_workspace().scaling;

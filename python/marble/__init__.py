@@ -86,14 +86,14 @@ class Solver(_core.Solver):
             conv = _csc
         else:
             conv = _dense
-        self.set_problem(
+        problem = Problem(
             conv(Q, n),      _vec(q), float(c0),
             conv(J_eq, n),   _vec(b_eq),
             conv(J_ineq, n), _vec(b_ineq),
             conv(L, n),      _vec(l),
             conv(R, n),      _vec(r),
-            opts,
         )
+        self.set_problem(problem, opts)
         return self
 
     @property

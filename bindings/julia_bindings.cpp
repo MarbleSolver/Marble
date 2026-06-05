@@ -13,9 +13,16 @@ namespace jlcxx {
 // Eigen ↔ Julia array helpers
 // ---------------------------------------------------------------------------
 
+// Map a Julia matrix to an Eigen matrix using its *true* dimensions (Julia is
+// column-major, matching Eigen's default). Reading the real shape — rather than
+// reshaping to caller-supplied dimensions — lets a misshapen block reach the
+// Problem constructor, which then validates and throws instead of silently
+// truncating the data.
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>
-to_eigen(jlcxx::ArrayRef<T, 2>& arr, int rows, int cols) {
+to_eigen(jlcxx::ArrayRef<T, 2>& arr) {
+    const long rows = jl_array_dim(arr.wrapped(), 0);
+    const long cols = jl_array_dim(arr.wrapped(), 1);
     if (rows == 0 || cols == 0)
         return Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>(rows, cols);
     return Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>::Map(arr.data(), rows, cols);
@@ -82,16 +89,12 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
                         jlcxx::ArrayRef<double, 2> J_ineq, jlcxx::ArrayRef<double, 1> c_ineq,
                         jlcxx::ArrayRef<double, 2> L,      jlcxx::ArrayRef<double, 1> l,
                         jlcxx::ArrayRef<double, 2> R,      jlcxx::ArrayRef<double, 1> r) {
-            int nz     = cost_gradient.size();
-            int n_eq   = c_eq.size();
-            int n_ineq = c_ineq.size();
-            int n_comp = l.size();
             return new Problem(
-                to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient), cost_const,
-                to_eigen(J_eq,   n_eq,   nz),   to_eigen(c_eq),
-                to_eigen(J_ineq, n_ineq, nz),   to_eigen(c_ineq),
-                to_eigen(L, n_comp, nz),         to_eigen(l),
-                to_eigen(R, n_comp, nz),         to_eigen(r));
+                to_eigen(cost_hessian), to_eigen(cost_gradient), cost_const,
+                to_eigen(J_eq),   to_eigen(c_eq),
+                to_eigen(J_ineq), to_eigen(c_ineq),
+                to_eigen(L),      to_eigen(l),
+                to_eigen(R),      to_eigen(r));
         })
         // Sparse constructor: accepts SparseMatrixCSC components from Julia.
         // For each sparse matrix pass (colptr, rowval, nzval) from the Julia struct.
@@ -292,43 +295,10 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             Workspace& workspace = solver.get_workspace();
             return std::vector<double>(workspace.scaling.data(), workspace.scaling.data() + workspace.scaling.size());
         })
-        .method("set_problem!", [](Solver& s, jlcxx::ArrayRef<double, 2> cost_hessian,
-                        jlcxx::ArrayRef<double, 1> cost_gradient,
-                        double cost_const,
-                        jlcxx::ArrayRef<double, 2> J_eq,   jlcxx::ArrayRef<double, 1> c_eq,
-                        jlcxx::ArrayRef<double, 2> J_ineq, jlcxx::ArrayRef<double, 1> c_ineq,
-                        jlcxx::ArrayRef<double, 2> L,      jlcxx::ArrayRef<double, 1> l,
-                        jlcxx::ArrayRef<double, 2> R,      jlcxx::ArrayRef<double, 1> r, Solver::Options& opts) {
-            int nz     = cost_gradient.size();
-            int n_eq   = c_eq.size();
-            int n_ineq = c_ineq.size();
-            int n_comp = l.size();
-            s.set_problem(to_eigen(cost_hessian, nz, nz), to_eigen(cost_gradient), cost_const,
-                to_eigen(J_eq,   n_eq,   nz),   to_eigen(c_eq),
-                to_eigen(J_ineq, n_ineq, nz),   to_eigen(c_ineq),
-                to_eigen(L, n_comp, nz),         to_eigen(l),
-                to_eigen(R, n_comp, nz),         to_eigen(r), opts);
-        })
-        .method("set_problem!", [](Solver& s, int nz,
-                        jlcxx::ArrayRef<int64_t,1> Hcp,  jlcxx::ArrayRef<int64_t,1> Hrv,  jlcxx::ArrayRef<double,1> Hnz,
-                        jlcxx::ArrayRef<double,1> grad, double cost_const,
-                        int n_eq,
-                        jlcxx::ArrayRef<int64_t,1> Ecp,  jlcxx::ArrayRef<int64_t,1> Erv,  jlcxx::ArrayRef<double,1> Enz,
-                        jlcxx::ArrayRef<double,1> c_eq,
-                        int n_ineq,
-                        jlcxx::ArrayRef<int64_t,1> Icp,  jlcxx::ArrayRef<int64_t,1> Irv,  jlcxx::ArrayRef<double,1> Inz,
-                        jlcxx::ArrayRef<double,1> c_ineq,
-                        int n_comp,
-                        jlcxx::ArrayRef<int64_t,1> Lcp,  jlcxx::ArrayRef<int64_t,1> Lrv,  jlcxx::ArrayRef<double,1> Lnz,
-                        jlcxx::ArrayRef<double,1> l,
-                        jlcxx::ArrayRef<int64_t,1> Rcp,  jlcxx::ArrayRef<int64_t,1> Rrv,  jlcxx::ArrayRef<double,1> Rnz,
-                        jlcxx::ArrayRef<double,1> r, Solver::Options& opts) {
-            s.set_problem(
-                csc_to_smat(nz,     nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
-                csc_to_smat(n_eq,   nz, Ecp, Erv, Enz), to_eigen(c_eq),
-                csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
-                csc_to_smat(n_comp, nz, Lcp, Lrv, Lnz), to_eigen(l),
-                csc_to_smat(n_comp, nz, Rcp, Rrv, Rnz), to_eigen(r), opts);
+        // Problem setup: takes a Problem (built from dense or sparse data via the
+        // Problem constructors, which validate dimensions).
+        .method("set_problem!", [](Solver& s, Problem& problem, Solver::Options& opts) {
+            s.set_problem(problem, opts);
         })
         .method("get_problem",   &Solver::get_problem)
         // Main solve
