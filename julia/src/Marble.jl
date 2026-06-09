@@ -137,8 +137,13 @@ module Marble
 
     # Utility functions for problem construction with JuMP
     include("jump_mpcc.jl")
-    export nlp_con_row_map, nlp_var_col_map, var_var_complementarities, var_con_complementarities, con_con_complementarities
-    export var_inds, reformulate_sos1, reformulate_lie
+
+    export nlp_con_row_map, nlp_var_col_map, ComplementarityIndexBuilder
+    export add_complementarities!
+    export add_var_var_complementarities!, add_var_con_complementarities!
+    export add_con_var_complementarities!, add_con_con_complementarities!
+    export complementarity_indices, var_var_complementarities, var_con_complementarities, con_con_complementarities
+    export var_inds, reformulate_sos1
 
     # Functions to convert stuff to MarbleData
     include("conversion.jl")

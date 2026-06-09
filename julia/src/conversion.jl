@@ -1,50 +1,22 @@
-# function to_jump(marble_data::MarbleData) 
-#     model = Model()
+"""
+    jump_to_marble(nlp::AbstractNLPModel, ind_cc1, ind_cc2, cc_type) -> NamedTuple
 
-#     (; Q, q, c0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r) = marble_data
+Convert an NLPModels problem with linear constraints and complementarity pairs
+into the matrix/vector data Marble consumes.
 
-#     nvar = length(q)
-#     ncc = length(l)
+`ind_cc1[j]` and `ind_cc2[j]` are the two endpoints of complementarity pair `j`,
+each addressed as a variable (`:var`) or constraint (`:con`) row via `cc_type`.
 
-#     @variable(model, x[1:nvar])
-#     @variable(model, sL[1:ncc] >= 0)
-#     @variable(model, sR[1:ncc] >= 0)
+Returns a `NamedTuple` describing
 
-#     # Quadratic objective
-#     @objective(model, Min, 1/2 * dot(x, Q, x) + q' * x + c0)
+    minimize    1/2 xᵀ Q x + qᵀ x + c0
+    subject to  J_eq   x + b_eq   == 0
+                J_ineq x + b_ineq >= 0
+                0 <= (L x + l) ⊥ (R x + r) >= 0
 
-#     # Eq/Ineq constraints
-#     @constraints(model, begin
-#         J_eq * x + b_eq .== 0
-#         J_ineq * x + b_ineq .>= 0
-#     end)
-
-#     # Complementarity slacks
-#     @constraints(model, begin
-#         L * x .+ l .== sL
-#         R * x .+ r .== sR
-#     end)
-
-#     @constraint(model, [j = 1:ncc], [sL[j], sR[j]] in SOS1())
-
-#     return model
-# end
-
-# Convert an NLPModels problem with linear constraints and complementarity pairs
-# into the matrix/vector data Marble consumes
-#
-# `ind_cc1[j]` and `ind_cc2[j]` are the two endpoints of complementarity pair j,
-# each addressed as a variable (`:var`) or constraint (`:con`) row via `cc_type`
-#
-# Returns a NamedTuple describing
-#
-#     minimize    1/2 xᵀ Q x + qᵀ x + c0
-#     subject to  J_eq   x + b_eq   == 0
-#                 J_ineq x + b_ineq >= 0
-#                 0 <= (L x + l) ⊥ (R x + r) >= 0
-#
-# where the last line is the elementwise complementarity condition
-# (L x + l)_j ≥ 0, (R x + r)_j ≥ 0, (L x + l)_j (R x + r)_j = 0 for j = 1..ncc
+where the last line is the elementwise complementarity condition
+`(L x + l)_j ≥ 0`, `(R x + r)_j ≥ 0`, `(L x + l)_j (R x + r)_j = 0` for `j = 1..ncc`.
+"""
 function jump_to_marble(
     nlp::AbstractNLPModel,
     ind_cc1,
