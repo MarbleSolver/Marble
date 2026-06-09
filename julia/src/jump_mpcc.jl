@@ -2,12 +2,14 @@ using JuMP
 
 
 """
-    nlp_con_row_map(model) -> Dict{MOI.ConstraintIndex, Int}
+    nlp_con_row_map(model::JuMP.Model) -> Dict{MOI.ConstraintIndex,Int}
 
-Maps each non-variable-bound constraint in `model` to its row index in the
-NLPModel produced by `MathOptNLPModel(model)`. Iterates constraint types in the
-same order MOI/NLPModelsJuMP does, skipping `VariableIndex` constraints (those
-become variable bounds, not NLP rows).
+Return the 1-based NLP row index for each scalar, non-variable-bound constraint
+in `model`.
+
+This follows the constraint order used by `MathOptNLPModel(model)` and skips
+`MOI.VariableIndex` constraints, which become variable bounds instead of NLP
+rows.
 """
 function nlp_con_row_map(model::JuMP.Model)
     moi_model = JuMP.backend(model)
@@ -24,10 +26,10 @@ function nlp_con_row_map(model::JuMP.Model)
 end
 
 """
-    nlp_var_col_map(model) -> Dict{MOI.VariableIndex, Int}
+    nlp_var_col_map(model::JuMP.Model) -> Dict{MOI.VariableIndex,Int}
 
-Maps each variable to its column index in the NLPModel produced by
-`MathOptNLPModel(model)`.
+Return the 1-based NLP column index for each variable in `model`, using the same
+variable order as `MathOptNLPModel(model)`.
 """
 function nlp_var_col_map(model::JuMP.Model)
     vars = MOI.get(JuMP.backend(model), MOI.ListOfVariableIndices())
@@ -35,55 +37,229 @@ function nlp_var_col_map(model::JuMP.Model)
 end
 
 """
-    var_con_complementarities(model, vars, cons) -> Vector{Tuple{Int,Int}}
+    ComplementarityIndexBuilder(model::JuMP.Model)
 
-Given parallel arrays `vars` (VariableRef) and `cons` (ConstraintRef) with the
-same shape, return `(col_idx, row_idx)` pairs suitable as complementarity indices
-in an NLPModel.
+Mutable builder for Marble complementarity index arrays.
+
+The builder caches NLP variable-column and constraint-row maps, so construct it
+after adding the variables and constraints that will appear in complementarity
+pairs.
+"""
+mutable struct ComplementarityIndexBuilder
+    model::JuMP.Model
+    col_map::Dict{MOI.VariableIndex, Int}
+    row_map::Dict{MOI.ConstraintIndex, Int}
+    ind_cc1::Vector{Int}
+    ind_cc2::Vector{Int}
+    cc_types::Vector{Tuple{Symbol, Symbol}}
+end
+
+function ComplementarityIndexBuilder(model::JuMP.Model)
+    return ComplementarityIndexBuilder(
+        model,
+        nlp_var_col_map(model),
+        nlp_con_row_map(model),
+        Int[],
+        Int[],
+        Tuple{Symbol, Symbol}[],
+    )
+end
+
+# A complementarity side is either a single JuMP variable/constraint reference or
+# an array of them. `_as_vec` normalizes both into a flat vector so the rest of
+# the machinery never has to distinguish the two cases.
+_as_vec(x::AbstractArray) = vec(x)
+_as_vec(x) = [x]
+
+_assert_same_length(a, b) = @assert length(_as_vec(a)) == length(_as_vec(b)) "Complementarity arguments must have the same length"
+
+"""
+    _complementarity_kind(x) -> Symbol
+
+Infer the complementarity kind (`:var` or `:con`) from a JuMP reference or an
+array of references.
+"""
+_complementarity_kind(::JuMP.VariableRef) = :var
+_complementarity_kind(::JuMP.ConstraintRef) = :con
+function _complementarity_kind(x::AbstractArray)
+    eltype(x) <: JuMP.VariableRef && return :var
+    eltype(x) <: JuMP.ConstraintRef && return :con
+    return _complementarity_kind(first(x))
+end
+_complementarity_kind(x) = error(
+    "Complementarity terms must be JuMP variable or constraint references, got $(typeof(x))",
+)
+
+_var_indices(builder::ComplementarityIndexBuilder, vars) =
+    [builder.col_map[JuMP.index(v)] for v in _as_vec(vars)]
+
+_con_indices(builder::ComplementarityIndexBuilder, cons) =
+    [builder.row_map[JuMP.index(c)] for c in _as_vec(cons)]
+
+_term_indices(builder::ComplementarityIndexBuilder, x) =
+    _complementarity_kind(x) === :var ? _var_indices(builder, x) : _con_indices(builder, x)
+
+function _append_complementarity_block!(
+        builder::ComplementarityIndexBuilder,
+        inds1,
+        inds2,
+        cc_type::Tuple{Symbol, Symbol},
+    )
+    append!(builder.ind_cc1, inds1)
+    append!(builder.ind_cc2, inds2)
+    append!(builder.cc_types, fill(cc_type, length(inds1)))
+    return builder
+end
+
+"""
+    add_complementarities!(builder, lhs, rhs) -> builder
+
+Append complementarity pairs from `lhs` and `rhs`, inferring each side's kind
+(`:var`/`:con`) from the type of the JuMP references passed.
+
+`lhs` and `rhs` may each be a single JuMP variable/constraint reference or an
+array of references; the two sides must have the same number of elements.
+"""
+function add_complementarities!(builder::ComplementarityIndexBuilder, lhs, rhs)
+    _assert_same_length(lhs, rhs)
+    cc_type = (_complementarity_kind(lhs), _complementarity_kind(rhs))
+    return _append_complementarity_block!(
+        builder,
+        _term_indices(builder, lhs),
+        _term_indices(builder, rhs),
+        cc_type,
+    )
+end
+
+"""
+    add_var_var_complementarities!(builder, vars1, vars2) -> builder
+
+Append variable-variable complementarity pairs. Each side may be a single
+variable reference or an equally sized array of them.
+"""
+add_var_var_complementarities!(builder::ComplementarityIndexBuilder, vars1, vars2) =
+    add_complementarities!(builder, vars1, vars2)
+
+"""
+    add_var_con_complementarities!(builder, vars, cons) -> builder
+
+Append variable-constraint complementarity pairs. Each side may be a single
+reference or an equally sized array of them.
+"""
+add_var_con_complementarities!(builder::ComplementarityIndexBuilder, vars, cons) =
+    add_complementarities!(builder, vars, cons)
+
+"""
+    add_con_var_complementarities!(builder, cons, vars) -> builder
+
+Append constraint-variable complementarity pairs. Each side may be a single
+reference or an equally sized array of them.
+"""
+add_con_var_complementarities!(builder::ComplementarityIndexBuilder, cons, vars) =
+    add_complementarities!(builder, cons, vars)
+
+"""
+    add_con_con_complementarities!(builder, cons1, cons2) -> builder
+
+Append constraint-constraint complementarity pairs. Each side may be a single
+constraint reference or an equally sized array of them.
+"""
+add_con_con_complementarities!(builder::ComplementarityIndexBuilder, cons1, cons2) =
+    add_complementarities!(builder, cons1, cons2)
+
+"""
+    complementarity_indices(builder::ComplementarityIndexBuilder)
+
+Return `(ind_cc1, ind_cc2, cc_types)` accumulated in `builder`.
+"""
+complementarity_indices(builder::ComplementarityIndexBuilder) =
+    builder.ind_cc1, builder.ind_cc2, builder.cc_types
+
+"""
+    complementarity_indices(model::JuMP.Model, blocks...)
+
+Build `(ind_cc1, ind_cc2, cc_types)` for one or more complementarity blocks.
+
+Each block is `(lhs, rhs)`. Each side may be a single JuMP variable/constraint
+reference or an equally sized array of them; the two sides must have the same
+number of elements. The kind of each side (`:var`/`:con`) is inferred from the
+type of the references passed.
+
+Example:
+
+```julia
+ind_cc1, ind_cc2, cc_types = complementarity_indices(model,
+    (model[:λ], model[:gap_nonnegative]),  # con/con (or var/con, etc.)
+    (model[:a], model[:b]),                # single references are fine
+)
+```
+"""
+function complementarity_indices(model::JuMP.Model, blocks...)
+    builder = ComplementarityIndexBuilder(model)
+    for block in blocks
+        @assert length(block) == 2 "Each complementarity block must be `(lhs, rhs)`"
+        lhs, rhs = block
+        add_complementarities!(builder, lhs, rhs)
+    end
+    return complementarity_indices(builder)
+end
+
+"""
+    var_con_complementarities(model, vars, cons)
+    var_con_complementarities(builder, vars, cons)
+
+Return `(variable_column, constraint_row)` pairs for equally shaped variable and
+constraint arrays.
 """
 function var_con_complementarities(model::JuMP.Model, vars::AbstractArray, cons::AbstractArray)
-    @assert size(vars) == size(cons) "vars and cons must have the same shape"
-    col_map = nlp_var_col_map(model)
-    row_map = nlp_con_row_map(model)
-    return [(col_map[JuMP.index(v)], row_map[JuMP.index(c)]) for (v, c) in zip(vec(vars), vec(cons))]
+    return var_con_complementarities(ComplementarityIndexBuilder(model), vars, cons)
+end
+
+function var_con_complementarities(builder::ComplementarityIndexBuilder, vars::AbstractArray, cons::AbstractArray)
+    _assert_same_length(vars, cons)
+    return collect(zip(_var_indices(builder, vars), _con_indices(builder, cons)))
 end
 
 """
-    con_con_complementarities(model, cons1, cons2) -> Vector{Tuple{Int,Int}}
+    con_con_complementarities(model, cons1, cons2)
+    con_con_complementarities(builder, cons1, cons2)
 
-Given parallel arrays `cons1` and `cons2` (ConstraintRef) with the same shape,
-return `(row_idx1, row_idx2)` pairs suitable as complementarity indices in an
-NLPModel.
+Return `(constraint_row1, constraint_row2)` pairs for equally shaped constraint
+arrays.
 """
 function con_con_complementarities(model::JuMP.Model, cons1::AbstractArray, cons2::AbstractArray)
-    @assert size(cons1) == size(cons2) "cons1 and cons2 must have the same shape"
-    row_map = nlp_con_row_map(model)
-    return [(row_map[JuMP.index(c1)], row_map[JuMP.index(c2)]) for (c1, c2) in zip(vec(cons1), vec(cons2))]
+    return con_con_complementarities(ComplementarityIndexBuilder(model), cons1, cons2)
+end
+
+function con_con_complementarities(builder::ComplementarityIndexBuilder, cons1::AbstractArray, cons2::AbstractArray)
+    _assert_same_length(cons1, cons2)
+    return collect(zip(_con_indices(builder, cons1), _con_indices(builder, cons2)))
 end
 
 """
-    var_var_complementarities(model, vars1, vars2) -> Vector{Tuple{Int,Int}}
+    var_var_complementarities(model, vars1, vars2)
+    var_var_complementarities(builder, vars1, vars2)
 
-Given parallel arrays `vars1` and `vars2` (VariableRef) with the same shape,
-return `(col_idx1, col_idx2)` pairs suitable as complementarity indices in an
-NLPModel. Both variables must be bounded below by zero.
+Return `(variable_column1, variable_column2)` pairs for equally shaped variable
+arrays.
 """
 function var_var_complementarities(model::JuMP.Model, vars1::AbstractArray, vars2::AbstractArray)
-    @assert size(vars1) == size(vars2) "vars1 and vars2 must have the same shape"
-    col_map = nlp_var_col_map(model)
-    return [(col_map[JuMP.index(v1)], col_map[JuMP.index(v2)]) for (v1, v2) in zip(vec(vars1), vec(vars2))]
+    return var_var_complementarities(ComplementarityIndexBuilder(model), vars1, vars2)
 end
 
+function var_var_complementarities(builder::ComplementarityIndexBuilder, vars1::AbstractArray, vars2::AbstractArray)
+    _assert_same_length(vars1, vars2)
+    return collect(zip(_var_indices(builder, vars1), _var_indices(builder, vars2)))
+end
+
+
 """
-    var_inds(model) -> Dict{Symbol, Array{Int}}
+    var_inds(model::JuMP.Model) -> Dict{Symbol,<:AbstractArray{Int}}
 
-Returns a mapping from each named variable array in `model` (registered via
-`@variable`) to an array of the corresponding MOI column indices (1-based).
-Only entries whose value is an `AbstractArray{VariableRef}` are included;
-scalar variables and non-variable objects are skipped.
+Return MOI variable-index values for named variable arrays in `model`.
 
-Useful for building index lookups before constructing an NLPModel, without
-having to call `nlp_var_col_map` and then scatter indices by hand.
+Only `AbstractArray{VariableRef}` entries in `object_dictionary(model)` are
+included; scalar variables and non-variable objects are skipped.
 """
 var_inds(model::JuMP.Model) = Dict(
     k => map(v -> JuMP.index(v).value, v)
@@ -91,121 +267,130 @@ var_inds(model::JuMP.Model) = Dict(
     if v isa AbstractArray{VariableRef}
 )
 
-function _reformulation_helpers(model)
-    inv_var_map = Dict(col => vi for (vi, col) in nlp_var_col_map(model))
-    inv_con_map = Dict(row => ci for (ci, row) in nlp_con_row_map(model))
+const _SUPPORTED_COMPLEMENTARITY_TYPES = (:var, :con)
 
-    get_reference(i, t) = if t == :var
-        JuMP.VariableRef(model, inv_var_map[i])
-    elseif t == :con
-        JuMP.ConstraintRef(model, inv_con_map[i], JuMP.ScalarShape())
-    else
-        error("Unsupported complementarity type: $t")
+struct _ComplementarityTerm
+    index::Int
+    kind::Symbol
+end
+
+struct _ReformulationContext
+    model::JuMP.Model
+    var_by_col::Dict{Int,MOI.VariableIndex}
+    con_by_row::Dict{Int,Any}
+    con_slack_by_row::Dict{Int,JuMP.VariableRef}
+end
+
+"""State shared by reformulation passes on a copied JuMP model."""
+function _ReformulationContext(model::JuMP.Model)
+    var_by_col = Dict{Int,MOI.VariableIndex}()
+    for (var_index, col_idx) in nlp_var_col_map(model)
+        var_by_col[col_idx] = var_index
     end
 
-    get_cons_expr(con::JuMP.ConstraintRef) = begin
-        obj = constraint_object(con)
-        expr = obj.func - MOI.constant(obj.set)
-        return expr
+    con_by_row = Dict{Int,Any}()
+    for (con_index, row_idx) in nlp_con_row_map(model)
+        con_by_row[row_idx] = con_index
     end
 
-    # Maps constraint row index -> slack variable, so repeated occurrences of
-    # the same constraint reuse the existing slack (the original constraint is
-    # deleted on first encounter and can't be referenced again).
-    con_slack_cache = Dict{Int, JuMP.VariableRef}()
+    return _ReformulationContext(model, var_by_col, con_by_row, Dict{Int,JuMP.VariableRef}())
+end
 
-    get_or_create_con_slack!(row_idx) = get!(con_slack_cache, row_idx) do
-        con = get_reference(row_idx, :con)
-        slack = @variable(model, lower_bound=0)
-        @constraint(model, slack == get_cons_expr(con))
-        delete(model, con)
+function _validate_complementarity_kind(kind::Symbol)
+    kind in _SUPPORTED_COMPLEMENTARITY_TYPES && return nothing
+    error("Unsupported complementarity type: $kind")
+end
+
+function _complementarity_term(index, kind::Symbol)
+    _validate_complementarity_kind(kind)
+    return _ComplementarityTerm(Int(index), kind)
+end
+
+function _complementarity_pairs(ind_cc1, ind_cc2, types)
+    n_pairs = length(ind_cc1)
+    length(ind_cc2) == n_pairs || throw(DimensionMismatch(
+        "ind_cc1 and ind_cc2 must have the same length",
+    ))
+    length(types) == n_pairs || throw(DimensionMismatch(
+        "types must have the same length as the complementarity indices",
+    ))
+
+    pairs = Vector{Tuple{_ComplementarityTerm,_ComplementarityTerm}}(undef, n_pairs)
+    for j in 1:n_pairs
+        kind1, kind2 = types[j]
+        pairs[j] = (
+            _complementarity_term(ind_cc1[j], kind1),
+            _complementarity_term(ind_cc2[j], kind2),
+        )
+    end
+    return pairs
+end
+
+function _variable_ref(ctx::_ReformulationContext, col_idx::Int)
+    haskey(ctx.var_by_col, col_idx) || error("No variable found at column index $col_idx")
+    return JuMP.VariableRef(ctx.model, ctx.var_by_col[col_idx])
+end
+
+function _constraint_ref(ctx::_ReformulationContext, row_idx::Int)
+    haskey(ctx.con_by_row, row_idx) || error("No constraint found at row index $row_idx")
+    return JuMP.ConstraintRef(ctx.model, ctx.con_by_row[row_idx], JuMP.ScalarShape())
+end
+
+function _reference(ctx::_ReformulationContext, term::_ComplementarityTerm)
+    if term.kind == :var
+        return _variable_ref(ctx, term.index)
+    elseif term.kind == :con
+        return _constraint_ref(ctx, term.index)
+    end
+    error("Unsupported complementarity type: $(term.kind)")
+end
+
+function _constraint_expr(con::JuMP.ConstraintRef)
+    obj = JuMP.constraint_object(con)
+    return obj.func - MOI.constant(obj.set)
+end
+
+"""Return the reusable nonnegative slack that represents constraint row `row_idx`."""
+function _constraint_slack!(ctx::_ReformulationContext, row_idx::Int)
+    return get!(ctx.con_slack_by_row, row_idx) do
+        con = _constraint_ref(ctx, row_idx)
+        slack = @variable(ctx.model, lower_bound = 0)
+        @constraint(ctx.model, slack == _constraint_expr(con))
+        delete(ctx.model, con)
         slack
     end
+end
 
-    return get_reference, get_or_create_con_slack!, con_slack_cache
+function _sos1_member!(ctx::_ReformulationContext, term::_ComplementarityTerm)
+    if term.kind == :var
+        return _variable_ref(ctx, term.index)
+    elseif term.kind == :con
+        return _constraint_slack!(ctx, term.index)
+    end
+    error("Unsupported complementarity type: $(term.kind)")
 end
 
 """
-    reformulate_sos1(model, ind_cc1, ind_cc2, types)::JuMP.Model
+    reformulate_sos1(model::JuMP.Model, ind_cc1, ind_cc2, types) -> JuMP.Model
 
-Reformulate complementarity constraints as SOS1 sets in-place.
+Return a copy of `model` with complementarity pairs reformulated as SOS1 sets.
 
-Each triplet `(i1, i2, (t1, t2))` drawn from `zip(ind_cc1, ind_cc2, types)`
-encodes one complementarity condition `x1 ⟂ x2`, where:
+Each `(ind_cc1[j], ind_cc2[j], types[j])` defines one pair. Types are
+`(:var, :var)`, `(:var, :con)`, `(:con, :var)`, or `(:con, :con)`, where
+`:var` indices are NLP variable columns and `:con` indices are NLP constraint
+rows.
 
-- `t1`, `t2` ∈ `{:var, :con}` indicate whether the index refers to a variable
-  column or a constraint row (as returned by `nlp_var_col_map` /
-  `nlp_con_row_map`).
-- `i1`, `i2` are the corresponding 1-based column/row indices.
-
-Behaviour by case:
-
-| `(t1, t2)`    | Action |
-|---------------|--------|
-| `(:var, :var)` | Add `[x1, x2] ∈ SOS1` directly. |
-| `(:var, :con)` | Introduce a non-negative slack `s = expr(con)`, delete the original constraint, add `[x1, s] ∈ SOS1`. |
-| `(:con, :var)` | Symmetric to `(:var, :con)`. |
-| `(:con, :con)` | Introduce two non-negative slacks, delete both original constraints, add `[s1, s2] ∈ SOS1`. |
-
-The constraint expression used for `:con` entries is `func - constant(set)`,
-i.e. the left-hand side when the constraint is written as `expr ∈ set`.
+Constraint terms are replaced with nonnegative slack variables and the original
+constraints are deleted in the returned model.
 """
 function reformulate_sos1(model::JuMP.Model, ind_cc1, ind_cc2, types)::JuMP.Model
-    new_model = copy(model) # Work on a copy to avoid modifying the original model's indices
-    get_reference, get_or_create_con_slack!, _ = _reformulation_helpers(new_model)
-
-    add_cc_pair!(i1, i2, t1, t2) = begin
-        if (t1, t2) == (:var, :var)
-            ref1 = get_reference(i1, t1)
-            ref2 = get_reference(i2, t2)
-            @constraint(new_model, [ref1, ref2] in JuMP.SOS1())
-        elseif (t1, t2) == (:var, :con)
-            ref1 = get_reference(i1, :var)
-            slack = get_or_create_con_slack!(i2)
-            @constraint(new_model, [ref1, slack] in JuMP.SOS1())
-        elseif (t1, t2) == (:con, :var)
-            add_cc_pair!(i2, i1, :var, :con)
-        elseif (t1, t2) == (:con, :con)
-            slack1 = get_or_create_con_slack!(i1)
-            slack2 = get_or_create_con_slack!(i2)
-            @constraint(new_model, [slack1, slack2] in JuMP.SOS1())
-        else
-            error("Unsupported complementarity type: ($t1, $t2)")
-        end
-    end
-
-    foreach(((i1, i2, (t1, t2)),) -> add_cc_pair!(i1, i2, t1, t2), zip(ind_cc1, ind_cc2, types))
-
-    return new_model
-end
-
-function reformulate_lie(model::JuMP.Model, ind_cc1, ind_cc2, types; κ, form=:eq)::JuMP.Model
     new_model = copy(model)
-    get_reference, _, _ = _reformulation_helpers(new_model)
+    ctx = _ReformulationContext(new_model)
 
-    ncc = length(ind_cc1)
-    retraction(x) = 1/2 * (x + sqrt(x^2 + 4))
-    con_expr(ref)  = (o = constraint_object(ref); o.func - MOI.constant(o.set))
-
-    @variable(new_model, s1[1:ncc])
-    if form == :ineq
-        @variable(new_model, s2[1:ncc])
-        @constraint(new_model, s1 + s2 .<= 0)
+    for (term1, term2) in _complementarity_pairs(ind_cc1, ind_cc2, types)
+        member1 = _sos1_member!(ctx, term1)
+        member2 = _sos1_member!(ctx, term2)
+        @constraint(new_model, [member1, member2] in JuMP.SOS1())
     end
-
-    for (j, (i1, i2, (t1, t2))) in enumerate(zip(ind_cc1, ind_cc2, types))
-        cc1 = get_reference(i1, t1)
-        cc2 = get_reference(i2, t2)
-
-        expr1 = t1 == :var ? cc1 : con_expr(cc1)
-        expr2 = t2 == :var ? cc2 : con_expr(cc2)
-
-        t1 == :var ? delete_lower_bound(cc1) : delete(new_model, cc1)
-        t2 == :var ? delete_lower_bound(cc2) : delete(new_model, cc2)
-
-        @constraint(new_model, expr1 == √κ * retraction(s1[j]))
-        @constraint(new_model, expr2 == √κ * retraction(form == :eq ? -s1[j] : s2[j]))
-    end
-
     return new_model
 end
