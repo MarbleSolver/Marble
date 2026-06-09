@@ -190,13 +190,15 @@ module Marble
     residual_ineq(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_ineq(Marble.get_problem(solver), z)
     residual_comp(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_comp(Marble.get_problem(solver), z)
 
+    # Utility functions for problem construction with JuMP
+    include("jump_mpcc.jl")
+
     export nlp_con_row_map, nlp_var_col_map, ComplementarityIndexBuilder
     export add_complementarities!
     export add_var_var_complementarities!, add_var_con_complementarities!
     export add_con_var_complementarities!, add_con_con_complementarities!
     export complementarity_indices, var_var_complementarities, var_con_complementarities, con_con_complementarities
     export var_inds, reformulate_sos1
-    export JumpMPCCModel, prepare_jump_to_marble
 
     # Functions to convert stuff to MarbleData
     include("conversion.jl")

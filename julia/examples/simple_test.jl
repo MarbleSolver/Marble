@@ -4,7 +4,6 @@
 #       x[2] ≥ 1
 #       0 ≤ (x[3] + 1) ⟂ (x[4] - 1) ≥ 0
 # The solution is x = [1, 1, 0, 1] with an objective of 3
-
 using Pkg; Pkg.activate(@__DIR__)
 using Revise
 using JuMP, Marble, NLPModelsJuMP
