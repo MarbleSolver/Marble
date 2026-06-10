@@ -1,0 +1,9 @@
+- Add tests for Julia
+- Add tests for Python
+- Let user specify Julia install (for CxxWrap.jl)? Optionally wrap C++ install process into Julia, either through binary builder or `build.jl`
+- Add/clean up examples
+    - Simple test
+    - Push box
+    - Hopper
+    - Rocket
+    - Quadrotor

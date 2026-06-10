@@ -1,10 +1,8 @@
-# Marble
-
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/marble-solver-logos-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/marble-solver-logos-light.svg">
-    <img alt="Marble" src="assets/marble-solver-logos-light.svg" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/marble_logo.jpg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/marble_logo.jpg">
+    <img alt="Marble" src="assets/marble_logo.jpg" width="360">
   </picture>
 </p>
 
