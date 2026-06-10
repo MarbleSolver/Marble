@@ -49,7 +49,16 @@ jlcxx::ArrayRef<T, 1> to_julia(Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>>& 
 template <typename T>
 jlcxx::Array<T> make_julia_owned(Eigen::Matrix<T, Eigen::Dynamic, 1> vec) {
     jlcxx::Array<T> arr(vec.size());
-    std::copy(vec.data(), vec.data() + vec.size(), jl_array_data(arr.wrapped(), T));
+    
+#if JULIA_VERSION_MAJOR > 1 || (JULIA_VERSION_MAJOR == 1 && JULIA_VERSION_MINOR >= 11)
+    // Julia 1.11 and newer: macro takes 2 arguments
+    T* dest_ptr = jl_array_data(arr.wrapped(), T);
+#else
+    // Julia 1.10 LTS and older: macro takes 1 argument and returns void*
+    T* dest_ptr = reinterpret_cast<T*>(jl_array_data(arr.wrapped()));
+#endif
+
+    std::copy(vec.data(), vec.data() + vec.size(), dest_ptr);
     return arr;
 }
 
