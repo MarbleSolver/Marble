@@ -21,8 +21,8 @@ import marble
 Q = 2.0 * np.eye(4)
 q = np.zeros(4)
 C0 = 0.0
-J_EQ,   B_EQ   = [[1.0, 0.0, 0.0, 0.0]], [-1.0]
-J_INEQ, B_INEQ = [[0.0, 1.0, 0.0, 0.0]], [-1.0]
+J_EQ,   c_eq   = [[1.0, 0.0, 0.0, 0.0]], [-1.0]
+J_INEQ, c_ineq = [[0.0, 1.0, 0.0, 0.0]], [-1.0]
 L, EL          = [[0.0, 0.0, 1.0, 0.0]], [1.0]
 R, ER          = [[0.0, 0.0, 0.0, 1.0]], [-1.0]
 ZSTAR = np.array([1.0, 1.0, 0.0, 1.0])
@@ -34,7 +34,7 @@ def setup_and_solve(sparse_problem=False, **options):
     conv = (lambda M: sp.csc_matrix(M)) if sparse_problem else (lambda M: M)
     m = marble.Solver()
     m.setup(conv(Q), q, C0,
-            J_eq=conv(J_EQ), b_eq=B_EQ, J_ineq=conv(J_INEQ), b_ineq=B_INEQ,
+            J_eq=conv(J_EQ), c_eq=c_eq, J_ineq=conv(J_INEQ), c_ineq=c_ineq,
             L=conv(L), l=EL, R=conv(R), r=ER, **options)
     return m, m.solve()
 
@@ -127,16 +127,16 @@ class TestDimensionValidation(unittest.TestCase):
             marble.Solver().setup(Q=np.eye(3), q=np.zeros(2))
 
     def test_eq_row_mismatch_raises(self):
-        # J_eq rows disagree with b_eq length
+        # J_eq rows disagree with c_eq length
         with self.assertRaises(ValueError):
             marble.Solver().setup(Q=np.eye(2), q=np.zeros(2),
-                                  J_eq=np.zeros((2, 2)), b_eq=np.zeros(1))
+                                  J_eq=np.zeros((2, 2)), c_eq=np.zeros(1))
 
     def test_ineq_col_mismatch_raises(self):
         # J_ineq columns disagree with len(q)
         with self.assertRaises(ValueError):
             marble.Solver().setup(Q=np.eye(2), q=np.zeros(2),
-                                  J_ineq=np.zeros((1, 3)), b_ineq=np.zeros(1))
+                                  J_ineq=np.zeros((1, 3)), c_ineq=np.zeros(1))
 
     def test_sparse_mismatch_raises(self):
         # Sparse blocks: L given but l omitted

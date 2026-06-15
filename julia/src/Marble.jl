@@ -26,28 +26,28 @@ module Marble
         opts = Marble.options(solver)
         data = jump_to_marble(nlp, ind_cc1, ind_cc2, cc_type)
         _set_problem!(solver, opts, data.Q, data.q, data.c0,
-                      data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
+                      data.J_eq, data.c_eq, data.J_ineq, data.c_ineq, data.L, data.l, data.R, data.r)
         return nothing
     end
 
     function setup!(solver::Marble.Solver, Q::AbstractMatrix, q::AbstractVector, c0::Real=0.0;
-                    J_eq=nothing, b_eq=nothing, J_ineq=nothing, b_ineq=nothing,
+                    J_eq=nothing, c_eq=nothing, J_ineq=nothing, c_ineq=nothing,
                     L=nothing, l=nothing, R=nothing, r=nothing, kwargs...)
         Marble.update_settings!(solver; kwargs...)
         opts = Marble.options(solver)
 
         n = length(q)
         J_eq   = isnothing(J_eq)   ? zeros(0, n) : J_eq
-        b_eq   = isnothing(b_eq)   ? zeros(0)    : b_eq
+        c_eq   = isnothing(c_eq)   ? zeros(0)    : c_eq
         J_ineq = isnothing(J_ineq) ? zeros(0, n) : J_ineq
-        b_ineq = isnothing(b_ineq) ? zeros(0)    : b_ineq
+        c_ineq = isnothing(c_ineq) ? zeros(0)    : c_ineq
         L = isnothing(L) ? zeros(0, n) : L
         l = isnothing(l) ? zeros(0)    : l
         R = isnothing(R) ? zeros(0, n) : R
         r = isnothing(r) ? zeros(0)    : r
 
         _set_problem!(solver, opts, Q, q, Float64(c0),
-                      J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+                      J_eq, c_eq, J_ineq, c_ineq, L, l, R, r)
         return nothing
     end
 
@@ -55,13 +55,13 @@ module Marble
     # on any mismatch. The compiled core's Problem constructor performs the same
     # check, but CxxWrap does not translate C++ exceptions into Julia exceptions
     # (they call std::terminate and abort the process), so we must validate here :(
-    function _validate_problem_dims(Q, q, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+    function _validate_problem_dims(Q, q, J_eq, c_eq, J_ineq, c_ineq, L, l, R, r)
         n = length(q)
         size(Q) == (n, n) || throw(DimensionMismatch(
             "Q must have size ($n, $n) to match length(q)=$n, got $(size(Q))"))
 
-        for (Jname, J, cname, c) in (("J_eq", J_eq, "b_eq", b_eq),
-                                     ("J_ineq", J_ineq, "b_ineq", b_ineq))
+        for (Jname, J, cname, c) in (("J_eq", J_eq, "c_eq", c_eq),
+                                     ("J_ineq", J_ineq, "c_ineq", c_ineq))
             size(J, 1) == length(c) || throw(DimensionMismatch(
                 "$Jname has $(size(J, 1)) rows but $cname has length $(length(c)); they must match"))
             (size(J, 1) == 0 || size(J, 2) == n) || throw(DimensionMismatch(
@@ -86,23 +86,23 @@ module Marble
     # solver. When any block is sparse every block is converted to a SparseMatrixCSC
     # so the solver sees consistent compressed-sparse data
     function _set_problem!(solver::Marble.Solver, opts, Q, q, c0,
-                           J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
-        _validate_problem_dims(Q, q, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+                           J_eq, c_eq, J_ineq, c_ineq, L, l, R, r)
+        _validate_problem_dims(Q, q, J_eq, c_eq, J_ineq, c_ineq, L, l, R, r)
         blocks = (Q, J_eq, J_ineq, L, R)
         fvec(v) = collect(Float64, v)
         if any(b -> b isa AbstractSparseMatrix, blocks)
             Qs, Es, Is, Ls, Rs = sparse(Q), sparse(J_eq), sparse(J_ineq), sparse(L), sparse(R)
             prob = Marble.Problem(size(Qs, 2),
                 Qs.colptr, Qs.rowval, Qs.nzval, fvec(q), c0,
-                size(Es, 1), Es.colptr, Es.rowval, Es.nzval, fvec(b_eq),
-                size(Is, 1), Is.colptr, Is.rowval, Is.nzval, fvec(b_ineq),
+                size(Es, 1), Es.colptr, Es.rowval, Es.nzval, fvec(c_eq),
+                size(Is, 1), Is.colptr, Is.rowval, Is.nzval, fvec(c_ineq),
                 size(Ls, 1), Ls.colptr, Ls.rowval, Ls.nzval, fvec(l),
                              Rs.colptr, Rs.rowval, Rs.nzval, fvec(r))
         else
             fmat(M) = Matrix{Float64}(M)
             prob = Marble.Problem(
                 fmat(Q), fvec(q), c0,
-                fmat(J_eq), fvec(b_eq), fmat(J_ineq), fvec(b_ineq),
+                fmat(J_eq), fvec(c_eq), fmat(J_ineq), fvec(c_ineq),
                 fmat(L), fvec(l), fmat(R), fvec(r))
         end
         Marble.set_problem!(solver, prob, opts)

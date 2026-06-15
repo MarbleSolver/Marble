@@ -48,11 +48,11 @@ def _csc(A, ncols: int):
 class Solver(_core.Solver):
     """Solver for ``min 1/2 x'Q x + q'x + c0`` subject to
 
-    ``J_eq x + b_eq == 0``, ``J_ineq x + b_ineq >= 0`` and the complementarity
+    ``J_eq x + c_eq == 0``, ``J_ineq x + c_ineq >= 0`` and the complementarity
     ``0 <= L x + l  ⟂  R x + r >= 0``.
     """
 
-    def setup(self, Q, q, c0=0.0, *, J_eq=None, b_eq=None, J_ineq=None, b_ineq=None,
+    def setup(self, Q, q, c0=0.0, *, J_eq=None, c_eq=None, J_ineq=None, c_ineq=None,
               L=None, l=None, R=None, r=None, **options):
         """Set up the problem from matrices and vectors.
 
@@ -70,9 +70,9 @@ class Solver(_core.Solver):
 
         n = _vec(q).shape[0]
         J_eq   = np.zeros((0, n)) if J_eq   is None else J_eq
-        b_eq   = np.zeros(0)      if b_eq   is None else b_eq
+        c_eq   = np.zeros(0)      if c_eq   is None else c_eq
         J_ineq = np.zeros((0, n)) if J_ineq is None else J_ineq
-        b_ineq = np.zeros(0)      if b_ineq is None else b_ineq
+        c_ineq = np.zeros(0)      if c_ineq is None else c_ineq
         L = np.zeros((0, n)) if L is None else L
         l = np.zeros(0)      if l is None else l
         R = np.zeros((0, n)) if R is None else R
@@ -88,8 +88,8 @@ class Solver(_core.Solver):
             conv = _dense
         problem = Problem(
             conv(Q, n),      _vec(q), float(c0),
-            conv(J_eq, n),   _vec(b_eq),
-            conv(J_ineq, n), _vec(b_ineq),
+            conv(J_eq, n),   _vec(c_eq),
+            conv(J_ineq, n), _vec(c_ineq),
             conv(L, n),      _vec(l),
             conv(R, n),      _vec(r),
         )

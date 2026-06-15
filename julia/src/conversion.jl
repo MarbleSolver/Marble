@@ -1,7 +1,7 @@
 # function to_jump(marble_data::MarbleData) 
 #     model = Model()
 
-#     (; Q, q, c0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r) = marble_data
+#     (; Q, q, c0, J_eq, c_eq, J_ineq, c_ineq, L, l, R, r) = marble_data
 
 #     nvar = length(q)
 #     ncc = length(l)
@@ -15,8 +15,8 @@
 
 #     # Eq/Ineq constraints
 #     @constraints(model, begin
-#         J_eq * x + b_eq .== 0
-#         J_ineq * x + b_ineq .>= 0
+#         J_eq * x + c_eq .== 0
+#         J_ineq * x + c_ineq .>= 0
 #     end)
 
 #     # Complementarity slacks
@@ -39,8 +39,8 @@
 # Returns a NamedTuple describing
 #
 #     minimize    1/2 xᵀ Q x + qᵀ x + c0
-#     subject to  J_eq   x + b_eq   == 0
-#                 J_ineq x + b_ineq >= 0
+#     subject to  J_eq   x + c_eq   == 0
+#                 J_ineq x + c_ineq >= 0
 #                 0 <= (L x + l) ⊥ (R x + r) >= 0
 #
 # where the last line is the elementwise complementarity condition
@@ -156,7 +156,7 @@ function jump_to_marble(
     cc_extra_ub = mask_cc .& has_lb .& has_ub
 
     J_eq = J_all[is_eq, :]
-    b_eq = b_all[is_eq] .- l_all[is_eq]
+    c_eq = b_all[is_eq] .- l_all[is_eq]
 
     J_ineq = [
         J_all[ineq_lb, :];
@@ -164,7 +164,7 @@ function jump_to_marble(
         -J_all[cc_extra_ub, :];
     ]
 
-    b_ineq = [
+    c_ineq = [
         b_all[ineq_lb] .- l_all[ineq_lb];
         u_all[ineq_ub] .- b_all[ineq_ub];
         u_all[cc_extra_ub] .- b_all[cc_extra_ub];
@@ -172,8 +172,8 @@ function jump_to_marble(
 
     return (
         Q=Q, q=q, c0=c0,
-        J_eq=J_eq, b_eq=b_eq,
-        J_ineq=J_ineq, b_ineq=b_ineq,
+        J_eq=J_eq, c_eq=c_eq,
+        J_ineq=J_ineq, c_ineq=c_ineq,
         L=L, l=l,
         R=R, r=r,
     )

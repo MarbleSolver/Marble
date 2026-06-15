@@ -17,8 +17,8 @@ using Marble
 const Q = 2.0 * Matrix(1.0I, 4, 4)
 const q = zeros(4)
 const C0 = 0.0
-const J_EQ,   B_EQ   = [1.0 0.0 0.0 0.0], [-1.0]
-const J_INEQ, B_INEQ = [0.0 1.0 0.0 0.0], [-1.0]
+const J_EQ,   c_eq   = [1.0 0.0 0.0 0.0], [-1.0]
+const J_INEQ, c_ineq = [0.0 1.0 0.0 0.0], [-1.0]
 const L, EL          = [0.0 0.0 1.0 0.0], [1.0]
 const R, ER          = [0.0 0.0 0.0 1.0], [-1.0]
 const ZSTAR = [1.0, 1.0, 0.0, 1.0]
@@ -29,7 +29,7 @@ function setup_and_solve(; sparse_problem = false, opts...)
     conv = sparse_problem ? sparse : identity
     solver = Marble.Solver()
     Marble.setup!(solver, conv(Q), q, C0;
-        J_eq = conv(J_EQ), b_eq = B_EQ, J_ineq = conv(J_INEQ), b_ineq = B_INEQ,
+        J_eq = conv(J_EQ), c_eq = c_eq, J_ineq = conv(J_INEQ), c_ineq = c_ineq,
         L = conv(L), l = EL, R = conv(R), r = ER, opts...)
     return solver, Marble.solve!(solver)
 end
@@ -115,12 +115,12 @@ end
         @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), zeros(2, 3), zeros(2))
         # Q size disagrees with length(q)
         @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Matrix(1.0I, 3, 3), zeros(2))
-        # J_eq rows disagree with b_eq length
+        # J_eq rows disagree with c_eq length
         @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
-            J_eq = zeros(2, 2), b_eq = zeros(1))
+            J_eq = zeros(2, 2), c_eq = zeros(1))
         # J_ineq columns disagree with length(q)
         @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
-            J_ineq = zeros(1, 3), b_ineq = zeros(1))
+            J_ineq = zeros(1, 3), c_ineq = zeros(1))
         # Sparse blocks: L given but l omitted
         @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), sparse(Q2), zeros(2);
             L = sparse(zeros(1, 2)), R = sparse(zeros(1, 2)), r = zeros(1))
