@@ -156,12 +156,34 @@ module Marble
         printstyled(io, "─"^total_width * "\n", color=:light_black)
     end
 
+    function convert_Eigen_sparse(nr, nc, colptr, rowval, nzval)
+        return SparseMatrixCSC(nr, nc, colptr .+ 1, rowval .+ 1, nzval)
+    end
+
     Base.getproperty(solver::Marble.Solver, sym::Symbol) = solver_property(solver, Val(sym))
     solver_property(solver::Marble.Solver, ::Val{:options}) = CxxWrap.dereference_argument(Marble.options(solver))
     solver_property(solver::Marble.Solver, ::Val{:problem}) = CxxWrap.dereference_argument(Marble.get_problem(solver))
     solver_property(solver::Marble.Solver, ::Val{sym}) where sym = getfield(solver, sym)
 
-    Base.propertynames(solver::Marble.Solver, private::Bool=false) = (:options, :problem,fieldnames(typeof(solver))...)
+    Base.setproperty!(solver::Marble.Solver, sym::Symbol, val) = @warn "Setting properties of Marble.Solver is not supported"
+
+    Base.propertynames(solver::Marble.Solver, private::Bool=false) = (:options, :problem, fieldnames(typeof(solver))...)
+
+    Base.getproperty(problem::Marble.Problem, sym::Symbol) = problem_property(problem, Val(sym))
+    problem_property(problem::Marble.Problem, ::Val{:cost_hessian}) = convert_Eigen_sparse(Marble.cost_hessian(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:J_eq}) = convert_Eigen_sparse(Marble.J_eq(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:J_ineq}) = convert_Eigen_sparse(Marble.J_ineq(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:J_comp}) = convert_Eigen_sparse(Marble.J_comp(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:c_eq}) = Marble.c_eq(problem)
+    problem_property(problem::Marble.Problem, ::Val{:c_ineq}) = Marble.c_ineq(problem)
+    problem_property(problem::Marble.Problem, ::Val{:c_comp}) = Marble.c_comp(problem)
+    problem_property(problem::Marble.Problem, ::Val{:cost_gradient}) = Marble.cost_gradient(problem)
+    problem_property(problem::Marble.Problem, ::Val{sym}) where sym = getfield(problem, sym)
+
+    Base.setproperty!(problem::Marble.Problem, sym::Symbol, val) = @warn "Setting properties of Marble.Solver is not supported"
+
+    Base.propertynames(problem::Marble.Problem, private::Bool=false) = 
+        (:cost_hessian, :J_eq, :J_ineq, :J_comp, :c_eq, :c_ineq, :c_comp, :cost_gradient, fieldnames(typeof(problem))...)
 
     obj(solver::Marble.Solver, z::Vector{Float64}) = Marble.obj(Marble.get_problem(solver), z)
     residual_eq(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_eq(Marble.get_problem(solver), z)

@@ -143,14 +143,39 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("obj",    [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return p.obj(to_eigen(z)); })
         .method("residual_eq",   [](Problem& p, jlcxx::ArrayRef<double, 1> z) {return make_julia_owned(p.residual_eq(to_eigen(z))); })
         .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_ineq(to_eigen(z))); })
-        .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); });
-        // .method("cost_hessian", [](Problem& p) { 
-        //     // Assumes cost_hessian is compressed
-        //     auto colptr = jlcxx::make_julia_array(p.cost_hessian().outerIndexPtr(), p.cost_hessian().outerSize() + 1);
-        //     auto rowval = jlcxx::make_julia_array(p.cost_hessian().innerIndexPtr(), p.cost_hessian().nonZeros());
-        //     auto nzval  = jlcxx::make_julia_array(p.cost_hessian().valuePtr(),      p.cost_hessian().nonZeros());
-        //     return std::make_tuple((int)p.cost_hessian().rows(), (int)p.cost_hessian().cols(), colptr, rowval, nzval);
-        // });
+        .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); })
+        .method("cost_gradient", [](const Problem& p) { return make_julia_owned(p.cost_gradient); })
+        .method("c_eq", [](const Problem& p) { return make_julia_owned(p.c_eq); })
+        .method("c_ineq", [](const Problem& p) { return make_julia_owned(p.c_ineq); })
+        .method("c_comp", [](const Problem& p) { return make_julia_owned(p.c_comp); })
+        .method("cost_hessian", [](Problem& p) { 
+            // Assumes cost_hessian is compressed
+            auto colptr = jlcxx::make_julia_array(p.cost_hessian.outerIndexPtr(), p.cost_hessian.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.cost_hessian.innerIndexPtr(), p.cost_hessian.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.cost_hessian.valuePtr(),      p.cost_hessian.nonZeros());
+            return std::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), colptr, rowval, nzval);
+        })
+        .method("J_eq", [](Problem& p) { 
+            // Assumes J_eq is compressed
+            auto colptr = jlcxx::make_julia_array(p.J_eq.outerIndexPtr(), p.J_eq.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.J_eq.innerIndexPtr(), p.J_eq.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.J_eq.valuePtr(),      p.J_eq.nonZeros());
+            return std::make_tuple((int)p.J_eq.rows(), (int)p.J_eq.cols(), colptr, rowval, nzval);
+        })
+        .method("J_ineq", [](Problem& p) { 
+            // Assumes J_ineq is compressed
+            auto colptr = jlcxx::make_julia_array(p.J_ineq.outerIndexPtr(), p.J_ineq.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.J_ineq.innerIndexPtr(), p.J_ineq.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.J_ineq.valuePtr(),      p.J_ineq.nonZeros());
+            return std::make_tuple((int)p.J_ineq.rows(), (int)p.J_ineq.cols(), colptr, rowval, nzval);
+        })
+        .method("J_comp", [](Problem& p) { 
+            // Assumes J_comp is compressed
+            auto colptr = jlcxx::make_julia_array(p.J_comp.outerIndexPtr(), p.J_comp.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.J_comp.innerIndexPtr(), p.J_comp.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.J_comp.valuePtr(),      p.J_comp.nonZeros());
+            return std::make_tuple((int)p.J_comp.rows(), (int)p.J_comp.cols(), colptr, rowval, nzval);
+        });
 
     // -----------------------------------------------------------------------
     // SolverOptions
