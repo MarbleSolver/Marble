@@ -7,7 +7,7 @@ module Marble
     using Preferences
 
     const _libmarble_julia = @load_preference("libmarble_julia_path",
-        joinpath(@__DIR__, "..", "..", "build", "lib", "libmarble_julia"))
+        joinpath(@__DIR__, "..", "..", "build", "julia", "lib", "libmarble_julia"))
 
     @wrapmodule(() -> _libmarble_julia)
 
