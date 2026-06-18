@@ -2,12 +2,12 @@
 #
 # Mirror of the Python suite (python/tests/test_marble.py): the same example
 # problem written directly as matrices (from julia/examples/simple_test.jl) and
-# the same 16 test cases in the same order — nine solve tests followed by seven
-# dimension validation cases.
+# the same core solve and dimension-validation cases, plus JuMP conversion tests.
 
 using Test
 using LinearAlgebra
 using SparseArrays
+using JuMP
 using Marble
 
 # Example problem (julia/examples/simple_test.jl), written directly as matrices:
@@ -80,6 +80,79 @@ end
         _, rs = setup_and_solve(sparse_problem = true)
         @test Marble.converged(rd) && Marble.converged(rs) &&
               isapprox(collect(Marble.z(rd)), collect(Marble.z(rs)), atol = 1e-6)
+    end
+
+    @testset "direct JuMP MPCC conversion" begin
+        model = JuMP.Model()
+        @variable(model, x[1:4])
+        @objective(model, Min, x' * x)
+        @constraint(model, x[1] == 1)
+        @constraint(model, x[2] >= 1)
+        @constraint(model, x3_comp, x[3] + 1 >= 0)
+        @constraint(model, x4_comp, x[4] - 1 >= 0)
+
+        data = Marble.jump_to_marble(model, [(model[:x3_comp], model[:x4_comp])])
+        @test data.Q == Q
+        @test data.q == q
+        @test data.c0 == C0
+        @test data.J_eq == J_EQ
+        @test data.b_eq == B_EQ
+        @test data.J_ineq == J_INEQ
+        @test data.b_ineq == B_INEQ
+        @test data.L == L
+        @test data.l == EL
+        @test data.R == R
+        @test data.r == ER
+
+        solver = Marble.Solver()
+        Marble.setup!(solver, model, [(model[:x3_comp], model[:x4_comp])])
+        res = Marble.solve!(solver)
+        @test Marble.converged(res) && isapprox(collect(Marble.z(res)), ZSTAR, atol = 1e-4)
+    end
+
+    @testset "direct JuMP upper-bound endpoint" begin
+        model = JuMP.Model()
+        @variable(model, 0 <= x <= 2)
+        @variable(model, y >= -1)
+        @objective(model, Min, x^2 + y^2)
+
+        data = Marble.jump_to_marble(model, [(JuMP.UpperBoundRef(x), y)])
+        @test data.L == [-1.0 0.0]
+        @test data.l == [2.0]
+        @test data.R == [0.0 1.0]
+        @test data.r == [1.0]
+        @test data.J_ineq == [1.0 0.0]
+        @test data.b_ineq == [0.0]
+    end
+
+    @testset "direct JuMP parameter refresh" begin
+        model = JuMP.Model()
+        @variable(model, p in JuMP.Parameter(2.0))
+        @variable(model, x[1:2])
+        @objective(model, Min, p * x[1]^2 + x[2]^2 + p * x[1] + p)
+        @constraint(model, gap, p * x[1] + x[2] + p >= 0)
+        @constraint(model, nonneg, x[2] >= 0)
+
+        cache = Marble.prepare_jump_to_marble(model, [(model[:gap], model[:nonneg])])
+        data = Marble.jump_to_marble(cache)
+        @test size(data.Q) == (2, 2)
+        @test data.Q == [4.0 0.0; 0.0 2.0]
+        @test data.q == [2.0, 0.0]
+        @test data.c0 == 2.0
+        @test data.L == [2.0 1.0]
+        @test data.l == [2.0]
+        @test isempty(data.J_ineq)
+        @test isempty(data.b_ineq)
+
+        JuMP.set_parameter_value(p, 3.0)
+        data = Marble.jump_to_marble(cache)
+        @test data.Q == [6.0 0.0; 0.0 2.0]
+        @test data.q == [3.0, 0.0]
+        @test data.c0 == 3.0
+        @test data.L == [3.0 1.0]
+        @test data.l == [3.0]
+        @test isempty(data.J_ineq)
+        @test isempty(data.b_ineq)
     end
 
     @testset "complementarity-only QPCC" begin
