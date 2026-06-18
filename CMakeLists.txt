@@ -15,6 +15,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(MARBLE_BUILD_PYTHON  "Build Python bindings"                   ON)
 option(MARBLE_BUILD_JULIA   "Build Julia bindings"                    ON)
 option(MARBLE_GENERATE_PYI  "Generate .pyi stubs via pybind11-stubgen" ON)
+set(MARBLE_PYTHON_PACKAGE_DIR "${CMAKE_BINARY_DIR}/python/marble"
+    CACHE PATH "Directory for the staged Python marble package")
+set(MARBLE_JULIA_LIB_DIR "${CMAKE_BINARY_DIR}/lib"
+    CACHE PATH "Directory for the Julia shared library")
 
 # ---------------------------------------------------------------------------
 # Output directories  (keeps build/ tidy)
@@ -27,6 +31,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # Dependencies
 # ---------------------------------------------------------------------------
 include(FetchContent)
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL
+    "Do not contact remotes to update FetchContent dependencies after initial download")
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -80,6 +86,7 @@ target_link_libraries(marble PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json m
 # ---------------------------------------------------------------------------
 if(MARBLE_BUILD_PYTHON)
     find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+    get_filename_component(MARBLE_PYTHON_PACKAGE_PARENT "${MARBLE_PYTHON_PACKAGE_DIR}" DIRECTORY)
 
     find_package(pybind11 CONFIG QUIET)
     if(NOT pybind11_FOUND)
@@ -97,15 +104,15 @@ if(MARBLE_BUILD_PYTHON)
     target_link_libraries(marble_python PRIVATE marble)
     set_target_properties(marble_python PROPERTIES
         OUTPUT_NAME            _core
-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python/marble
+        LIBRARY_OUTPUT_DIRECTORY ${MARBLE_PYTHON_PACKAGE_DIR}
     )
 
     # Stage the pure Python package next to the freshly built extension so that
     # adding build/python to sys.path is enough to `import marble` from the tree.
     add_custom_command(TARGET marble_python POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-                ${CMAKE_SOURCE_DIR}/python/marble ${CMAKE_BINARY_DIR}/python/marble
-        COMMENT "Staging marble package into build/python/marble"
+                ${CMAKE_SOURCE_DIR}/python/marble ${MARBLE_PYTHON_PACKAGE_DIR}
+        COMMENT "Staging marble package"
         VERBATIM
     )
 
@@ -115,14 +122,11 @@ if(MARBLE_BUILD_PYTHON)
         if(PYBIND11_STUBGEN)
             add_custom_command(TARGET marble_python POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E env
-                        PYTHONPATH=${CMAKE_BINARY_DIR}/python
+                        PYTHONPATH=${MARBLE_PYTHON_PACKAGE_PARENT}
                         ${PYBIND11_STUBGEN} marble._core
-                        --output-dir ${CMAKE_SOURCE_DIR}/python
+                        --output-dir ${MARBLE_PYTHON_PACKAGE_PARENT}
                         --numpy-array-remove-parameters
                         --ignore-unresolved-names "^(m|n)$"
-                COMMAND ${CMAKE_COMMAND} -E copy
-                        ${CMAKE_SOURCE_DIR}/python/marble/_core.pyi
-                        ${CMAKE_BINARY_DIR}/python/marble/_core.pyi
                 COMMENT "Generating marble/_core.pyi stubs"
                 VERBATIM
             )
@@ -175,6 +179,6 @@ if(MARBLE_BUILD_JULIA)
     add_library(marble_julia SHARED bindings/julia_bindings.cpp)
     target_link_libraries(marble_julia PRIVATE marble JlCxx::cxxwrap_julia)
     set_target_properties(marble_julia PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+        LIBRARY_OUTPUT_DIRECTORY ${MARBLE_JULIA_LIB_DIR}
     )
 endif()
