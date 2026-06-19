@@ -698,7 +698,7 @@ SolveResult Solver::solve() {
                 return r <= 1e-10 ? 0.0 : r / 10.0;
             };
 
-            double inertia_regularizer_to_try = std::isnan(last_inertia_regularizer) ? 0.0 : backoff_reg(last_inertia_regularizer);
+            double inertia_regularizer_to_try = 0.0; //std::isnan(last_inertia_regularizer) ? 0.0 : backoff_reg(last_inertia_regularizer);
 
             while (!inertia_succeeded && inertia_regularizer_to_try <= 1e8) {
                 update_KKT_primal_regularizer(inertia_regularizer_to_try);
@@ -739,6 +739,7 @@ SolveResult Solver::solve() {
 
                 linesearch_regularizer_to_try = bump_reg(linesearch_regularizer_to_try);
                 update_KKT_primal_regularizer(linesearch_regularizer_to_try);
+                numerical_factorization();
             }
             last_linesearch_regularizer = linesearch_regularizer_to_try;
 
