@@ -284,6 +284,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("iterations_outer", [](const SolveResult& r) { return r.iterations_outer; })
         .method("iterations_inner", [](const SolveResult& r) { return r.iterations_inner; })
         .method("factorizations",   [](const SolveResult& r) { return r.factorizations; })
+        .method("factorizations_ldlt",      [](const SolveResult& r) { return r.factorizations_ldlt; })
+        .method("factorizations_inertia",   [](const SolveResult& r) { return r.factorizations_inertia; })
+        .method("factorizations_linesearch", [](const SolveResult& r) { return r.factorizations_linesearch; })
         .method("z",      [](SolveResult& r) { return to_julia(r.z); })
         .method("s_ineq", [](SolveResult& r) { return to_julia(r.s_ineq); })
         .method("s_comp", [](SolveResult& r) { return to_julia(r.s_comp); })
@@ -348,7 +351,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("analytical_factorization!", &Solver::analytical_factorization)
         .method("numerical_factorization!",  &Solver::numerical_factorization)
         .method("check_inertia",            &Solver::check_inertia)
-        .method("backsolve!",                &Solver::backsolve)
+        .method("backsolve!", [](Solver& s, jlcxx::ArrayRef<double, 1> rhs) {
+            Vec step(rhs.size());
+            s.backsolve(step, to_eigen(rhs));
+            return std::vector<double>(step.data(), step.data() + step.size());
+        })
         // Linesearch
         .method("filter_linesearch!", &Solver::filter_linesearch)
         .method("entry_from_solution", [](const Solver& s, double sqrt_relax_param, double inv_penalty_param) {

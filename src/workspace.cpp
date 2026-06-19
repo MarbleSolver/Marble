@@ -17,9 +17,18 @@ Workspace::Workspace(const Problem& prob)
 
     int n_vars = prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq + prob.n_ineq + 2 * prob.n_comp;
     kkt_residual.resize(n_vars);
+    grad_kkt_residual_relax_param.resize(n_vars);
+    relax_correction_step.resize(n_vars);
     s_comp_stationarity.resize(prob.n_comp);
     s_ineq_stationarity.resize(prob.n_ineq);
     newton_step.resize(n_vars);
+
+    kkt_residual.setZero();
+    grad_kkt_residual_relax_param.setZero();
+    relax_correction_step.setZero();
+    s_comp_stationarity.setZero();
+    s_ineq_stationarity.setZero();
+    newton_step.setZero();
 
     residual_eq.resize(prob.n_eq);
     residual_ineq.resize(prob.n_ineq);
@@ -30,7 +39,7 @@ Workspace::Workspace(const Problem& prob)
     m_eq_est.setZero();
     m_ineq_est.setZero();
     m_comp_est.setZero();
-
+    
     // Initialize workspace constraint residuals
     residual_eq   = prob.J_eq * z + prob.c_eq;
     residual_ineq = prob.J_ineq * z + prob.c_ineq;

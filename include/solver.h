@@ -21,6 +21,9 @@ struct SolveResult {
     int iterations_outer;
     int iterations_inner;
     int factorizations;
+    int factorizations_ldlt;
+    int factorizations_inertia;
+    int factorizations_linesearch;
     double setup_time_s;
     double solve_time_s;
     Vec z;        // Primal solution
@@ -140,6 +143,10 @@ public:
      */
     Vec retract_second_deriv(const Vec& s, double sqrt_relax_param) const;
 
+    Vec d_retract_d_relax_param(const Vec& s, double relax_param) const;
+    Vec d_dretract_d_relax_param(const Vec& s, double relax_param) const;
+
+
     /**
      * Ruiz equilibration for current problem data using copies of H and J_*.
      * Writes concatenated scaling vector [d; e_eq; e_ineq; e_comp] into workspace->scaling.
@@ -169,6 +176,8 @@ public:
      * Construct and initialize KKT sparsity
      */
     void initialize_kkt_sparsity();
+
+    void update_residual_relax_grad(double relax_param);
 
     /**
      * Compute KKT residual given the current guess stored in the workspace
@@ -210,6 +219,29 @@ public:
      */
     bool numerical_factorization();
 
+    // // Route 2: condensed inertia test. Returns true iff the FULL KKT system at this
+    // // `reg` would have inertia (n_primals, n_duals, 0). Does NOT need a factorization.
+    // // Equivalent to: update_KKT_primal_regularizer(reg); numerical_factorization(); check_inertia();
+    // bool check_inertia_condensed(double reg, double sigma_tol = 1e-10) const;
+
+    // // Smallest reg in kkt_system_regularizers that passes the condensed test
+    // // (so the inner loop does at most one full factorization for the step).
+    // double route2_min_regularizer() const;
+
+    // double min_kkt_regularizer() const;
+
+    // double comp_block_reg_min(double atol) const;
+
+    double comp_block_reg_min(double sigma_tol) const;
+
+    Mat condensed_reduced_hessian(double reg) const;
+
+    double reduced_hessian_min_eig() const;
+
+    double primal_KKT_posdef_reg(double atol) const;
+
+    void relaxation_tangent_correction(double relax_param_new, double relax_param_old);
+
     /**
      * The KKT system should define a saddle point, with n_primal positive and n_dual negative eigenvalues
      * We can check this (called the inertia) after numerical_factorization() by checking the number of
@@ -221,7 +253,7 @@ public:
      * Solve the KKT system using the factorized matrix, populating the solution
      * in workspace->newton_step.
      */
-    void backsolve();
+    void backsolve(Vec &step, const Vec& rhs);
 
     /**
      * Compute AMD ordering
@@ -274,6 +306,15 @@ public:
 private:
     // Counts numerical_factorization() calls; reset at the start of each solve()
     int n_factorizations{0};
+
+    // Counts the # of factorizations due to LDLT numerical failure
+    int n_factorizations_ldlt{0};
+
+    // Counts the # of factorizations due to incorrect inertia
+    int n_factorizations_inertia{0};
+
+    // Counts the # of factorizations due to linesearch failure
+    int n_factorizations_linesearch{0};
 
     // Timing for set_problem and solve, in seconds
     double setup_time_s{0.0};

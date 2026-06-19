@@ -52,6 +52,10 @@ public:
      */
     SMat kkt_system;
 
+    // Gradient of the residual with respect to the relaxation parameter, used for inner step relaxation scaling
+    Vec grad_kkt_residual_relax_param;
+    Vec relax_correction_step;
+
     // The KKT system is permuted and scaled for conditioning using the following vectors
     Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, QDLDL_int> amd_perm; /** AMD permutation for KKT system, reduces in-fill */
     Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> amd_perm_vec; /** AMD permutation for KKT system, reduces in-fill */
