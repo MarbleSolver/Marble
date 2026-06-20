@@ -27,7 +27,7 @@ void validate_problem_dims(long H_rows,     long H_cols,     long grad,
     if (ceq != Jeq_rows)
         throw std::invalid_argument(
             "Marble problem: J_eq has " + std::to_string(Jeq_rows) +
-            " rows but c_eq/b_eq has length " + std::to_string(ceq) + "; they must match");
+            " rows but c_eq/c_eq has length " + std::to_string(ceq) + "; they must match");
     if (Jeq_rows > 0 && Jeq_cols != nz)
         throw std::invalid_argument(
             "Marble problem: J_eq has " + std::to_string(Jeq_cols) +
@@ -36,7 +36,7 @@ void validate_problem_dims(long H_rows,     long H_cols,     long grad,
     if (cineq != Jineq_rows)
         throw std::invalid_argument(
             "Marble problem: J_ineq has " + std::to_string(Jineq_rows) +
-            " rows but c_ineq/b_ineq has length " + std::to_string(cineq) + "; they must match");
+            " rows but c_ineq/c_ineq has length " + std::to_string(cineq) + "; they must match");
     if (Jineq_rows > 0 && Jineq_cols != nz)
         throw std::invalid_argument(
             "Marble problem: J_ineq has " + std::to_string(Jineq_cols) +

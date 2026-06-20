@@ -126,6 +126,9 @@ void Solver::set_problem(const Solver::Options& options) {
     // Construct initial KKT system and sparsity pattern
     initialize_kkt_sparsity();
 
+    // Init filter
+    filter = std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint);
+
     setup_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 }
 
