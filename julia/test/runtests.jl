@@ -44,26 +44,26 @@ end
 
     @testset "solves to known optimum" begin
         _, res = setup_and_solve()
-        z = collect(Marble.z(res))
+        z = Marble.z(res)
         @test Marble.converged(res) && isapprox(z, ZSTAR, atol = 1e-4)
     end
 
     @testset "equality constraint satisfied" begin
         # x1 = 1
         _, res = setup_and_solve()
-        @test abs(collect(Marble.z(res))[1] - 1.0) < 1e-4
+        @test abs(Marble.z(res)[1] - 1.0) < 1e-4
     end
 
     @testset "inequality constraint satisfied" begin
         # x2 >= 1
         _, res = setup_and_solve()
-        @test collect(Marble.z(res))[2] >= 1.0 - 1e-4
+        @test Marble.z(res)[2] >= 1.0 - 1e-4
     end
 
     @testset "complementarity satisfied" begin
         # 0 <= (x3 + 1) ⟂ (x4 - 1) >= 0
         _, res = setup_and_solve()
-        z = collect(Marble.z(res))
+        z = Marble.z(res)
         a = z[3] + 1.0
         b = z[4] - 1.0
         @test a >= -1e-4 && b >= -1e-4 && abs(a * b) < 1e-4
@@ -72,14 +72,14 @@ end
     @testset "objective value" begin
         # x'x = 3 at the optimum
         solver, res = setup_and_solve()
-        @test abs(Marble.obj(solver, collect(Marble.z(res))) - 3.0) < 1e-3
+        @test abs(Marble.obj(solver, Marble.z(res)) - 3.0) < 1e-3
     end
 
     @testset "dense and sparse solve agree" begin
         _, rd = setup_and_solve(sparse_problem = false)
         _, rs = setup_and_solve(sparse_problem = true)
         @test Marble.converged(rd) && Marble.converged(rs) &&
-              isapprox(collect(Marble.z(rd)), collect(Marble.z(rs)), atol = 1e-6)
+              isapprox(Marble.z(rd), Marble.z(rs), atol = 1e-6)
     end
 
     @testset "complementarity-only QPCC" begin
@@ -88,7 +88,7 @@ end
         solver = Marble.Solver()
         Marble.setup!(solver, Q, q, C0; L = L, l = EL, R = R, r = ER)
         res = Marble.solve!(solver)
-        z = collect(Marble.z(res))
+        z = Marble.z(res)
         @test Marble.converged(res) && isapprox(z, [0.0, 0.0, 0.0, 1.0], atol = 1e-4)
     end
 
