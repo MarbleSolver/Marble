@@ -74,7 +74,8 @@ public:
      */
     void clear();
 private:
-    // Filter options
-    const double gamma_objective{1e-5};
-    const double gamma_constraint{1e-5};
+    // Filter options. Non-const so Filter stays copy/move-assignable (the solver
+    // reconfigures it per problem via assignment); set at construction otherwise.
+    double gamma_objective{1e-5};
+    double gamma_constraint{1e-5};
 };

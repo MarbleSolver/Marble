@@ -70,7 +70,9 @@ add_library(marble STATIC
     src/solver.cpp
     src/problem.cpp
     src/workspace.cpp
+    src/relaxation_map.cpp
     src/filter.cpp
+    src/kkt_system.cpp
 )
 target_include_directories(marble PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(marble PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json marble_qdldl)

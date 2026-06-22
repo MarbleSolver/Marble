@@ -5,7 +5,17 @@ import warnings
 import numpy as np
 
 from . import _core
-from ._core import Filter, FilterEntry, Problem, SolveResult, SolverOptions, Workspace
+from ._core import (
+    Filter,
+    FilterEntry,
+    LdltSystem,
+    MarbleKKTSystem,
+    Problem,
+    RelaxationMap,
+    SolveResult,
+    SolverOptions,
+    Workspace,
+)
 
 
 def _scipy_sparse():

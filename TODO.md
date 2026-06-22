@@ -7,3 +7,9 @@
     - Hopper
     - Rocket
     - Quadrotor
+
+## Perf
+
+- Benchmark line-search residual delta caching instead of recomputing every constraint product from `z`.
+- Avoid duplicate filter sufficient-progress checks when accepting and pruning entries.
+- Evaluate warm-starting regularizer search from the previous accepted inertia/line-search regularizer.

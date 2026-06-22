@@ -1,23 +1,37 @@
 #include <jlcxx/jlcxx.hpp>
-#include "solver.h"
-#include <cmath>
 
-// Plain structs: tell CxxWrap not to treat them as mirrored types
-// so we can register them with add_type and attach methods.
+#include <algorithm>
+#include <cstdint>
+#include <exception>
+#include <stdexcept>
+#include <vector>
+
+#include "solver.h"
+
 namespace jlcxx {
     template<> struct IsMirroredType<Filter::Entry> : std::false_type {};
-    template<> struct IsMirroredType<SolveResult>  : std::false_type {};
+    template<> struct IsMirroredType<RelaxationMap> : std::false_type {};
+    template<> struct IsMirroredType<Solver::Result> : std::false_type {};
 }
 
-// ---------------------------------------------------------------------------
-// Eigen ↔ Julia array helpers
-// ---------------------------------------------------------------------------
+template <typename F>
+auto julia_call(F&& f) -> decltype(f()) {
+    try {
+        return f();
+    } catch (const std::invalid_argument& e) {
+        jl_error(e.what());
+    } catch (const std::exception& e) {
+        jl_error(e.what());
+    } catch (const std::string& e) {
+        jl_error(e.c_str());
+    } catch (const char* e) {
+        jl_error(e);
+    } catch (...) {
+        jl_error("Unknown C++ exception in Marble");
+    }
+    throw std::runtime_error("unreachable after jl_error");
+}
 
-// Map a Julia matrix to an Eigen matrix using its *true* dimensions (Julia is
-// column-major, matching Eigen's default). Reading the real shape — rather than
-// reshaping to caller-supplied dimensions — lets a misshapen block reach the
-// Problem constructor, which then validates and throws instead of silently
-// truncating the data.
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>
 to_eigen(jlcxx::ArrayRef<T, 2>& arr) {
@@ -37,348 +51,363 @@ to_eigen(jlcxx::ArrayRef<T, 1>& arr) {
 }
 
 template <typename T>
-jlcxx::ArrayRef<T, 1> to_julia(Eigen::Matrix<T, Eigen::Dynamic, 1>& vec) {
-    return jlcxx::make_julia_array(vec.data(), vec.size());
-}
-
-template <typename T>
-jlcxx::ArrayRef<T, 1> to_julia(Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>>& vec) {
-    return jlcxx::make_julia_array(vec.data(), vec.size());
-}
-
-template <typename T>
 jlcxx::Array<T> make_julia_owned(Eigen::Matrix<T, Eigen::Dynamic, 1> vec) {
     jlcxx::Array<T> arr(vec.size());
-    
 #if JULIA_VERSION_MAJOR > 1 || (JULIA_VERSION_MAJOR == 1 && JULIA_VERSION_MINOR >= 11)
-    // Julia 1.11 and newer: macro takes 2 arguments
     T* dest_ptr = jl_array_data(arr.wrapped(), T);
 #else
-    // Julia 1.10 LTS and older: macro takes 1 argument and returns void*
     T* dest_ptr = reinterpret_cast<T*>(jl_array_data(arr.wrapped()));
 #endif
-
     std::copy(vec.data(), vec.data() + vec.size(), dest_ptr);
     return arr;
 }
 
-// Build an Eigen sparse matrix from Julia SparseMatrixCSC components.
-// Julia uses 1-based indices; Eigen uses 0-based.
-// Accepts Int64 colptr/rowval (Julia's default index type) and casts to QDLDL_int internally.
+static Vec combine_vectors(const Vec& a, const Vec& b) {
+    Vec out(a.size() + b.size());
+    out << a, b;
+    return out;
+}
+
 static SMat csc_to_smat(int rows, int cols,
                         jlcxx::ArrayRef<int64_t, 1> colptr,
                         jlcxx::ArrayRef<int64_t, 1> rowval,
-                        jlcxx::ArrayRef<double, 1>  nzval) {
-    int nnz = (int)nzval.size();
-    std::vector<QDLDL_int> cp(cols + 1), ri(nnz);
-    for (int i = 0; i <= cols; i++) cp[i] = (QDLDL_int)(colptr[i] - 1);
-    for (int i = 0; i < nnz;  i++) ri[i] = (QDLDL_int)(rowval[i] - 1);
-    Eigen::Map<SMat> mapped(rows, cols, nnz,
-                            cp.data(), ri.data(),
+                        jlcxx::ArrayRef<double, 1> nzval) {
+    const int nnz = static_cast<int>(nzval.size());
+    std::vector<int> cp(cols + 1), ri(nnz);
+    for (int i = 0; i <= cols; ++i) cp[i] = static_cast<int>(colptr[i] - 1);
+    for (int i = 0; i < nnz; ++i) ri[i] = static_cast<int>(rowval[i] - 1);
+
+    Eigen::Map<SMat> mapped(rows, cols, nnz, cp.data(), ri.data(),
                             const_cast<double*>(nzval.data()));
     SMat result = mapped;
     result.makeCompressed();
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// Module definition
-// ---------------------------------------------------------------------------
+static auto smat_to_julia_tuple(SMat m) {
+    m.makeCompressed();
+    Eigen::Matrix<int64_t, Eigen::Dynamic, 1> colptr(m.outerSize() + 1);
+    Eigen::Matrix<int64_t, Eigen::Dynamic, 1> rowval(m.nonZeros());
+    Vec nzval(m.nonZeros());
+
+    for (int i = 0; i <= m.outerSize(); ++i)
+        colptr[i] = static_cast<int64_t>(m.outerIndexPtr()[i]) + 1;
+    for (int i = 0; i < m.nonZeros(); ++i)
+        rowval[i] = static_cast<int64_t>(m.innerIndexPtr()[i]) + 1;
+    std::copy(m.valuePtr(), m.valuePtr() + m.nonZeros(), nzval.data());
+
+    return std::make_tuple((int)m.rows(), (int)m.cols(),
+                           make_julia_owned<int64_t>(std::move(colptr)),
+                           make_julia_owned<int64_t>(std::move(rowval)),
+                           make_julia_owned<double>(std::move(nzval)));
+}
 
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
-
-    // -----------------------------------------------------------------------
-    // Problem
-    // -----------------------------------------------------------------------
     mod.add_type<Problem>("Problem")
         .constructor([](jlcxx::ArrayRef<double, 2> cost_hessian,
                         jlcxx::ArrayRef<double, 1> cost_gradient,
                         double cost_const,
-                        jlcxx::ArrayRef<double, 2> J_eq,   jlcxx::ArrayRef<double, 1> c_eq,
+                        jlcxx::ArrayRef<double, 2> J_eq, jlcxx::ArrayRef<double, 1> c_eq,
                         jlcxx::ArrayRef<double, 2> J_ineq, jlcxx::ArrayRef<double, 1> c_ineq,
-                        jlcxx::ArrayRef<double, 2> L,      jlcxx::ArrayRef<double, 1> l,
-                        jlcxx::ArrayRef<double, 2> R,      jlcxx::ArrayRef<double, 1> r) {
-            return new Problem(
-                to_eigen(cost_hessian), to_eigen(cost_gradient), cost_const,
-                to_eigen(J_eq),   to_eigen(c_eq),
-                to_eigen(J_ineq), to_eigen(c_ineq),
-                to_eigen(L),      to_eigen(l),
-                to_eigen(R),      to_eigen(r));
+                        jlcxx::ArrayRef<double, 2> L, jlcxx::ArrayRef<double, 1> l,
+                        jlcxx::ArrayRef<double, 2> R, jlcxx::ArrayRef<double, 1> r) {
+            return julia_call([&]() {
+                return new Problem(
+                    to_eigen(cost_hessian), to_eigen(cost_gradient), cost_const,
+                    to_eigen(J_eq), to_eigen(c_eq),
+                    to_eigen(J_ineq), to_eigen(c_ineq),
+                    to_eigen(L), to_eigen(l),
+                    to_eigen(R), to_eigen(r));
+            });
         })
-        // Sparse constructor: accepts SparseMatrixCSC components from Julia.
-        // For each sparse matrix pass (colptr, rowval, nzval) from the Julia struct.
-        // Julia's colptr/rowval are Int64 (1-based); conversion to 0-based happens internally.
-        // Usage from Julia:
-        //   Problem(nz,
-        //           H.colptr, H.rowval, H.nzval, q, cost_const,
-        //           n_eq,   J_eq.colptr,   J_eq.rowval,   J_eq.nzval,   c_eq,
-        //           n_ineq, J_ineq.colptr, J_ineq.rowval, J_ineq.nzval, c_ineq,
-        //           n_comp, L.colptr, L.rowval, L.nzval, l,
-        //                   R.colptr, R.rowval, R.nzval, r)
         .constructor([](int nz,
-                        jlcxx::ArrayRef<int64_t,1> Hcp,  jlcxx::ArrayRef<int64_t,1> Hrv,  jlcxx::ArrayRef<double,1> Hnz,
-                        jlcxx::ArrayRef<double,1> grad, double cost_const,
+                        jlcxx::ArrayRef<int64_t, 1> Hcp, jlcxx::ArrayRef<int64_t, 1> Hrv,
+                        jlcxx::ArrayRef<double, 1> Hnz,
+                        jlcxx::ArrayRef<double, 1> grad, double cost_const,
                         int n_eq,
-                        jlcxx::ArrayRef<int64_t,1> Ecp,  jlcxx::ArrayRef<int64_t,1> Erv,  jlcxx::ArrayRef<double,1> Enz,
-                        jlcxx::ArrayRef<double,1> c_eq,
+                        jlcxx::ArrayRef<int64_t, 1> Ecp, jlcxx::ArrayRef<int64_t, 1> Erv,
+                        jlcxx::ArrayRef<double, 1> Enz,
+                        jlcxx::ArrayRef<double, 1> c_eq,
                         int n_ineq,
-                        jlcxx::ArrayRef<int64_t,1> Icp,  jlcxx::ArrayRef<int64_t,1> Irv,  jlcxx::ArrayRef<double,1> Inz,
-                        jlcxx::ArrayRef<double,1> c_ineq,
+                        jlcxx::ArrayRef<int64_t, 1> Icp, jlcxx::ArrayRef<int64_t, 1> Irv,
+                        jlcxx::ArrayRef<double, 1> Inz,
+                        jlcxx::ArrayRef<double, 1> c_ineq,
                         int n_comp,
-                        jlcxx::ArrayRef<int64_t,1> Lcp,  jlcxx::ArrayRef<int64_t,1> Lrv,  jlcxx::ArrayRef<double,1> Lnz,
-                        jlcxx::ArrayRef<double,1> l,
-                        jlcxx::ArrayRef<int64_t,1> Rcp,  jlcxx::ArrayRef<int64_t,1> Rrv,  jlcxx::ArrayRef<double,1> Rnz,
-                        jlcxx::ArrayRef<double,1> r) {
-            return new Problem(
-                csc_to_smat(nz,     nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
-                csc_to_smat(n_eq,   nz, Ecp, Erv, Enz), to_eigen(c_eq),
-                csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
-                csc_to_smat(n_comp, nz, Lcp, Lrv, Lnz), to_eigen(l),
-                csc_to_smat(n_comp, nz, Rcp, Rrv, Rnz), to_eigen(r));
+                        jlcxx::ArrayRef<int64_t, 1> Lcp, jlcxx::ArrayRef<int64_t, 1> Lrv,
+                        jlcxx::ArrayRef<double, 1> Lnz,
+                        jlcxx::ArrayRef<double, 1> l,
+                        jlcxx::ArrayRef<int64_t, 1> Rcp, jlcxx::ArrayRef<int64_t, 1> Rrv,
+                        jlcxx::ArrayRef<double, 1> Rnz,
+                        jlcxx::ArrayRef<double, 1> r) {
+            return julia_call([&]() {
+                return new Problem(
+                    csc_to_smat(nz, nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
+                    csc_to_smat(n_eq, nz, Ecp, Erv, Enz), to_eigen(c_eq),
+                    csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
+                    csc_to_smat(n_comp, nz, Lcp, Lrv, Lnz), to_eigen(l),
+                    csc_to_smat(n_comp, nz, Rcp, Rrv, Rnz), to_eigen(r));
+            });
         })
-        .method("nz",     [](const Problem& p) { return p.nz; })
-        .method("n_eq",   [](const Problem& p) { return p.n_eq; })
+        .method("nz", [](const Problem& p) { return p.nz; })
+        .method("n_eq", [](const Problem& p) { return p.n_eq; })
         .method("n_ineq", [](const Problem& p) { return p.n_ineq; })
         .method("n_comp", [](const Problem& p) { return p.n_comp; })
-        .method("obj",    [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return p.obj(to_eigen(z)); })
-        .method("residual_eq",   [](Problem& p, jlcxx::ArrayRef<double, 1> z) {return make_julia_owned(p.residual_eq(to_eigen(z))); })
-        .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_ineq(to_eigen(z))); })
-        .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); });
-        // .method("cost_hessian", [](Problem& p) { 
-        //     // Assumes cost_hessian is compressed
-        //     auto colptr = jlcxx::make_julia_array(p.cost_hessian().outerIndexPtr(), p.cost_hessian().outerSize() + 1);
-        //     auto rowval = jlcxx::make_julia_array(p.cost_hessian().innerIndexPtr(), p.cost_hessian().nonZeros());
-        //     auto nzval  = jlcxx::make_julia_array(p.cost_hessian().valuePtr(),      p.cost_hessian().nonZeros());
-        //     return std::make_tuple((int)p.cost_hessian().rows(), (int)p.cost_hessian().cols(), colptr, rowval, nzval);
-        // });
+        .method("cost_hessian", [](const Problem& p) { return smat_to_julia_tuple(p.cost_hessian); })
+        .method("cost_gradient", [](const Problem& p) { return make_julia_owned<double>(p.cost_gradient); })
+        .method("cost_const", [](const Problem& p) { return p.cost_const; })
+        .method("J_eq", [](const Problem& p) { return smat_to_julia_tuple(p.J_eq); })
+        .method("c_eq", [](const Problem& p) { return make_julia_owned<double>(p.c_eq); })
+        .method("J_ineq", [](const Problem& p) { return smat_to_julia_tuple(p.J_ineq); })
+        .method("c_ineq", [](const Problem& p) { return make_julia_owned<double>(p.c_ineq); })
+        .method("L", [](const Problem& p) { return smat_to_julia_tuple(p.L); })
+        .method("l", [](const Problem& p) { return make_julia_owned<double>(p.l); })
+        .method("R", [](const Problem& p) { return smat_to_julia_tuple(p.R); })
+        .method("r", [](const Problem& p) { return make_julia_owned<double>(p.r); })
+        .method("obj", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) {
+            return p.obj(to_eigen(z));
+        })
+        .method("residual_eq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) {
+            return make_julia_owned<double>(p.residual_eq(to_eigen(z)));
+        })
+        .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) {
+            return make_julia_owned<double>(p.residual_ineq(to_eigen(z)));
+        })
+        .method("residual_comp_L", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) {
+            return make_julia_owned<double>(p.residual_comp_L(to_eigen(z)));
+        })
+        .method("residual_comp_R", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) {
+            return make_julia_owned<double>(p.residual_comp_R(to_eigen(z)));
+        })
+        .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) {
+            return make_julia_owned<double>(p.residual_comp(to_eigen(z)));
+        });
 
-    // -----------------------------------------------------------------------
-    // SolverOptions
-    // -----------------------------------------------------------------------
     #define OPTION_RW(name, T) \
-        .method(#name,       [](const Solver::Options& o)    { return o.name; }) \
-        .method(#name "!",   [](Solver::Options& o, T v)     { o.name = v; })
+        .method(#name, [](const Solver::Options& o) { return o.name; }) \
+        .method(#name "!", [](Solver::Options& o, T v) { o.name = v; })
 
     mod.add_type<Solver::Options>("SolverOptions")
         .constructor()
-        OPTION_RW(convergence_kkt_norm,       double)
-        OPTION_RW(convergence_eq_violation,   double)
+        OPTION_RW(convergence_kkt_norm, double)
+        OPTION_RW(convergence_eq_violation, double)
         OPTION_RW(convergence_ineq_violation, double)
         OPTION_RW(convergence_comp_violation, double)
-        OPTION_RW(outer_step_kkt_norm,        double)
-        OPTION_RW(penalty_initial,            double)
-        OPTION_RW(penalty_max,                double)
-        OPTION_RW(penalty_scaling,            double)
-        OPTION_RW(relaxation_initial,         double)
-        OPTION_RW(relaxation_min,             double)
-        OPTION_RW(relaxation_scaling,         double)
-        OPTION_RW(max_iters,                  int)
-        OPTION_RW(max_iters_linesearch,       int)
-        OPTION_RW(gamma_objective,            double)
-        OPTION_RW(gamma_constraint,           double)
-        OPTION_RW(ruiz_iterations,            int)
-        OPTION_RW(verbosity,                  int)
-        OPTION_RW(print_every,                int)
-        OPTION_RW(debug,                      bool)
-        OPTION_RW(debug_output_path,          std::string)
-        OPTION_RW(debug_log_every,            int)
-        .method("output_dir",  [](const Solver::Options& o) { return o.output_dir.string(); })
-        .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; });
+        OPTION_RW(outer_step_kkt_norm, double)
+        OPTION_RW(penalty_initial, double)
+        OPTION_RW(penalty_max, double)
+        OPTION_RW(penalty_scaling, double)
+        OPTION_RW(relax_initial, double)
+        OPTION_RW(relaxation_min, double)
+        OPTION_RW(relaxation_scaling, double)
+        OPTION_RW(use_relax_correction, bool)
+        OPTION_RW(max_iters, int)
+        OPTION_RW(max_iters_linesearch, int)
+        OPTION_RW(gamma_objective, double)
+        OPTION_RW(gamma_constraint, double)
+        OPTION_RW(ruiz_iters, int)
+        OPTION_RW(verbosity, int)
+        OPTION_RW(print_every, int);
 
     #undef OPTION_RW
 
-    // -----------------------------------------------------------------------
-    // FilterEntry
-    // -----------------------------------------------------------------------
     mod.add_type<Filter::Entry>("FilterEntry")
         .constructor()
         .constructor([](double feas, double merit) {
-            Filter::Entry* e = new Filter::Entry(); e->feas = feas; e->merit = merit; return e;
+            auto* entry = new Filter::Entry();
+            entry->feas = feas;
+            entry->merit = merit;
+            return entry;
         })
-        .method("feas",   [](const Filter::Entry& e) { return e.feas; })
-        .method("feas!",  [](Filter::Entry& e, double v) { e.feas = v; })
-        .method("merit",  [](const Filter::Entry& e) { return e.merit; })
+        .method("feas", [](const Filter::Entry& e) { return e.feas; })
+        .method("feas!", [](Filter::Entry& e, double v) { e.feas = v; })
+        .method("merit", [](const Filter::Entry& e) { return e.merit; })
         .method("merit!", [](Filter::Entry& e, double v) { e.merit = v; });
 
-    // -----------------------------------------------------------------------
-    // Filter
-    // -----------------------------------------------------------------------
     mod.add_type<Filter>("Filter")
         .constructor()
         .constructor([](double gamma_objective, double gamma_constraint) {
             return new Filter(gamma_objective, gamma_constraint);
         })
-        .method("clear",   &Filter::clear)
+        .method("clear", &Filter::clear)
         .method("num_entries", [](const Filter& f) { return f.entries.size(); })
-        // Returns a flat vector [feas0, merit0, feas1, merit1, ...]
-        // Use reshape(entries(f), 2, :) in Julia to get a 2×n matrix
         .method("entries", [](const Filter& f) {
-            std::vector<double> out;
-            out.reserve(f.entries.size() * 2);
+            Vec out(2 * static_cast<Eigen::Index>(f.entries.size()));
+            Eigen::Index i = 0;
             for (const auto& e : f.entries) {
-                out.push_back(e.feas);
-                out.push_back(e.merit);
+                out[i++] = e.feas;
+                out[i++] = e.merit;
             }
-            return out;
+            return make_julia_owned<double>(std::move(out));
         })
-        // sufficient_progress returns std::pair<bool,bool> which CxxWrap can't wrap directly,
-        // so expose each component as its own method
-        .method("sufficient_feas_progress", [](Filter& f, const Filter::Entry& c, const Filter::Entry& e) {
+        .method("sufficient_feas_progress", [](Filter& f, const Filter::Entry& c,
+                                               const Filter::Entry& e) {
             return f.sufficient_progress(c, e).first;
         })
-        .method("sufficient_merit_progress", [](Filter& f, const Filter::Entry& c, const Filter::Entry& e) {
+        .method("sufficient_merit_progress", [](Filter& f, const Filter::Entry& c,
+                                                const Filter::Entry& e) {
             return f.sufficient_progress(c, e).second;
         })
         .method("candidate_acceptable", &Filter::candidate_acceptable)
-        .method("candidate_dominated",  &Filter::candidate_dominated)
-        .method("acceptable",           &Filter::acceptable)
-        .method("update",               &Filter::update);
+        .method("candidate_dominated", &Filter::candidate_dominated)
+        .method("acceptable", &Filter::acceptable)
+        .method("update", &Filter::update);
 
-    // -----------------------------------------------------------------------
-    // Workspace  (read-only accessors)
-    // -----------------------------------------------------------------------
-    mod.add_type<Workspace>("Workspace")
-        // Full solution and decomposed views
-        .method("solution", [](Workspace& w) { return to_julia(w.solution); })
-        .method("z",        [](Workspace& w) { return to_julia(w.z); })
-        .method("s_ineq",   [](Workspace& w) { return to_julia(w.s_ineq); })
-        .method("s_comp",   [](Workspace& w) { return to_julia(w.s_comp); })
-        .method("m_eq",     [](Workspace& w) { return to_julia(w.m_eq); })
-        .method("m_ineq",   [](Workspace& w) { return to_julia(w.m_ineq); })
-        .method("m_comp",   [](Workspace& w) { return to_julia(w.m_comp); })
-        // Multiplier estimates
-        .method("m_eq_est",   [](Workspace& w) { return to_julia(w.m_eq_est); })
-        .method("m_ineq_est", [](Workspace& w) { return to_julia(w.m_ineq_est); })
-        .method("m_comp_est", [](Workspace& w) { return to_julia(w.m_comp_est); })
-        // Residuals
-        .method("kkt_residual",  [](Workspace& w) { return to_julia(w.kkt_residual); })
-        .method("residual_eq",   [](Workspace& w) { return to_julia(w.residual_eq); })
-        .method("residual_ineq", [](Workspace& w) { return to_julia(w.residual_ineq); })
-        .method("residual_comp", [](Workspace& w) { return to_julia(w.residual_comp); })
-        // Scalar parameters
-        .method("relax_param",   [](const Workspace& w) { return w.relax_param; })
-        .method("penalty_param", [](const Workspace& w) { return w.penalty_param; })
-        // Newton step
-        .method("newton_step", [](Workspace& w) { return to_julia(w.newton_step); })
-        // KKT system: returns (rows, cols, colptr, rowval, nzval) tuple
-        .method("kkt_system", [](Workspace& w) {
-            SMat& kkt = w.kkt_system;
-            kkt.makeCompressed();
-            auto colptr = jlcxx::make_julia_array(kkt.outerIndexPtr(), kkt.outerSize() + 1);
-            auto rowval = jlcxx::make_julia_array(kkt.innerIndexPtr(), kkt.nonZeros());
-            auto nzval  = jlcxx::make_julia_array(kkt.valuePtr(),      kkt.nonZeros());
-            return std::make_tuple((int)kkt.rows(), (int)kkt.cols(), colptr, rowval, nzval);
+    mod.add_type<RelaxationMap>("RelaxationMap")
+        .method("b", [](const RelaxationMap& m, jlcxx::ArrayRef<double, 1> x, double kappa) {
+            return make_julia_owned<double>(m.b(to_eigen(x), kappa));
         })
-        // QDLDL factorization data
-        .method("D",            [](Workspace& w) { return to_julia(w.D); })
-        .method("amd_perm_vec", [](Workspace& w) { return to_julia(w.amd_perm_vec); })
-        .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); })
-        .method("scaling", [](Workspace& w) { return to_julia(w.scaling); });
+        .method("b_prime", [](const RelaxationMap& m, jlcxx::ArrayRef<double, 1> x, double kappa) {
+            return make_julia_owned<double>(m.b_prime(to_eigen(x), kappa));
+        })
+        .method("b_double_prime", [](const RelaxationMap& m, jlcxx::ArrayRef<double, 1> x, double kappa) {
+            return make_julia_owned<double>(m.b_double_prime(to_eigen(x), kappa));
+        })
+        .method("d_b_d_kappa", [](const RelaxationMap& m, jlcxx::ArrayRef<double, 1> x, double kappa) {
+            return make_julia_owned<double>(m.d_b_d_kappa(to_eigen(x), kappa));
+        })
+        .method("d_b_prime_d_kappa", [](const RelaxationMap& m, jlcxx::ArrayRef<double, 1> x, double kappa) {
+            return make_julia_owned<double>(m.d_b_prime_d_kappa(to_eigen(x), kappa));
+        })
+        .method("d_b_double_prime_d_kappa", [](const RelaxationMap& m, jlcxx::ArrayRef<double, 1> x, double kappa) {
+            return make_julia_owned<double>(m.d_b_double_prime_d_kappa(to_eigen(x), kappa));
+        });
 
-    // -----------------------------------------------------------------------
-    // SolveResult
-    // -----------------------------------------------------------------------
-    mod.add_type<SolveResult>("SolveResult")
-        .method("converged",        [](const SolveResult& r) { return r.converged; })
-        .method("iterations",       [](const SolveResult& r) { return r.iterations; })
-        .method("iterations_outer", [](const SolveResult& r) { return r.iterations_outer; })
-        .method("iterations_inner", [](const SolveResult& r) { return r.iterations_inner; })
-        .method("factorizations",   [](const SolveResult& r) { return r.factorizations; })
-        .method("factorizations_ldlt",      [](const SolveResult& r) { return r.factorizations_ldlt; })
-        .method("factorizations_inertia",   [](const SolveResult& r) { return r.factorizations_inertia; })
-        .method("factorizations_linesearch", [](const SolveResult& r) { return r.factorizations_linesearch; })
-        .method("z",      [](SolveResult& r) { return to_julia(r.z); })
-        .method("s_ineq", [](SolveResult& r) { return to_julia(r.s_ineq); })
-        .method("s_comp", [](SolveResult& r) { return to_julia(r.s_comp); })
-        .method("m_eq",         [](SolveResult& r) { return to_julia(r.m_eq); })
-        .method("m_ineq",       [](SolveResult& r) { return to_julia(r.m_ineq); })
-        .method("m_comp",       [](SolveResult& r) { return to_julia(r.m_comp); })
-        .method("setup_time_s", [](const SolveResult& r) { return r.setup_time_s; })
-        .method("solve_time_s", [](const SolveResult& r) { return r.solve_time_s; });
+    mod.add_type<Workspace>("Workspace")
+        .method("solution", [](const Workspace& w) { return make_julia_owned<double>(w.solution); })
+        .method("z", [](const Workspace& w) { return make_julia_owned<double>(Vec(w.z)); })
+        .method("s_ineq", [](const Workspace& w) { return make_julia_owned<double>(Vec(w.s_ineq)); })
+        .method("s_comp", [](const Workspace& w) { return make_julia_owned<double>(Vec(w.s_comp)); })
+        .method("m_eq", [](const Workspace& w) { return make_julia_owned<double>(Vec(w.m_eq)); })
+        .method("m_ineq", [](const Workspace& w) { return make_julia_owned<double>(Vec(w.m_ineq)); })
+        .method("m_comp_L", [](const Workspace& w) { return make_julia_owned<double>(Vec(w.m_comp_L)); })
+        .method("m_comp_R", [](const Workspace& w) { return make_julia_owned<double>(Vec(w.m_comp_R)); })
+        .method("m_eq_est", [](const Workspace& w) { return make_julia_owned<double>(w.m_eq_est); })
+        .method("m_ineq_est", [](const Workspace& w) { return make_julia_owned<double>(w.m_ineq_est); })
+        .method("m_comp_L_est", [](const Workspace& w) { return make_julia_owned<double>(w.m_comp_L_est); })
+        .method("m_comp_R_est", [](const Workspace& w) { return make_julia_owned<double>(w.m_comp_R_est); })
+        .method("residual_eq", [](const Workspace& w) { return make_julia_owned<double>(w.residual_eq); })
+        .method("residual_ineq", [](const Workspace& w) { return make_julia_owned<double>(w.residual_ineq); })
+        .method("residual_comp_L", [](const Workspace& w) { return make_julia_owned<double>(w.residual_comp_L); })
+        .method("residual_comp_R", [](const Workspace& w) { return make_julia_owned<double>(w.residual_comp_R); })
+        .method("relax_param", [](const Workspace& w) { return w.relax_param; })
+        .method("penalty_param", [](const Workspace& w) { return w.penalty_param; })
+        .method("newton_step_size", [](const Workspace& w) { return w.newton_step_size; })
+        .method("newton_step", [](const Workspace& w) { return make_julia_owned<double>(w.newton_step); })
+        .method("relax_correction_step", [](const Workspace& w) {
+            return make_julia_owned<double>(w.relax_correction_step);
+        });
 
-    // -----------------------------------------------------------------------
-    // Solver
-    // -----------------------------------------------------------------------
+    mod.add_type<LdltSystem>("LdltSystem")
+        .constructor([](int n) { return new LdltSystem(n); })
+        .method("built", &LdltSystem::built)
+        .method("matrix", [](const LdltSystem& s) { return smat_to_julia_tuple(s.matrix()); })
+        .method("perm", [](const LdltSystem& s) { return make_julia_owned<int>(s.perm()); })
+        .method("iperm", [](const LdltSystem& s) { return make_julia_owned<int>(s.iperm()); })
+        .method("scaling", [](const LdltSystem& s) { return make_julia_owned<double>(s.scaling()); })
+        .method("factorize!", [](LdltSystem& s) { return s.factorize(); })
+        .method("check_inertia", &LdltSystem::check_inertia)
+        .method("solve", [](LdltSystem& s, jlcxx::ArrayRef<double, 1> rhs) {
+            Vec b = to_eigen(rhs);
+            Vec x = Vec::Zero(b.size());
+            s.solve(x, b);
+            return make_julia_owned<double>(std::move(x));
+        })
+        .method("logical_to_stored", [](const LdltSystem& s, jlcxx::ArrayRef<double, 1> x_logical) {
+            Vec in = to_eigen(x_logical);
+            Vec out = Vec::Zero(in.size());
+            s.logical_to_stored(in, out);
+            return make_julia_owned<double>(std::move(out));
+        })
+        .method("stored_to_logical", [](const LdltSystem& s, jlcxx::ArrayRef<double, 1> x_stored) {
+            Vec in = to_eigen(x_stored);
+            Vec out = Vec::Zero(in.size());
+            s.stored_to_logical(in, out);
+            return make_julia_owned<double>(std::move(out));
+        });
+
+    mod.add_type<MarbleKKTSystem>("MarbleKKTSystem")
+        .method("n_primals", [](const MarbleKKTSystem& k) { return k.n_primals; })
+        .method("n_duals", [](const MarbleKKTSystem& k) { return k.n_duals; })
+        .method("n_vars", [](const MarbleKKTSystem& k) { return k.n_vars; })
+        .method("primal_regularizer", [](const MarbleKKTSystem& k) { return k.primal_regularizer; })
+        .method("residual", [](const MarbleKKTSystem& k) { return make_julia_owned<double>(k.residual); })
+        .method("grad_residual_relax_param", [](const MarbleKKTSystem& k) {
+            return make_julia_owned<double>(k.grad_residual_relax_param);
+        })
+        .method("ldlt", [](MarbleKKTSystem& k) -> LdltSystem& { return k.kkt; })
+        .method("matrix", [](const MarbleKKTSystem& k) { return smat_to_julia_tuple(k.kkt.matrix()); })
+        .method("perm", [](const MarbleKKTSystem& k) { return make_julia_owned<int>(k.kkt.perm()); })
+        .method("iperm", [](const MarbleKKTSystem& k) { return make_julia_owned<int>(k.kkt.iperm()); })
+        .method("scaling", [](const MarbleKKTSystem& k) { return make_julia_owned<double>(k.kkt.scaling()); })
+        .method("ruiz_equilibration", [](const MarbleKKTSystem& k, int niter) {
+            return make_julia_owned<double>(k.ruiz_equilibration(niter));
+        })
+        .method("update_residual!", &MarbleKKTSystem::update_residual)
+        .method("update_kkt_system!", &MarbleKKTSystem::update_kkt_system)
+        .method("update_primal_regularizer!", &MarbleKKTSystem::update_primal_regularizer)
+        .method("update_residual_relax_grad!", &MarbleKKTSystem::update_residual_relax_grad)
+        .method("numerical_factorization!", &MarbleKKTSystem::numerical_factorization)
+        .method("check_inertia", &MarbleKKTSystem::check_inertia)
+        .method("compute_step", [](MarbleKKTSystem& k, jlcxx::ArrayRef<double, 1> rhs) {
+            Vec b = to_eigen(rhs);
+            Vec step = Vec::Zero(b.size());
+            k.compute_step(step, b);
+            return make_julia_owned<double>(std::move(step));
+        });
+
+    mod.add_type<Solver::Result>("SolveResult")
+        .method("converged", [](const Solver::Result& r) { return r.converged; })
+        .method("iters", [](const Solver::Result& r) { return r.iters; })
+        .method("iters_outer", [](const Solver::Result& r) { return r.iters_outer; })
+        .method("iters_inner", [](const Solver::Result& r) { return r.iters_inner; })
+        .method("factorizations", [](const Solver::Result& r) { return r.factorizations; })
+        .method("factorizations_ldlt", [](const Solver::Result& r) { return r.factorizations_ldlt; })
+        .method("factorizations_inertia", [](const Solver::Result& r) { return r.factorizations_inertia; })
+        .method("factorizations_linesearch", [](const Solver::Result& r) { return r.factorizations_linesearch; })
+        .method("setup_time_s", [](const Solver::Result& r) { return r.setup_time_s; })
+        .method("solve_time_s", [](const Solver::Result& r) { return r.solve_time_s; })
+        .method("z", [](const Solver::Result& r) { return make_julia_owned<double>(r.z); })
+        .method("s_ineq", [](const Solver::Result& r) { return make_julia_owned<double>(r.s_ineq); })
+        .method("s_comp", [](const Solver::Result& r) { return make_julia_owned<double>(r.s_comp); })
+        .method("m_eq", [](const Solver::Result& r) { return make_julia_owned<double>(r.m_eq); })
+        .method("m_ineq", [](const Solver::Result& r) { return make_julia_owned<double>(r.m_ineq); })
+        .method("m_comp_L", [](const Solver::Result& r) { return make_julia_owned<double>(r.m_comp_L); })
+        .method("m_comp_R", [](const Solver::Result& r) { return make_julia_owned<double>(r.m_comp_R); })
+        .method("m_comp", [](const Solver::Result& r) {
+            return make_julia_owned<double>(combine_vectors(r.m_comp_L, r.m_comp_R));
+        });
+
     mod.add_type<Solver>("Solver")
         .constructor()
-        // Problem setup
-        .method("ruiz_equilibration!", [](Solver& solver, int niter) {
-            solver.ruiz_equilibration(niter);
-            Workspace& workspace = solver.get_workspace();
-            return std::vector<double>(workspace.scaling.data(), workspace.scaling.data() + workspace.scaling.size());
-        })
-        // Problem setup: takes a Problem (built from dense or sparse data via the
-        // Problem constructors, which validate dimensions).
         .method("set_problem!", [](Solver& s, Problem& problem, Solver::Options& opts) {
             s.set_problem(problem, opts);
         })
-        .method("get_problem",   &Solver::get_problem)
-        // Main solve
         .method("solve!", [](Solver& s) {
-            return s.solve();
+            return julia_call([&]() {
+                return s.solve();
+            });
         })
         .method("convergence", &Solver::convergence)
-        // Workspace / filter access
+        .method("get_problem", &Solver::get_problem)
         .method("get_workspace", &Solver::get_workspace)
-        .method("get_filter",    &Solver::get_filter)
-        // Retraction maps
-        .method("retract", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double sqrt_relax_param) {
-            Vec r = s.retract(to_eigen(v), sqrt_relax_param);
-            return std::vector<double>(r.data(), r.data() + r.size());
+        .method("get_filter", &Solver::get_filter)
+        .method("get_kkt_system", [](Solver& s) -> MarbleKKTSystem& {
+            return julia_call([&]() -> MarbleKKTSystem& {
+                s.require_problem_set("get_kkt_system");
+                return *s.kkt_system;
+            });
         })
-        .method("retract_deriv", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double sqrt_relax_param) {
-            Vec r = s.retract_deriv(to_eigen(v), sqrt_relax_param);
-            return std::vector<double>(r.data(), r.data() + r.size());
-        })
-        .method("retract_second_deriv", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double sqrt_relax_param) {
-            Vec r = s.retract_second_deriv(to_eigen(v), sqrt_relax_param);
-            return std::vector<double>(r.data(), r.data() + r.size());
-        })
-        // KKT updates
-        .method("update_KKT_residual!",          &Solver::update_KKT_residual)
-        .method("update_KKT_system!",            &Solver::update_KKT_system)
-        .method("update_KKT_ineq!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_ineq, double sqrt_relax_param) {
-            s.update_KKT_ineq(to_eigen(s_ineq), sqrt_relax_param);
-        })
-        .method("update_KKT_comp!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_comp, jlcxx::ArrayRef<double, 1> m_comp, double sqrt_relax_param) {
-            s.update_KKT_comp(to_eigen(s_comp), to_eigen(m_comp), sqrt_relax_param);
-        })
-        .method("update_KKT_penalty!",            &Solver::update_KKT_penalty)
-        .method("update_KKT_primal_regularizer!", &Solver::update_KKT_primal_regularizer)
-        // Factorization and backsolve
-        .method("initialize_kkt_sparsity!",  &Solver::initialize_kkt_sparsity)
-        .method("compute_amd_ordering!",     &Solver::compute_amd_ordering)
-        .method("analytical_factorization!", &Solver::analytical_factorization)
-        .method("numerical_factorization!",  &Solver::numerical_factorization)
-        .method("check_inertia",            &Solver::check_inertia)
-        .method("backsolve!", [](Solver& s, jlcxx::ArrayRef<double, 1> rhs) {
-            Vec step(rhs.size());
-            s.backsolve(step, to_eigen(rhs));
-            return std::vector<double>(step.data(), step.data() + step.size());
-        })
-        // Linesearch
+        .method("get_relaxation_map", &Solver::get_relaxation_map)
+        .method("update_relaxed_slack_values!", &Solver::update_relaxed_slack_values)
+        .method("update_primal_residuals!", &Solver::update_primal_residuals)
+        .method("apply_newton_step!", &Solver::apply_newton_step)
         .method("filter_linesearch!", &Solver::filter_linesearch)
-        .method("entry_from_solution", [](const Solver& s, double sqrt_relax_param, double inv_penalty_param) {
-            Filter::Entry e = s.entry_from_solution(sqrt_relax_param, inv_penalty_param);
-            return std::make_tuple(e.feas, e.merit);
+        .method("entry_from_solution", [](const Solver& s) {
+            Filter::Entry entry = s.entry_from_solution();
+            return std::make_tuple(entry.feas, entry.merit);
         })
-        // Dimensions
-        .method("n_primals", [](const Solver& s) { return s.n_primals; })
-        .method("n_duals",   [](const Solver& s) { return s.n_duals; })
-        .method("n_vars",    [](const Solver& s) { return s.n_vars; })
-        // KKT index vectors
-        .method("z_inds",             [](Solver& s) { return to_julia(s.z_inds); })
-        .method("s_ineq_inds",        [](Solver& s) { return to_julia(s.s_ineq_inds); })
-        .method("s_comp_inds",        [](Solver& s) { return to_julia(s.s_comp_inds); })
-        .method("m_eq_inds",          [](Solver& s) { return to_julia(s.m_eq_inds); })
-        .method("m_ineq_inds",        [](Solver& s) { return to_julia(s.m_ineq_inds); })
-        .method("m_comp_inds",        [](Solver& s) { return to_julia(s.m_comp_inds); })
-        .method("comp_L_inds",        [](Solver& s) { return to_julia(s.comp_L_inds); })
-        .method("comp_R_inds",        [](Solver& s) { return to_julia(s.comp_R_inds); })
-        .method("z_z_inds",           [](Solver& s) { return to_julia(s.z_z_inds); })
-        .method("s_ineq_s_ineq_inds", [](Solver& s) { return to_julia(s.s_ineq_s_ineq_inds); })
-        .method("s_ineq_m_ineq_inds", [](Solver& s) { return to_julia(s.s_ineq_m_ineq_inds); })
-        .method("s_comp_s_comp_inds", [](Solver& s) { return to_julia(s.s_comp_s_comp_inds); })
-        .method("s_comp_m_comp_inds", [](Solver& s) { return to_julia(s.s_comp_m_comp_inds); })
+        .method("n_primals", [](const Solver& s) { return s.kkt_system ? s.kkt_system->n_primals : 0; })
+        .method("n_duals", [](const Solver& s) { return s.kkt_system ? s.kkt_system->n_duals : 0; })
+        .method("n_vars", [](const Solver& s) { return s.kkt_system ? s.kkt_system->n_vars : 0; })
         .method("options", [](Solver& s) -> Solver::Options& { return s.options; });
 }

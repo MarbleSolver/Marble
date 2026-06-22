@@ -4,959 +4,101 @@
 #include <cstdio>
 #include <cmath>
 #include <limits>
+#include <string>
 
-namespace {
-    Eigen::VectorXi safe_linspaced(int n, int start) {
-        if (n == 0) return Eigen::VectorXi(0);
-        return Eigen::VectorXi::LinSpaced(n, start, start + n - 1);
+void Solver::require_problem_set(const char* caller) const {
+    if (!has_problem()) {
+        throw std::runtime_error(std::string("Solver::") + caller +
+                                 " called before set_problem/setup!");
     }
-
-    // -------------------------------------------------------------------------
-    // IPOPT-style printing helpers
-    // -------------------------------------------------------------------------
-    static const int COL_HEADER_REPRINT = 25;  // reprint column headers every N rows
-
-    static void print_col_header() {
-        // NOTE: "ρ" and "κ" are multi-byte UTF-8 (2 bytes each), but printf field
-        // widths count bytes, not display columns. Widen those two header fields by
-        // 1 (%8s) so they render at the same 7-column width as the %7.1f data rows.
-        printf("%5s  %-5s  %8s  %8s  %12s  %12s  %12s  %12s  %12s  %12s  %12s\n",
-               "iter", "type", "lg(ρ)", "lg(κ)", "lg(ic reg)", "lg(ls reg)",
-               "||kkt||", "||eq||", "||ineq||", "||comp||", "obj");
-        printf("%s\n", std::string(128, '-').c_str());
-    }
-
-    static void print_solve_header(int nz, int n_eq, int n_ineq, int n_comp) {
-        printf("\nMarble Solver  [nz=%d, n_eq=%d, n_ineq=%d, n_comp=%d]\n\n",
-               nz, n_eq, n_ineq, n_comp);
-        print_col_header();
-    }
-
-    static void print_iter_row(int iter, const char* type,
-                               double penalty, double relax,
-                               double kkt, double eq_vio, double ineq_vio,
-                               double comp_vio, double obj,
-                               double inertia_regularizer, double linesearch_regularizer) {
-        char ic_reg_str[8] = "    ---";
-        if (!std::isnan(inertia_regularizer)) {
-            if (inertia_regularizer == 0.0) std::snprintf(ic_reg_str, sizeof(ic_reg_str), "       ");
-            else                            std::snprintf(ic_reg_str, sizeof(ic_reg_str), "%7.0f", std::log10(inertia_regularizer));
-        }
-        char ls_reg_str[8] = "    ---";
-        if (!std::isnan(linesearch_regularizer)) {
-            if (linesearch_regularizer == 0.0) std::snprintf(ls_reg_str, sizeof(ls_reg_str), "       ");
-            else                               std::snprintf(ls_reg_str, sizeof(ls_reg_str), "%7.0f", std::log10(linesearch_regularizer));
-        }
-        printf("%5d  %-5s  %7.1f  %7.1f  %12s  %12s  %12.3e  %12.3e  %12.3e  %12.3e  %12.3e\n",
-               iter, type,
-               std::log10(penalty), std::log10(relax), ic_reg_str, ls_reg_str,
-               kkt, eq_vio, ineq_vio, comp_vio, obj);
-        std::fflush(stdout);
-    }
-
-    static void print_solve_footer(bool converged, int n_outer, int n_inner, int n_fact,
-                                   double kkt, double eq_vio, double ineq_vio,
-                                   double comp_vio, double obj) {
-        printf("\nSolver %-20s  %d iters (%d outer, %d inner),  %d factorizations.\n",
-               converged ? "CONVERGED" : "MAX ITERS REACHED",
-               n_outer + n_inner, n_outer, n_inner, n_fact);
-        printf("Final  ||kkt||=%.2e  ||eq||=%.2e  ||ineq||=%.2e  ||comp||=%.2e  obj=%.6e\n\n",
-               kkt, eq_vio, ineq_vio, comp_vio, obj);
-        std::fflush(stdout);
-    }
-}
-
-Vec Solver::retract(const Vec& s, double sqrt_relax_param) const {
-    // Vectorized retraction map for both inequality and complementarity slacks
-    // p(s) = sqrt(s^2 + relax_param)
-    // Eigen::VectorXd p = 0.5*(s/sqrt_relax_param + (s.))
-    auto s_arr = s.array() / sqrt_relax_param;
-    Vec p = 0.5 * (s_arr + (s_arr.square() + 4.0).sqrt());
-    return sqrt_relax_param * p;
-}
-
-Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) const {
-    // Derivative of the vectorized retraction map above
-    auto s_arr = s.array() / sqrt_relax_param;
-    Vec p_deriv = 0.5 * (s_arr / sqrt(s_arr.square() + 4.0) + 1.0);
-    return p_deriv;
-}
-
-Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
-    // Second derivative of the vectorized retraction map above
-    auto s_arr = s.array() / sqrt_relax_param;
-    Vec p_second_deriv = 2.0 / (s_arr.square() + 4.0).pow(1.5);
-    return p_second_deriv / sqrt_relax_param;
-}
-
-Vec Solver::d_retract_d_relax_param(const Vec& s, double relax_param) const {
-    // Derivative of the vectorized retraction map above with respect to the relaxation parameter
-    return (4 * relax_param + s.array().square()).sqrt().inverse();
-}
-
-Vec Solver::d_dretract_d_relax_param(const Vec& s, double relax_param) const {
-    // d/dk[ retract_deriv(s) ] = -s / (s^2 + 4k)^{3/2} = -s * (d_retract_d_relax_param)^3
-    return -s.array() * d_retract_d_relax_param(s, relax_param).array().cube();
 }
 
 void Solver::set_problem(Problem problem, Solver::Options& options) {
     this->prob = std::make_shared<Problem>(std::move(problem));
-    set_problem(options);
-}
+    this->workspace = std::make_shared<Workspace>(*this->prob);
+    this->filter = Filter(options.gamma_objective, options.gamma_constraint);
 
-void Solver::set_problem(const Solver::Options& options) {
-    const auto t0 = std::chrono::steady_clock::now();
     this->options = options;
-    // Define subproblem dimensions
-    n_primals =
-        this->prob->nz + this->prob->n_ineq + this->prob->n_comp;  // Primal variables include original and slacks
-    n_duals = this->prob->n_eq + this->prob->n_ineq + 2 * this->prob->n_comp;  // Dual variables for each constraint
-    n_vars = n_primals + n_duals;                                              // Total variables
 
-    // The inner subproblem solves for r(y) = 0 where r is the kkt residual
-    // and y is the stacked vector of primal and dual variables.
-    // Here we construct indices of where each set of variables is in y
-    int total_inds = 0;
+    // Initialize KKT system with fixed sparsity pattern
+    this->kkt_system = std::make_unique<MarbleKKTSystem>(this->prob, this->workspace);
 
-    z_inds       = safe_linspaced(this->prob->nz,     total_inds); total_inds += this->prob->nz;
-    s_ineq_inds  = safe_linspaced(this->prob->n_ineq, total_inds); total_inds += this->prob->n_ineq;
-    s_comp_inds  = safe_linspaced(this->prob->n_comp, total_inds); total_inds += this->prob->n_comp;
-    m_eq_inds    = safe_linspaced(this->prob->n_eq,   total_inds); total_inds += this->prob->n_eq;
-    m_ineq_inds  = safe_linspaced(this->prob->n_ineq, total_inds); total_inds += this->prob->n_ineq;
-    m_comp_inds  = safe_linspaced(2 * this->prob->n_comp, total_inds); total_inds += 2 * this->prob->n_comp;
-
-    // Indices into the complementarity residual for extracting the comp residual violation for filter evaluation
-    if (this->prob->n_comp == 0) {
-        comp_L_inds = Eigen::VectorXi(0);
-        comp_R_inds = Eigen::VectorXi(0);
-    } else {
-        comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(this->prob->n_comp, 0, this->prob->n_comp - 1);
-        comp_R_inds = comp_L_inds.array() + 1;
-    }
-
-    // Allocate for solution vector, multiplier estimates, and KKT residual
-    // Init workspace
-    workspace = std::make_shared<Workspace>(*this->prob);
-
-    // Compute scaling internally from problem data
-    ruiz_equilibration(options.ruiz_iterations);
-
-    // Construct initial KKT system and sparsity pattern
-    initialize_kkt_sparsity();
-
-    // Init filter
-    filter = std::make_shared<Filter>(options.gamma_objective, options.gamma_constraint);
-
-    setup_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    // Build the KKT system with Ruiz scaling from problem data
+    const Vec s = this->kkt_system->ruiz_equilibration(options.ruiz_iters);
+    this->kkt_system->build(s);
 }
 
-void Solver::initialize_kkt_sparsity() {
-    // Construct the general KKT matrix using the indices above to populate each block
-    // Once the KKT matrix sparsity structure is established, we extract indicies into
-    // valuePtr so that it can be efficiently update
-    workspace->kkt_system = SMat(n_vars, n_vars);
-    std::vector<Eigen::Triplet<double>> triplets;
+bool Solver::convergence() const {
+    require_problem_set("convergence");
 
-    // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + J_comp'*m_comp 
-    workspace->appendBlockTriplets(triplets, prob->cost_hessian, z_inds[0], z_inds[0]);
-    
-    // Guard every block that touches an empty constraint set
-    if (prob->n_eq > 0) {
-        workspace->appendBlockTriplets(triplets, prob->J_eq.transpose(), z_inds[0], m_eq_inds[0]);
-        workspace->appendBlockTriplets(triplets, prob->J_eq,             m_eq_inds[0], z_inds[0]);
-    }
-    if (prob->n_ineq > 0) {
-        workspace->appendBlockTriplets(triplets, prob->J_ineq.transpose(), z_inds[0], m_ineq_inds[0]);
-        workspace->appendBlockTriplets(triplets, prob->J_ineq,             m_ineq_inds[0], z_inds[0]);
-    }
-    if (prob->n_comp > 0) {
-        workspace->appendBlockTriplets(triplets, prob->J_comp.transpose(), z_inds[0], m_comp_inds[0]);
-        workspace->appendBlockTriplets(triplets, prob->J_comp,             m_comp_inds[0], z_inds[0]);
-    }
-
-    // Populate stationarity for inequality slacks with dummy variables
-    // -p'(s_ineq)*(p(-s_ineq) - m_ineq))
-    // which has two diagonal matrices on the blocks corresponding to s_ineq and m_ineq
-    for (int i = 0; i < prob->n_ineq; i++) {
-        triplets.emplace_back(s_ineq_inds[i], s_ineq_inds[i], 1.0);
-        triplets.emplace_back(s_ineq_inds[i], m_ineq_inds[i], 1.0);
-        triplets.emplace_back(m_ineq_inds[i], s_ineq_inds[i], 1.0);
-    }
-
-    // Populate stationarity for complementarity slacks with dummy variables
-    // p'(s_comp)*m1 - p'(-s_comp)*m2
-    // where m1 and m2 are subsets of m_comp corresponding to the left and right
-    // side of the complementarity constraint.
-    // TODO: define this indexing somewhere and/or make it more general
-    for (int i = 0; i < prob->n_comp; i++) {
-        // Derivative with respect to the slacks (diagonal)
-        triplets.emplace_back(s_comp_inds[i], s_comp_inds[i], 1.0);
-
-        // Derivative with respect to multipliers (n_comp by 2*n_comp)
-        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2], 1.0);
-        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2 + 1], 1.0);
-        triplets.emplace_back(m_comp_inds[i*2], s_comp_inds[i], 1.0);
-        triplets.emplace_back(m_comp_inds[i*2 + 1], s_comp_inds[i], 1.0);
-    }
-
-    // Populate AL regularizer for multipliers
-    for (int i = 0; i < prob->n_eq; i++) {
-        triplets.emplace_back(m_eq_inds[i], m_eq_inds[i], 1.0);
-    }
-    for (int i = 0; i < prob->n_ineq; i++) {
-        triplets.emplace_back(m_ineq_inds[i], m_ineq_inds[i], 1.0);
-    }
-    for (int i = 0; i < 2 * prob->n_comp; i++) {
-        triplets.emplace_back(m_comp_inds[i], m_comp_inds[i], 1.0);
-    }
-
-    // TODO: more efficient way to make sure that every diagonal element exists
-    for (int i = 0; i < n_vars; i++) {
-        triplets.emplace_back(i, i, 0.0);
-    }
-
-    // Build sparse matrix
-    workspace->kkt_system.setFromTriplets(triplets.begin(), triplets.end());
-
-    // Apply diagonal scaling D*K*D to the KKT system
-    for (int c = 0; c < workspace->kkt_system.outerSize(); c++) {
-        for (typename SMat::InnerIterator it(workspace->kkt_system, c); it; ++it) {
-            it.valueRef() = workspace->scaling[it.row()] * it.value() * workspace->scaling[it.col()];
-        }
-    }
-
-    // Compute AMD ordering permutation to reduce fill-in during factorization
-    compute_amd_ordering();
-    SMat temp = workspace->amd_perm.transpose()*workspace->kkt_system*workspace->amd_perm; // Need temp to prevent aliasing
-    workspace->kkt_system = temp.triangularView<Eigen::Upper>(); // QDLDL requires upper triangular storage
-    workspace->kkt_system.makeCompressed();
-
-    // Perform an analytical factorization
-    analytical_factorization();
-
-    // Determine indices into valuePtr for updating of nonlinear and penalty terms
-    z_z_inds.resize(prob->nz);
-    for (int i = 0; i < prob->nz; i++) {
-        z_z_inds[i] = workspace->findValuePtrIndex(z_inds[i], z_inds[i]);
-    }   
-    s_ineq_s_ineq_inds.resize(prob->n_ineq);
-    s_ineq_m_ineq_inds.resize(prob->n_ineq);
-    for (int i = 0; i < prob->n_ineq; i++) {
-        s_ineq_s_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], s_ineq_inds[i]);
-        s_ineq_m_ineq_inds[i] = workspace->findValuePtrIndex(s_ineq_inds[i], m_ineq_inds[i]);
-    }
-    
-    s_comp_s_comp_inds.resize(prob->n_comp);
-    s_comp_m_comp_inds.resize(2 * prob->n_comp);
-    for (int i = 0; i < prob->n_comp; i++) {
-        s_comp_s_comp_inds[i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
-        s_comp_m_comp_inds[i * 2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2]);
-        s_comp_m_comp_inds[i * 2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2 + 1]);
-    }
-
-    penalty_inds.resize(prob->n_eq + prob->n_ineq + 2 * prob->n_comp);
-    for (int i = 0; i < prob->n_eq; i++) {
-        penalty_inds[i] = workspace->findValuePtrIndex(m_eq_inds[i], m_eq_inds[i]);
-    }
-    for (int i = 0; i < prob->n_ineq; i++) {
-        penalty_inds[prob->n_eq + i] = workspace->findValuePtrIndex(m_ineq_inds[i], m_ineq_inds[i]);
-    }
-    for (int i = 0; i < 2 * prob->n_comp; i++) {
-        penalty_inds[prob->n_eq + prob->n_ineq + i] = workspace->findValuePtrIndex(m_comp_inds[i], m_comp_inds[i]);
-    }
-
-    regularizer_inds.resize(n_primals);
-    for (int i = 0; i < prob->nz; i++) {
-        regularizer_inds[i] = workspace->findValuePtrIndex(z_inds[i], z_inds[i]);
-    }
-    for (int i = 0; i < prob->n_ineq; i++) {
-        regularizer_inds[prob->nz + i] = workspace->findValuePtrIndex(s_ineq_inds[i], s_ineq_inds[i]);
-    }
-    for (int i = 0; i < prob->n_comp; i++) {
-        regularizer_inds[prob->nz + prob->n_ineq + i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
-    }
-}
-
-void Solver::update_KKT_residual(double sqrt_relax_param, double inv_penalty_param) {
-    // Compute the constraint residuals
-
-    // TODO: we don't need to recompute these; they will have been already computed in the linesearch beforehand
-    // just need to compute these in the very beginning before we've run the first linesearch
-    workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
-    workspace->residual_ineq = prob->J_ineq * workspace->z + prob->c_ineq;
-    workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
-
-    // z stationarity
-    workspace->kkt_residual(z_inds) = prob->cost_hessian * workspace->z + prob->cost_gradient + 
-                        prob->J_eq.transpose() * workspace->m_eq +
-                        prob->J_ineq.transpose() * workspace->m_ineq + 
-                        prob->J_comp.transpose() * workspace->m_comp;
-
-    // Inequality slack stationarity
-    Vec p_neg_ineq = retract(-workspace->s_ineq, sqrt_relax_param);
-    Vec d_p_ineq = retract_deriv(workspace->s_ineq, sqrt_relax_param);
-    workspace->kkt_residual(s_ineq_inds) = d_p_ineq.cwiseProduct(-workspace->m_ineq - p_neg_ineq);
-
-    // Complementarity slack stationarity
-    Vec d_p_comp = retract_deriv(workspace->s_comp, sqrt_relax_param);
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->kkt_residual(s_comp_inds[i]) =
-            -d_p_comp[i] * workspace->m_comp[2 * i] + (1 - d_p_comp[i]) * workspace->m_comp[2 * i + 1];
-    }
-
-    // Equality primal feasibility
-    workspace->kkt_residual(m_eq_inds) =
-        workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
-
-    // Inequality primal feasibility
-    workspace->kkt_residual(m_ineq_inds) = workspace->residual_ineq -
-                                           (workspace->s_ineq + p_neg_ineq) -  // p(s) - p(-s) = s
-                                           inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
-
-    // Complementarity primal feasibility
-    Vec p_comp = retract(workspace->s_comp, sqrt_relax_param);
-    workspace->kkt_residual(m_comp_inds) =
-        workspace->residual_comp - inv_penalty_param * (workspace->m_comp - workspace->m_comp_est);
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->kkt_residual(m_comp_inds[2 * i]) += -p_comp[i];                               // p(s)
-        workspace->kkt_residual(m_comp_inds[2 * i + 1]) += -(p_comp[i] - workspace->s_comp[i]);  // p(s) - p(-s) = s
-    }
-}
-
-void Solver::update_KKT_system(double sqrt_relax_param, double inv_penalty_param) {
-    // Update KKT system terms that depend on the solution, which are the nonlinear terms associated with the inequality
-    // and complementarity slacks and multipliers, as well as the penalty terms
-    update_KKT_ineq(workspace->s_ineq, sqrt_relax_param);
-    update_KKT_comp(workspace->s_comp, workspace->m_comp, sqrt_relax_param);
-    update_KKT_penalty(inv_penalty_param);
-}
-
-void Solver::update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param) {
-    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
-    Vec d_p = retract_deriv(s_ineq, sqrt_relax_param);
-
-    // Use identity that retract_deriv(-s_ineq, sqrt_relax_param) = 1 - d_p
-    workspace->s_ineq_stationarity = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p (stored for diag updating)
-    for (int i = 0; i < prob->n_ineq; i++) {
-        nzval(s_ineq_s_ineq_inds[i]) = scaling(s_ineq_inds[i]) * workspace->s_ineq_stationarity[i] * scaling(s_ineq_inds[i]);
-        nzval(s_ineq_m_ineq_inds[i]) = scaling(s_ineq_inds[i]) * -d_p[i] * scaling(m_ineq_inds[i]);
-    }
-}
-
-void Solver::update_KKT_comp(const Vec& s_comp, const Vec& m_comp, double sqrt_relax_param) {
-    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
-    Vec d_p = retract_deriv(s_comp, sqrt_relax_param);
-    Vec dd_p = retract_second_deriv(s_comp, sqrt_relax_param);
-
-    for (int i = 0; i < prob->n_comp; i++) {
-        // Derivative of -p'(s)*m1 + p'(-s)*m2 wrt s
-        // is -(p''(s)*m1 + p''(-s)*m2) but p''(s) = p''(-s) so its -p''(s)*(m1 + m2)
-        workspace->s_comp_stationarity[i] = -dd_p[i]*(m_comp[2*i] + m_comp[2*i + 1]); // stored for diag updating
-        nzval(s_comp_s_comp_inds[i]) = scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
-
-        // Derivative wrt to m1 and m2 is just -d_p and -d_neg_p respectively
-        nzval(s_comp_m_comp_inds[2 * i]) = scaling(s_comp_inds[i]) * -d_p[i] * scaling(m_comp_inds[2 * i]);
-        nzval(s_comp_m_comp_inds[2 * i + 1]) = scaling(s_comp_inds[i]) * (1 - d_p[i]) * scaling(m_comp_inds[2 * i + 1]);  // d_neg_p = 1 - d_p
-    }
-}
-
-void Solver::update_KKT_penalty(const double inv_penalty_param) {
-    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
-    for (int k = 0; k < penalty_inds.size(); k++) {
-        nzval(penalty_inds[k]) = -inv_penalty_param * scaling(n_primals + k) * scaling(n_primals + k);
-    }
-}
-
-void Solver::update_KKT_primal_regularizer(const double reg) {
-    Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
-    Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
-    for (int k = 0; k < prob->nz; k++) {
-        nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
-    }
-    for (int k = 0; k < prob->n_ineq; k++) {
-        nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
-    }
-    for (int k = 0; k < prob->n_comp; k++) {
-        nzval(s_comp_s_comp_inds[k]) = (workspace->s_comp_stationarity[k] + reg) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
-    }
-}
-
-bool Solver::analytical_factorization() {
-    const QDLDL_int* Ap = workspace->kkt_system.outerIndexPtr();
-    const QDLDL_int* Ai = workspace->kkt_system.innerIndexPtr();
-
-    workspace->sum_Lnz = QDLDL_etree(n_vars, Ap, Ai, workspace->iwork.data(), workspace->Lnz.data(), workspace->etree.data());
-
-    if (workspace->sum_Lnz < 0) {
-            std::cerr << "Error: Matrix A is not properly formatted (must be upper triangular CSC)." << std::endl;
-            return false;
-    }
-
-    // Allocate memory for numerical values
-    // TODO: upperbound this and re-use?
-    workspace->Li.resize(workspace->sum_Lnz);
-    workspace->Lx.resize(workspace->sum_Lnz);
-
-    return true;
-}
-
-bool Solver::numerical_factorization() {
-    // Extract raw CSC pointers
-    const QDLDL_int* Ap = workspace->kkt_system.outerIndexPtr();
-    const QDLDL_int* Ai = workspace->kkt_system.innerIndexPtr();
-    const QDLDL_float* Ax = workspace->kkt_system.valuePtr();
-
-    // Perform numerical factorization
-    QDLDL_int factor_status = QDLDL_factor(n_vars, Ap, Ai, Ax,
-                        workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
-                        workspace->D.data(), workspace->Dinv.data(), workspace->Lnz.data(),
-                        workspace->etree.data(),
-                        workspace->bwork.data(), workspace->iwork.data(), workspace->fwork.data());
-
-    // Check factor_status TODO: return/use
-    if (factor_status == -1) {
-        return false;
-    }
-    ++n_factorizations;
-    return true;
-}
-
-bool Solver::check_inertia() {
-    return (workspace->D.array() > 1e-10).count() == n_primals && (workspace->D.array() < -1e-10).count() == n_duals;
-}
-
-void Solver::backsolve(Vec& step, const Vec &rhs) {
-    // Initialize step as -residual, permuted using AMD ordering
-    for (int k = 0; k < n_vars; k++) {
-        step[k] = rhs(workspace->amd_perm_vec[k])*workspace->scaling(workspace->amd_perm_vec[k]); // Need to apply scaling to the residual for the backsolve
-    }
-
-    // Solve system
-    QDLDL_solve(n_vars, workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
-                workspace->Dinv.data(),  step.data());
-
-    // Unpermute solution 
-    step = step(workspace->amd_iperm_vec).eval();
-    step = step.cwiseProduct(workspace->scaling).eval(); // Need to unscale the step after the backsolve
-}
-
-void Solver::compute_amd_ordering() {
-    Eigen::AMDOrdering<QDLDL_int> amd_ordering;
-    amd_ordering(workspace->kkt_system, workspace->amd_perm);
-    workspace->amd_perm_vec = workspace->amd_perm.indices();
-    workspace->amd_iperm_vec.resize(n_vars);
-    for (int i = 0; i < n_vars; ++i) {
-        workspace->amd_iperm_vec[workspace->amd_perm_vec[i]] = i; 
-    }
-}
-
-bool Solver::convergence(const Solver::Options& options) {
     // KKT residual norm
-    double kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
+    double kkt_residual_norm = kkt_system->residual.lpNorm<Eigen::Infinity>();
 
     // Primal feasibility
     double eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
     double ineq_violation = workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>();
 
-    double comp_violation = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
-                              .lpNorm<Eigen::Infinity>();
+    double comp_violation = workspace->residual_comp_L.cwiseProduct(workspace->residual_comp_R).lpNorm<Eigen::Infinity>();
 
-    return kkt_norm < options.convergence_kkt_norm && eq_violation < options.convergence_eq_violation &&
-           ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
+    return kkt_residual_norm < options.convergence_kkt_norm &&
+           eq_violation < options.convergence_eq_violation &&
+           ineq_violation < options.convergence_ineq_violation &&
+           comp_violation < options.convergence_comp_violation;
 }
 
-void Solver::update_residual_relax_grad(double relax_param) {
-    // First order update to w to account for change in relaxation param
-    // Derived from implicit differentiation of r(w; k) = 0 wrt k where
-    // w is the solution to the inner problem and k is the relaxation parameter, which gives
-    // dr/dw * dw/dk = dr/dk => dw/dk = - (dr/dw)^{-1} * dr/dk
-    // So update w is - (dr/dw)^{-1} * dr/dk * (k_new - k_old)
+void Solver::update_relaxed_slack_values() {
+    require_problem_set("update_relaxed_slack_values");
 
-    workspace->grad_kkt_residual_relax_param.setZero();
-
-    double sqrt_relax_param = std::sqrt(relax_param);
-
-    // Compute dr/dk
-    Vec p_neg_ineq = retract(-workspace->s_ineq, sqrt_relax_param);
-    Vec d_p_ineq = retract_deriv(workspace->s_ineq, sqrt_relax_param);
-
-    Vec d_dp_ineq_d_relax_param = d_dretract_d_relax_param(workspace->s_ineq, relax_param);
-    Vec d_p_ineq_d_relax_param = d_retract_d_relax_param(workspace->s_ineq, relax_param);
-    
-    Vec d_dp_comp_d_relax_param = d_dretract_d_relax_param(workspace->s_comp, relax_param);
-    Vec d_p_comp_d_relax_param = d_retract_d_relax_param(workspace->s_comp, relax_param);
-
-    // Inequality slack stationarity
-    workspace->grad_kkt_residual_relax_param(s_ineq_inds) = \
-        d_dp_ineq_d_relax_param.cwiseProduct(-workspace->m_ineq - p_neg_ineq) + \
-        d_p_ineq.cwiseProduct(-d_p_ineq_d_relax_param);
-    
-    // Complementarity slack stationarity
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->grad_kkt_residual_relax_param(s_comp_inds[i]) =
-            -d_dp_comp_d_relax_param[i] * (workspace->m_comp[2 * i] + workspace->m_comp[2 * i + 1]);
-    }
-
-    // Inequality primal feasibility
-    workspace->grad_kkt_residual_relax_param(m_ineq_inds) = -d_p_ineq_d_relax_param;
-
-    // Complementarity primal feasibility
-    Vec p_comp = retract(workspace->s_comp, sqrt_relax_param);
-   
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->grad_kkt_residual_relax_param(m_comp_inds[2 * i]) = -d_p_comp_d_relax_param[i];      // p(s)
-        workspace->grad_kkt_residual_relax_param(m_comp_inds[2 * i + 1]) = -d_p_comp_d_relax_param[i];  // p(s) - p(-s) = s
-    }
+    relaxation_map.evaluate(workspace->s_ineq, workspace->relax_param, workspace->ineq_retract);
+    relaxation_map.evaluate(workspace->s_comp, workspace->relax_param, workspace->comp_retract);
 }
 
-SolveResult Solver::solve() {
-    const auto t0 = std::chrono::steady_clock::now();
-    bool converged = false;
+void Solver::update_primal_residuals() {
+    require_problem_set("update_primal_residuals");
 
-    n_factorizations = 0;
-    n_factorizations_ldlt = 0;
-    n_factorizations_inertia = 0;
-    n_factorizations_linesearch = 0;
-
-    workspace->relax_param = options.relaxation_initial;
-    workspace->penalty_param = options.penalty_initial;
-
-    int last_outer_step_iter = -1;
-    double outer_step_kkt_norm_adjustment = 1.0;
-
-    workspace->solution.setZero();
-    workspace->m_eq_est.setZero();
-    workspace->m_ineq_est.setZero();
-    workspace->m_comp_est.setZero();
-    filter->clear();
-
-    int n_iter_outer = 0;
-    int n_iter_inner = 0;
-
-    double theta_prev = std::numeric_limits<double>::max();
-
-    const bool verbose = options.verbosity >= 1;
-    const char* last_step_type = "---";
-    double last_inertia_regularizer = NAN, last_linesearch_regularizer = NAN;
-    int rows_printed = 0;
-
-    if (verbose) {
-        print_solve_header(prob->nz, prob->n_eq, prob->n_ineq, prob->n_comp);
-    }
-
-    auto vec_to_json = [](const Eigen::Map<Vec>& v) {
-        return std::vector<double>(v.data(), v.data() + v.size());
-    };
-
-    std::ofstream debug_file;
-    const bool debug = options.debug && !options.debug_output_path.empty();
-    if (debug) {
-        debug_file.open(options.debug_output_path, std::ios::trunc);
-        nlohmann::json header;
-        header["type"]               = "header";
-        header["nz"]                 = prob->nz;
-        header["n_eq"]               = prob->n_eq;
-        header["n_ineq"]             = prob->n_ineq;
-        header["n_comp"]             = prob->n_comp;
-        header["penalty_initial"]    = options.penalty_initial;
-        header["penalty_max"]        = options.penalty_max;
-        header["penalty_scaling"]    = options.penalty_scaling;
-        header["relaxation_initial"] = options.relaxation_initial;
-        header["relaxation_min"]     = options.relaxation_min;
-        header["relaxation_scaling"] = options.relaxation_scaling;
-        debug_file << header.dump() << "\n";
-    }
-
-    auto compute_metrics = [&]() {
-        double kkt     = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
-        double eq_vio  = prob->n_eq   > 0 ? workspace->residual_eq.lpNorm<Eigen::Infinity>() : 0.0;
-        double ineq_vio= prob->n_ineq > 0 ? workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>() : 0.0;
-        double comp_vio= prob->n_comp > 0
-            ? (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
-                .lpNorm<Eigen::Infinity>()
-            : 0.0;
-        double obj = 0.5 * workspace->z.dot(prob->cost_hessian * workspace->z)
-                   + prob->cost_gradient.dot(workspace->z)
-                   + prob->cost_const;
-        return std::make_tuple(kkt, eq_vio, ineq_vio, comp_vio, obj);
-    };
-
-    for (int iter = 0; iter < options.max_iters; ++iter) {
-        // Compute KKT residual and check convergence
-        double sqrt_relax_param = sqrt(workspace->relax_param);
-        double inv_penalty_param = 1.0 / workspace->penalty_param;
-
-        update_KKT_residual(sqrt_relax_param, inv_penalty_param);
-
-        const bool should_print = verbose && iter % options.print_every == 0;
-        const bool should_log   = debug   && iter % options.debug_log_every == 0;
-        if (should_print || should_log) {
-            auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
-            if (should_print) {
-                if (rows_printed > 0 && rows_printed % COL_HEADER_REPRINT == 0) {
-                    print_col_header();
-                }
-                print_iter_row(iter, last_step_type,
-                               workspace->penalty_param, workspace->relax_param,
-                               kkt, eq_vio, ineq_vio, comp_vio, obj,
-                               last_linesearch_regularizer, last_inertia_regularizer);
-                ++rows_printed;
-            }
-            if (should_log) {
-                nlohmann::json rec;
-                rec["type"]          = "iterate";
-                rec["iter"]          = iter;
-                rec["step_type"]     = std::string(last_step_type);
-                rec["linesearch_regularizer"] = std::isnan(last_linesearch_regularizer) ? nlohmann::json(nullptr) : nlohmann::json(last_linesearch_regularizer);
-                rec["inertia_regularizer"] = std::isnan(last_inertia_regularizer) ? nlohmann::json(nullptr) : nlohmann::json(last_inertia_regularizer);
-                rec["penalty_param"] = workspace->penalty_param;
-                rec["relax_param"]   = workspace->relax_param;
-                rec["kkt"]           = kkt;
-                rec["eq_vio"]        = eq_vio;
-                rec["ineq_vio"]      = ineq_vio;
-                rec["comp_vio"]      = comp_vio;
-                rec["obj"]           = obj;
-                rec["z"]             = vec_to_json(workspace->z);
-                rec["s_ineq"]        = vec_to_json(workspace->s_ineq);
-                rec["s_comp"]        = vec_to_json(workspace->s_comp);
-                rec["m_eq"]          = vec_to_json(workspace->m_eq);
-                rec["m_ineq"]        = vec_to_json(workspace->m_ineq);
-                rec["m_comp"]        = vec_to_json(workspace->m_comp);
-                debug_file << rec.dump() << "\n";
-            }
-        }
-
-        if (convergence(options)) {
-            converged = true;
-            break;
-        }
-
-        // Check if we are performing an inner or outer step based on KKT residual norm
-        if (workspace->kkt_residual.lpNorm<Eigen::Infinity>() < outer_step_kkt_norm_adjustment * options.outer_step_kkt_norm) {
-            // Outer step: update multiplier estimates and increase penalty
-            n_iter_outer++;
-            last_step_type = "O";
-            last_inertia_regularizer = NAN;
-            last_linesearch_regularizer = NAN;
-
-            // Check if we need to decrease the outer step KKT norm requirement, which is done only if
-            // there have been 2 consecutive outer steps without an inner step in between
-            if (iter > 0 && last_outer_step_iter == iter - 1 && workspace->relax_param <= options.relaxation_min) {
-                outer_step_kkt_norm_adjustment /= 10.0;
-            }
-
-            // If we are at the maximum penalty, we can just update multiplier estimates without increasing penalty
-            workspace->m_eq_est = workspace->m_eq;
-            workspace->m_ineq_est = workspace->m_ineq;
-            workspace->m_comp_est = workspace->m_comp;
-
-            if (workspace->penalty_param >= options.penalty_max) {
-                // Scale relaxation parameter
-                double relax_param_new = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
-                double delta_relax = relax_param_new - workspace->relax_param;
-
-                // Compute first-order correction
-                update_residual_relax_grad(workspace->relax_param);
-                
-                update_KKT_system(sqrt_relax_param, inv_penalty_param);
-                numerical_factorization();
-
-                backsolve(workspace->relax_correction_step, -delta_relax * workspace->grad_kkt_residual_relax_param);
-                
-                // Update solution with correction
-                workspace->solution += workspace->relax_correction_step;
-
-                workspace->relax_param = relax_param_new;
-            } else {
-                // Otherwise, increase penalty and update multiplier estimates with scaling
-                workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
-            }
-
-            // Clear the filter
-            filter->clear();
-            last_outer_step_iter = iter;
-        } else {
-            n_iter_inner++;
-            last_step_type = "I";
-
-            bool linesearch_succeeded = false;
-            bool inertia_succeeded = false;
-
-            bool any_factorization_succeeded = false;
-            bool any_inertia_succeeded = false;
-
-            update_KKT_system(sqrt_relax_param, inv_penalty_param);
-
-            auto bump_reg = [](double r) {
-                return r == 0.0 ? 1e-10 : 10.0 * r;
-            };
-
-            auto backoff_reg = [](double r) {
-                return r <= 1e-10 ? 0.0 : r / 10.0;
-            };
-
-            double inertia_regularizer_to_try = 0.0; //std::isnan(last_inertia_regularizer) ? 0.0 : backoff_reg(last_inertia_regularizer);
-
-            while (!inertia_succeeded && inertia_regularizer_to_try <= 1e8) {
-                update_KKT_primal_regularizer(inertia_regularizer_to_try);
-
-                if (!numerical_factorization() && (++n_factorizations_ldlt)) {
-                    inertia_regularizer_to_try = bump_reg(inertia_regularizer_to_try);
-                    continue;
-                }
-                any_factorization_succeeded = true;
-
-                if (!check_inertia() && (++n_factorizations_inertia)) {
-                    inertia_regularizer_to_try = bump_reg(inertia_regularizer_to_try);
-                    continue;
-                }
-                any_inertia_succeeded = true;
-
-                inertia_succeeded = true;
-            }
-            last_inertia_regularizer = inertia_regularizer_to_try;
-
-            if (!any_factorization_succeeded) {
-                throw std::runtime_error("Numerical factorization failed for all regularization values!");
-            }
-            
-            if (!any_inertia_succeeded) {
-                throw std::runtime_error("Inertia correction failed for all regularization values!");
-            }
-
-            double linesearch_regularizer_to_try = inertia_regularizer_to_try;
-
-            // Try linesearch starting from known LB on regularizer
-            while (!linesearch_succeeded && linesearch_regularizer_to_try <= 1e8) {
-                backsolve(workspace->newton_step, -workspace->kkt_residual);
-
-                linesearch_succeeded = filter_linesearch(sqrt_relax_param, inv_penalty_param, options.max_iters_linesearch);
-
-                if (linesearch_succeeded) break;
-
-                linesearch_regularizer_to_try = bump_reg(linesearch_regularizer_to_try);
-                update_KKT_primal_regularizer(linesearch_regularizer_to_try);
-                numerical_factorization();
-            }
-            last_linesearch_regularizer = linesearch_regularizer_to_try;
-
-            if (!linesearch_succeeded) {
-                throw std::runtime_error("Linesearch failed for all regularization values!");
-            }
-        }
-    }
-
-    if (verbose || debug) {
-        double sqrt_relax = sqrt(workspace->relax_param);
-        double inv_pen    = 1.0 / workspace->penalty_param;
-        update_KKT_residual(sqrt_relax, inv_pen);
-        auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
-        if (verbose) {
-            print_solve_footer(converged, n_iter_outer, n_iter_inner, n_factorizations,
-                               kkt, eq_vio, ineq_vio, comp_vio, obj);
-        }
-        if (debug) {
-            nlohmann::json footer;
-            footer["type"]            = "footer";
-            footer["converged"]       = converged;
-            footer["iterations"]      = n_iter_outer + n_iter_inner;
-            footer["iterations_outer"]= n_iter_outer;
-            footer["iterations_inner"]= n_iter_inner;
-            footer["factorizations"]  = n_factorizations;
-            footer["kkt"]             = kkt;
-            footer["eq_vio"]          = eq_vio;
-            footer["ineq_vio"]        = ineq_vio;
-            footer["comp_vio"]        = comp_vio;
-            footer["obj"]             = obj;
-            footer["z"]               = vec_to_json(workspace->z);
-            footer["s_ineq"]          = vec_to_json(workspace->s_ineq);
-            footer["s_comp"]          = vec_to_json(workspace->s_comp);
-            footer["m_eq"]            = vec_to_json(workspace->m_eq);
-            footer["m_ineq"]          = vec_to_json(workspace->m_ineq);
-            footer["m_comp"]          = vec_to_json(workspace->m_comp);
-            debug_file << footer.dump() << "\n";
-        }
-    }
-
-    solve_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-
-    return SolveResult{
-        converged,
-        n_iter_outer + n_iter_inner,
-        n_iter_outer,
-        n_iter_inner,
-        n_factorizations,
-        n_factorizations_ldlt,
-        n_factorizations_inertia,
-        n_factorizations_linesearch,
-        setup_time_s,
-        solve_time_s,
-        Vec(workspace->z),
-        Vec(workspace->s_ineq),
-        Vec(workspace->s_comp),
-        Vec(workspace->m_eq),
-        Vec(workspace->m_ineq),
-        Vec(workspace->m_comp),
-    };
+    workspace->residual_eq = prob->residual_eq(workspace->z);
+    workspace->residual_ineq = prob->residual_ineq(workspace->z);
+    workspace->residual_comp_L = prob->residual_comp_L(workspace->z);
+    workspace->residual_comp_R = prob->residual_comp_R(workspace->z);
 }
 
-// double Solver::comp_block_reg_min(double atol) const {
-//     if (prob->n_comp == 0) return 0.0;
-    
-//     double delta_min = 0.0;
-//     const double rho = workspace->penalty_param;
-//     Vec w_c = retract_deriv(workspace->s_comp, sqrt(workspace->relax_param));
+void Solver::apply_newton_step(double step_size) {
+    require_problem_set("apply_newton_step");
 
-//     scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
-
-//     for (int k = 0; k < prob->n_comp; ++k) {
-//         const double jtj  = w_c[k]*w_c[k] + (1.0 - w_c[k])*(1.0 - w_c[k]);
-//         const double sig0 = workspace->s_comp_stationarity[k] + rho * jtj;   // Σ_k at reg=0
-//         delta_min = std::max(delta_min, atol - sig0);
-//     }
-
-//     return delta_min;
-// }
-
-// double Solver::comp_block_reg_min(double atol) const {
-//     if (prob->n_comp == 0) return 0.0;
-
-//     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;    
-//     double delta_min = 0.0;
-
-//     for (int i = 0; i < prob->n_comp; ++i) {
-//         const double sig0 = scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
-//         delta_min = std::max({delta_min, -sig0 + atol, 0.0});
-//     }
-
-//     return delta_min;
-// }
-
-// double Solver::comp_block_reg_min(double atol) const {
-//     double delta_min = 0.0;
-//     if (prob->n_comp == 0) return delta_min;
-
-//     const double rho = workspace->penalty_param;                       // unscaled penalty
-//     Vec w_c = retract_deriv(workspace->s_comp, std::sqrt(workspace->relax_param));
-
-//     for (int k = 0; k < prob->n_comp; ++k) {
-//         const double jtj  = w_c[k]*w_c[k] + (1.0 - w_c[k])*(1.0 - w_c[k]);
-//         const double sig0 = workspace->s_comp_stationarity[k] + rho * jtj;   // Σ_k at delta = 0
-//         const double ss   = workspace->scaling[s_comp_inds[k]];              // s_comp Ruiz scale
-//         const double tol_unscaled = atol / (ss * ss);                  // tol back to unscaled units
-//         delta_min = std::max(delta_min, tol_unscaled - sig0);
-//     }
-//     return delta_min;
-// }
-
-double Solver::primal_KKT_posdef_reg(double atol) const {
-    if (prob->n_comp == 0) return 0.0;
-
-    double delta_min = 0.0;
-
-    for (int i = 0; i < prob->n_comp; ++i) {
-        const double sig0 = workspace->s_comp_stationarity[i];
-        delta_min = std::max({delta_min, -sig0 + atol});
-    }
-
-    return delta_min;
-}
-
-// Smallest primal regularizer delta s.t. the complementarity (Σ) block of the
-// *scaled* KKT system is PD to tolerance. Returns 0 if already PD.
-//
-//   Σ_k(unscaled) = S_k + delta + rho*(w_c^2 + (1-w_c)^2),  S_k = s_comp_stationarity[k]
-//
-// The system is Ruiz-scaled (K -> S K S). Eliminating m_comp cancels its dual scaling,
-// leaving the s_comp diagonal = scaling[s_comp_k]^2 * Σ_k. check_inertia() thresholds the
-// scaled pivots at sigma_tol, so we require scaling[s_comp_k]^2 * Σ_k > sigma_tol, i.e.
-// Σ_k > sigma_tol / scaling[s_comp_k]^2.  (reg is unscaled, matching the regularizer update.)
-double Solver::comp_block_reg_min(double sigma_tol) const {
-    double delta_min = 0.0;
-    if (prob->n_comp == 0) return delta_min;
-
-    const double rho = workspace->penalty_param;                       // unscaled penalty
-    Vec w_c = retract_deriv(workspace->s_comp, std::sqrt(workspace->relax_param));
-
-    for (int k = 0; k < prob->n_comp; ++k) {
-        const double jtj  = w_c[k]*w_c[k] + (1.0 - w_c[k])*(1.0 - w_c[k]);
-        const double sig0 = workspace->s_comp_stationarity[k] + rho * jtj;   // Σ_k at delta = 0
-        const double ss   = workspace->scaling[s_comp_inds[k]];              // s_comp Ruiz scale
-        const double tol_unscaled = sigma_tol / (ss * ss);                  // tol back to unscaled units
-        delta_min = std::max(delta_min, tol_unscaled - sig0);
-    }
-    return delta_min;
-}
-
-// Route 2 reduced Hessian (stable comp block). Assumes Σ_k > 0 (z-space curvature case).
-Mat Solver::condensed_reduced_hessian(double reg) const {
-    const int nz = prob->nz, ne = prob->n_eq, ni = prob->n_ineq, nc = prob->n_comp;
-    const double rho = workspace->penalty_param, inv_rho = 1.0/rho;
-    const double sr = std::sqrt(workspace->relax_param);
-
-    Mat Wz = Mat(prob->cost_hessian);
-    Wz.diagonal().array() += reg;
-    if (ne) { SMat A = prob->J_eq.transpose()*prob->J_eq; Wz += rho*Mat(A); }
-    if (ni) {
-        Vec w = retract_deriv(workspace->s_ineq, sr); Vec Th(ni);
-        for (int k=0;k<ni;++k){ double G=w[k]*(1-w[k]),num=G+reg; Th[k]=num/(inv_rho*num+w[k]*w[k]); }
-        Wz += Mat(SMat(prob->J_ineq.transpose()*Th.asDiagonal()*prob->J_ineq));
-    }
-    if (nc) {
-        Vec w = retract_deriv(workspace->s_comp, sr), dd = retract_second_deriv(workspace->s_comp, sr);
-        std::vector<Eigen::Triplet<double>> pt; pt.reserve(4*nc);
-        for (int k=0;k<nc;++k){
-            double u1=w[k], u2=-(1-w[k]);
-            double beta=-dd[k]*(workspace->m_comp[2*k]+workspace->m_comp[2*k+1])+reg;
-            double sig=beta+rho*(u1*u1+u2*u2), s=rho/sig;   // requires sig>0
-            pt.emplace_back(2*k,2*k,     s*(beta+rho*u2*u2));
-            pt.emplace_back(2*k,2*k+1,   s*(-rho*u1*u2));
-            pt.emplace_back(2*k+1,2*k,   s*(-rho*u1*u2));
-            pt.emplace_back(2*k+1,2*k+1, s*(beta+rho*u1*u1));
-        }
-        SMat P(2*nc,2*nc); P.setFromTriplets(pt.begin(),pt.end());
-        Wz += Mat(SMat(prob->J_comp.transpose()*P*prob->J_comp));
-    }
-    return Wz;
-}
-
-double Solver::reduced_hessian_min_eig() const {
-    // clear the Σ block first so the negative eigenvalue is genuinely z-space curvature
-    Mat Wz = condensed_reduced_hessian(comp_block_reg_min(1e-10));
-    Eigen::SelfAdjointEigenSolver<Mat> es(Wz, Eigen::EigenvaluesOnly);   // ascending
-    return es.eigenvalues()(0);
+    workspace->solution += (step_size - workspace->newton_step_size) * workspace->newton_step;
+    workspace->newton_step_size = step_size;
 }
 
 // TODO: is maybe weird that this is part of Solver and not Filter... but need access to the workspace and problem
 // to compute these quantities
-Filter::Entry Solver::entry_from_solution(double sqrt_relax_param, double inv_penalty_param) const {
+Filter::Entry Solver::entry_from_solution() const {
+    require_problem_set("entry_from_solution");
+
+    double inv_penalty_param = 1.0 / workspace->penalty_param;
+    const RelaxedSlackValues ineq = workspace->ineq_retract;
+    const RelaxedSlackValues comp = workspace->comp_retract;
+
     Vec m_eq_primal_feas = workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
 
-    Vec p_ineq = retract(workspace->s_ineq, sqrt_relax_param);
-    Vec m_ineq_primal_feas = workspace->residual_ineq - p_ineq -  // p(s) - p(-s) = s
-                                inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
+    Vec m_ineq_primal_feas = workspace->residual_ineq - ineq.b -
+        inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
 
-    Vec p_comp = retract(workspace->s_comp, sqrt_relax_param);
-    Vec m_comp_primal_feas =
-        workspace->residual_comp - inv_penalty_param * (workspace->m_comp - workspace->m_comp_est);
+    Vec m_comp_L_primal_feas = workspace->residual_comp_L - comp.b -
+        inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
+    Vec m_comp_R_primal_feas = workspace->residual_comp_R - comp.b_neg -
+        inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
 
-    for (int i = 0; i < prob->n_comp; i++) {
-        m_comp_primal_feas[2 * i] += -p_comp[i];                               // p(s)
-        m_comp_primal_feas[2 * i + 1] += -(p_comp[i] - workspace->s_comp[i]);  // p(s) - p(-s) = s
-    }
-
-    double candidate_constraint_violation = n_duals == 0 ? 0.0 :
-        (m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() + m_comp_primal_feas.lpNorm<1>()) / n_duals;
+    double candidate_constraint_violation = kkt_system->n_duals == 0 ? 0.0 :
+        (m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() +
+         m_comp_L_primal_feas.lpNorm<1>() + m_comp_R_primal_feas.lpNorm<1>()) / kkt_system->n_duals;
 
     double candidate_objective =
         0.5 * workspace->z.transpose() * prob->cost_hessian * workspace->z +
         prob->cost_gradient.dot(workspace->z) + prob->cost_const -
-        pow(sqrt_relax_param, 2) * p_ineq.array().log().sum() +
+        workspace->relax_param * ineq.b.array().log().sum() +
         0.5 * inv_penalty_param *
-            (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() + workspace->m_comp.squaredNorm());
+            (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() +
+             workspace->m_comp_L.squaredNorm() + workspace->m_comp_R.squaredNorm());
 
     return {
         candidate_constraint_violation,
@@ -964,141 +106,206 @@ Filter::Entry Solver::entry_from_solution(double sqrt_relax_param, double inv_pe
     };
 }
 
-bool Solver::filter_linesearch(double sqrt_relax_param, double inv_penalty_param, int max_iters) {
+bool Solver::filter_linesearch() {
+    require_problem_set("filter_linesearch");
+
     double step_size = 1.0;
-    workspace->solution += step_size * workspace->newton_step;  // Candidate solution for full step
 
     // TODO: this can be done much more efficiently due to the linearity
     // we should compute a delta for each constraint and the cost from the newton_step
     // and use those scaled vectors to assembly the feasibility candidates
     // We should also re-use the terms in the bottom half of the KKT residual
-    
-    for (int i = 0; i < max_iters; ++i) {
+
+    for (int i = 0; i < options.max_iters_linesearch; ++i) {
         // Update constraint residuals from candidate solution
-        workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
-        workspace->residual_ineq = prob->J_ineq * workspace->z + prob->c_ineq;
-        workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
+        apply_newton_step(step_size);
+        update_relaxed_slack_values();
+        update_primal_residuals();
 
-        const Filter::Entry candidate = entry_from_solution(sqrt_relax_param, inv_penalty_param);
+        const Filter::Entry candidate = entry_from_solution();
 
-        if (filter->acceptable(candidate)) {
-            filter->update(candidate);
+        if (filter.acceptable(candidate)) {
+            filter.update(candidate);
             return true;
         }
 
         // If not acceptable, shrink step size and try again
         step_size *= 0.5;
-        workspace->solution -= step_size * workspace->newton_step;
     }
 
     // Restore original solution before returning failure
-    workspace->solution -= step_size * workspace->newton_step;
+    apply_newton_step(0.0);
+    update_relaxed_slack_values();
+    update_primal_residuals();
 
     return false;
 }
 
-void Solver::ruiz_equilibration(int niter) {
-    SMat H_bar = prob->cost_hessian;
-    SMat J_eq_bar = prob->J_eq;
-    SMat J_ineq_bar = prob->J_ineq;
-    SMat J_comp_bar = prob->J_comp;
+Solver::Result Solver::solve() {
+    require_problem_set("solve");
 
-    const int nz = prob->nz;
-    const int n_eq = prob->n_eq;
-    const int n_ineq = prob->n_ineq;
-    const int n_comp = prob->n_comp;
+    // Start solve timer
+    const auto t0 = std::chrono::steady_clock::now();
 
-    workspace->scaling.setOnes(nz + n_ineq + n_comp + n_eq + n_ineq + 2*n_comp);
-    Eigen::VectorBlock<Vec> d = workspace->scaling.head(nz);
-    Eigen::VectorBlock<Vec> e_eq = workspace->scaling.segment(nz + n_ineq + n_comp, n_eq);
-    Eigen::VectorBlock<Vec> e_ineq = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq, n_ineq);
-    Eigen::VectorBlock<Vec> e_comp = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq + n_ineq, 2*n_comp);
+    Result result;
 
-    // Helper functions: Inf-norm column/row reductions using sparse nonzero iteration
-    for (int iter = 0; iter < niter; ++iter) {
-        // Matrix equilibration
-        // Compute column-wise norms of first part of KKT system (stationarity)
-        Vec d_temp = Vec::Zero(nz);
-        for (int col = 0; col < H_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
-                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
-            }
-        }
-        for (int col = 0; col < J_eq_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_eq_bar, col); it; ++it) {
-                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
-            }
-        }
-        for (int col = 0; col < J_ineq_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_ineq_bar, col); it; ++it) {
-                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
-            }
-        }
-        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
-                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
-            }
+    // Initialize penalty and relax param
+    workspace->penalty_param = options.penalty_initial;
+    workspace->relax_param = options.relax_initial;
+    filter.clear();
+
+    int iters_outer = 0, iters_inner = 0;
+    int factorizations = 0, factorizations_ldlt = 0, factorizations_inertia = 0, factorizations_linesearch = 0;
+
+    double beta = 1.0;
+
+    int last_outer_step_iter = -1;
+
+    for (int iter = 0; iter < options.max_iters; ++iter) {
+        // Keep cached residuals consistent after line search and kappa correction steps.
+        update_primal_residuals();
+
+        // Update cached relaxation map values for current slacks/relaxation params
+        update_relaxed_slack_values();
+
+        // Compute updated KKT residual
+        kkt_system->update_residual();
+        double residual_norm = kkt_system->residual.lpNorm<Eigen::Infinity>();
+
+        // Check for convergence, exit if converged
+        if (convergence()) {
+            result.converged = true;
+            break;
         }
 
-        // Compute row-wise norms of second part of KKT system (feasibility)
-        Vec e_eq_temp = Vec::Zero(n_eq);
-        Vec e_ineq_temp = Vec::Zero(n_ineq);
-        Vec e_comp_temp = Vec::Zero(2*n_comp);
-        for (int col = 0; col < J_eq_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_eq_bar, col); it; ++it) {
-                e_eq_temp[it.row()] = std::max(e_eq_temp[it.row()], std::abs(it.value()));
-            }
-        }
-        for (int col = 0; col < J_ineq_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_ineq_bar, col); it; ++it) {
-                e_ineq_temp[it.row()] = std::max(e_ineq_temp[it.row()], std::abs(it.value()));
-            }
-        }
-        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
-                e_comp_temp[it.row()] = std::max(e_comp_temp[it.row()], std::abs(it.value()));
-            }
-        }
+        // If the residual norm is small, take an outer step
+        if (residual_norm < beta * options.outer_step_kkt_norm) {
+            iters_outer++;
 
-        // Clamp scaling values
-        d_temp = d_temp.cwiseMax(1e-4).cwiseMin(1e4);
-        e_eq_temp = e_eq_temp.cwiseMax(1e-4).cwiseMin(1e4);
-        e_ineq_temp = e_ineq_temp.cwiseMax(1e-4).cwiseMin(1e4);
-        e_comp_temp = e_comp_temp.cwiseMax(1e-4).cwiseMin(1e4);
+            if (iter > 0 && last_outer_step_iter == iter - 1 && workspace->relax_param <= options.relaxation_min) {
+                beta *= 0.1;
+            }
 
-        // Take square roots, reciprocal, turn into diag vectors
-        d_temp = d_temp.array().rsqrt().matrix();
-        e_eq_temp = e_eq_temp.array().rsqrt().matrix();
-        e_ineq_temp = e_ineq_temp.array().rsqrt().matrix();
-        e_comp_temp = e_comp_temp.array().rsqrt().matrix();
+            // Update Lagrange multiplier estimates
+            workspace->m_eq_est = workspace->m_eq;
+            workspace->m_ineq_est = workspace->m_ineq;
+            workspace->m_comp_L_est = workspace->m_comp_L;
+            workspace->m_comp_R_est = workspace->m_comp_R;
 
-        // Update problem data
-        for (int col = 0; col < H_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(H_bar, col); it; ++it) {
-                it.valueRef() *= d_temp[it.row()] * d_temp[col];
+            // Update penalty parameter if not already at max
+            if (workspace->penalty_param < options.penalty_max) {
+                workspace->penalty_param = std::min(workspace->penalty_param * options.penalty_scaling, options.penalty_max);
             }
-        }
-        for (int col = 0; col < J_eq_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_eq_bar, col); it; ++it) {
-                it.valueRef() *= e_eq_temp[it.row()] * d_temp[col];
-            }
-        }
-        for (int col = 0; col < J_ineq_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_ineq_bar, col); it; ++it) {
-                it.valueRef() *= e_ineq_temp[it.row()] * d_temp[col];
-            }
-        }
-        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
-                it.valueRef() *= e_comp_temp[it.row()] * d_temp[col];
-            }
-        }
+            // Update relaxation parameter and compute first-order correction to the iterate
+            else {
+                kkt_system->update_residual_relax_grad();
+                // kkt_system->update_kkt_system();
 
-        // Update eq matrices
-        d = d.cwiseProduct(d_temp);
-        e_eq = e_eq.cwiseProduct(e_eq_temp);
-        e_ineq = e_ineq.cwiseProduct(e_ineq_temp);
-        e_comp = e_comp.cwiseProduct(e_comp_temp);
+                // if (!kkt_system->numerical_factorization()) {
+                //     throw std::runtime_error("Kappa correction factorization failed at iter " +
+                //                              std::to_string(iter));
+                // }
+                // ++factorizations;
+                // ++factorizations_ldlt;
+
+                const double relax_param_new = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
+                const double delta = relax_param_new - workspace->relax_param;
+
+                if (options.use_relax_correction && delta != 0.0) {
+                    kkt_system->compute_step(workspace->relax_correction_step,
+                                             -delta * kkt_system->grad_residual_relax_param);
+                    workspace->solution += workspace->relax_correction_step;
+                } else {
+                    workspace->relax_correction_step.setZero();
+                }
+
+                workspace->relax_param = relax_param_new;
+                // update_primal_residuals();
+                // update_relaxed_slack_values();
+            }
+
+            // Clear the filter on outer steps
+            filter.clear();
+            last_outer_step_iter = iter;
+        }
+        // Otherwise, continue taking newton steps
+        else {
+            iters_inner++;
+
+            auto bump_reg = [](double &r, double reg_scale) {
+                r = (r == 0.0 ? 1e-10 : reg_scale * r);
+                return true;
+            };
+
+            bool factorization_success = false;
+            bool inertia_success = false;
+            bool linesearch_success = false;
+
+            kkt_system->update_kkt_system();
+
+            // Initialize regularization value, clear step size before linesearch loop
+            // TODO: find a better heuristic for initializing the regularizer, maybe based on
+            // the s_comp_stationarity diagonal values
+            double reg = 0.0;
+            workspace->newton_step_size = 0.0;
+            
+            while (!linesearch_success && reg <= 1e8) {
+                kkt_system->update_primal_regularizer(reg);
+
+                ++factorizations;
+                if (!kkt_system->numerical_factorization()) {
+                    ++factorizations_ldlt;
+                    bump_reg(reg, 10.0);
+                    continue;
+                }
+                factorization_success = true;
+
+                if (!kkt_system->check_inertia()) {
+                    ++factorizations_inertia;
+                    bump_reg(reg, 10.0);
+                    continue;
+                }
+                inertia_success = true;
+
+                // If inertia correction succeeds, compute the Newton step and try filter linesearch
+                kkt_system->compute_step(workspace->newton_step, -kkt_system->residual);
+
+                if (!filter_linesearch()) {
+                    ++factorizations_linesearch;
+                    bump_reg(reg, 10.0);
+                    continue;
+                }
+                linesearch_success = true;
+            }
+
+            if (!factorization_success)
+                throw std::runtime_error("Factorization failed for all values at iter " + std::to_string(iter) + " with inertia regularizer " + std::to_string(kkt_system->primal_regularizer));
+
+            if (!inertia_success)
+                throw std::runtime_error("Inertia correction failed for all values at iter " + std::to_string(iter) + " with inertia regularizer " + std::to_string(kkt_system->primal_regularizer));
+
+            if (!linesearch_success)
+                throw std::runtime_error("Linesearch failed for all values at iter " + std::to_string(iter) + " with inertia regularizer " + std::to_string(kkt_system->primal_regularizer));
+        }
     }
 
+    double solve_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+    result.iters = iters_outer + iters_inner;
+    result.iters_outer = iters_outer;
+    result.iters_inner = iters_inner;
+    result.factorizations = factorizations;
+    result.factorizations_ldlt = factorizations_ldlt;
+    result.factorizations_inertia = factorizations_inertia;
+    result.factorizations_linesearch = factorizations_linesearch;
+    result.solve_time_s = solve_time_s;
+    result.z = Vec(workspace->z);
+    result.s_ineq = Vec(workspace->s_ineq);
+    result.s_comp = Vec(workspace->s_comp);
+    result.m_eq = Vec(workspace->m_eq);
+    result.m_ineq = Vec(workspace->m_ineq);
+    result.m_comp_L = Vec(workspace->m_comp_L);
+    result.m_comp_R = Vec(workspace->m_comp_R);
+
+    return result;
 }

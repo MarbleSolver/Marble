@@ -4,6 +4,7 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include "problem.h"
+#include "relaxation_map.h"
 #include <cstring>
 
 /**
@@ -18,95 +19,38 @@ public:
 
     // Views into the solution vector
     Eigen::Map<Vec> z;          /** Primal variables */
-    Eigen::Map<Vec> s_ineq;     /** Inequality slacks (in the retraction domain) */
-    Eigen::Map<Vec> s_comp;     /** Complementarity slacks (in the retraction domain) */
+    Eigen::Map<Vec> s_ineq;     /** Inequality slacks in the b_kappa domain */
+    Eigen::Map<Vec> s_comp;     /** Complementarity slacks in the b_kappa domain */
     Eigen::Map<Vec> m_eq;       /** Equality multipliers */
     Eigen::Map<Vec> m_ineq;     /** Inequality multipliers */
-    Eigen::Map<Vec> m_comp;     /** Complementarity multipliers */
+    Eigen::Map<Vec> m_comp_L;   /** Left complementarity multipliers */
+    Eigen::Map<Vec> m_comp_R;   /** Right complementarity multipliers */
 
     // Current multiplier estimates for AL
     Vec m_eq_est;               /** Equality multiplier estimates for AL */
     Vec m_ineq_est;             /** Inequality multiplier estimates for AL */
-    Vec m_comp_est;             /** Complementarity multiplier estimates for AL */
-
-    
-    Vec kkt_residual; /** KKT residual, driven to 0 in each subproblem solve */
-
-    // Diagonal terms for s_ineq and s_comp stationarity, stored
-    // to allow for updating primal regularizer cheaply
-    Vec s_ineq_stationarity; /** Inequality stationarity terms */
-    Vec s_comp_stationarity; /** Complementarity stationarity terms */
+    Vec m_comp_L_est;           /** Left complementarity multiplier estimates for AL */
+    Vec m_comp_R_est;           /** Right complementarity multiplier estimates for AL */
 
     // Constraint evaluations
     Vec residual_eq;        /** Equality constraint residuals */
     Vec residual_ineq;      /** Inequality constraint residuals */
-    Vec residual_comp;      /** Complementarity constraint residuals */
+    Vec residual_comp_L;    /** Left complementarity residuals, L*z + l */
+    Vec residual_comp_R;    /** Right complementarity residuals, R*z + r */
+
+    // Relaxed slack (b_kappa) values at the current slacks, cached for assembling
+    // the KKT residual and Jacobian.
+    RelaxedSlackValues ineq_retract;   /** b_kappa values at s_ineq */
+    RelaxedSlackValues comp_retract;   /** b_kappa values at s_comp */
 
     // Relaxation and penalty parameters
-    double relax_param;    /** Relaxation parameter for the retraction map */
+    double relax_param;    /** Relaxation parameter kappa for b_kappa */
     double penalty_param;  /** Penalty parameter for the augmented Lagrangian */
 
-    /**
-     * KKT system matrix, stored in sparse format with the structure intended to be fixed
-     * after it is initialize by Solver::set_problem.
-     */
-    SMat kkt_system;
-
-    // Gradient of the residual with respect to the relaxation parameter, used for inner step relaxation scaling
-    Vec grad_kkt_residual_relax_param;
-    Vec relax_correction_step;
-
-    // The KKT system is permuted and scaled for conditioning using the following vectors
-    Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, QDLDL_int> amd_perm; /** AMD permutation for KKT system, reduces in-fill */
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> amd_perm_vec; /** AMD permutation for KKT system, reduces in-fill */
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> amd_iperm_vec; /** Inverse AMD permutation for KKT system */
-    Vec scaling; /** Diagonal scaling for KKT system, improves conditioning (ruiz equilibration) */
-
-    // KKT step
+    double newton_step_size; /** Step size for the current Newton step */
     Vec newton_step; /** Newton step for the KKT system (possibly computed with regularization) */
-
-    // Work arrays for QDLDL
-    // Workspace arrays required by QDLDL
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> etree;
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Lnz;
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> iwork;
-    std::vector<QDLDL_bool> bwork;
-    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> fwork;
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Lp;
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Li;
-    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> Lx;
-    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> D;
-    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> Dinv;
-    QDLDL_int sum_Lnz;
+    Vec relax_correction_step; /** Correction step to account for changes in the relaxation parameter across iters, computed from the KKT residual gradient */
 
     // Empty constructor
     Workspace(const Problem& prob);
-
-    /**
-     * Inserts a sparse block matrix into a sparse matrix represented as a 
-     * triplet list given the top right corner of the block and the block matrix]
-     * while preserving the sparsity pattern of the original block matrix.
-     * 
-     * @warning 
-     * This function does not check whether the elements being inserted 
-     * already exist in the triplet list.
-     * 
-     * @param triplets the triplet list representing the sparse matrix to be modified
-     * @param block the block matrix to be inserted
-     * @param row_start the starting row index of the block in the sparse matrix
-     * @param col_start the starting column index of the block in the sparse matrix
-     */
-    void appendBlockTriplets(std::vector<Eigen::Triplet<double>>& triplets, const SMat& block, int row_start, int col_start);
-
-    /**
-     * Given a row and column index into kkt_system, find the data index in the underlying
-     * kkt_system.valuePtr() array, returning -1 if it doesn't exist.
-     * 
-     * @warning 
-     * This function assumes that the KKT system is in the compressed format
-     * 
-     * @param row row index
-     * @param col col_index
-     */
-    int findValuePtrIndex(int row, int col);
 };

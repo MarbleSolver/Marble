@@ -184,7 +184,7 @@ function reformulate_lie(model::JuMP.Model, ind_cc1, ind_cc2, types; κ, form=:e
     get_reference, _, _ = _reformulation_helpers(new_model)
 
     ncc = length(ind_cc1)
-    retraction(x) = 1/2 * (x + sqrt(x^2 + 4))
+    bκ(x) = 1/2 * (x + sqrt(x^2 + 4))
     con_expr(ref)  = (o = constraint_object(ref); o.func - MOI.constant(o.set))
 
     @variable(new_model, s1[1:ncc])
@@ -203,8 +203,8 @@ function reformulate_lie(model::JuMP.Model, ind_cc1, ind_cc2, types; κ, form=:e
         t1 == :var ? delete_lower_bound(cc1) : delete(new_model, cc1)
         t2 == :var ? delete_lower_bound(cc2) : delete(new_model, cc2)
 
-        @constraint(new_model, expr1 == √κ * retraction(s1[j]))
-        @constraint(new_model, expr2 == √κ * retraction(form == :eq ? -s1[j] : s2[j]))
+        @constraint(new_model, expr1 == √κ * bκ(s1[j]))
+        @constraint(new_model, expr2 == √κ * bκ(form == :eq ? -s1[j] : s2[j]))
     end
 
     return new_model

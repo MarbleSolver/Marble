@@ -4,11 +4,7 @@
 #include <Eigen/Sparse>
 #include <iostream>
 
-#include "qdldl.h"
-
-using SMat = Eigen::SparseMatrix<double, Eigen::ColMajor, QDLDL_int>;
-using Mat = Eigen::MatrixXd;
-using Vec = Eigen::VectorXd;
+#include "utils.h"   // Mat, Vec, SMat
 
 /**
  * A brief description of your class.
@@ -25,21 +21,21 @@ public:
 
     // Quadratic cost definition
     SMat cost_hessian;
-    Vec cost_hessian_diag; // Needed for regularizer updating
     Vec cost_gradient;
-    double cost_const{0.0}; // Constant term in the cost, not needed for optimization but useful for comparisons
+    double cost_const{0.0}; // Constant term in the cost
 
-    // Constraint definitions, all of the form Jx + c = 0
+    // Constraint definitions:
+    //   J_eq z + c_eq = 0
+    //   J_ineq z + c_ineq >= 0
+    //   0 <= L z + l  ⟂  R z + r >= 0
     SMat J_eq;
     Vec c_eq;
     SMat J_ineq;
     Vec c_ineq;
-    SMat J_comp;
-    Vec c_comp;
-
-    // Complementarity indices
-    Eigen::VectorXi comp_L_inds;
-    Eigen::VectorXi comp_R_inds;
+    SMat L;
+    Vec l;
+    SMat R;
+    Vec r;
 
     //Constructors
     Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
@@ -50,9 +46,6 @@ public:
             Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
             Mat L, Vec l, Mat R, Vec r);
 
-    // Utilities to stack J_comp and c_comp from L, R, l, and r
-    void build_c_comp(const Vec& l, const Vec& r);
-
     /* Returns the objective given primal variables z*/
     double obj(const Vec& z) const;
 
@@ -62,6 +55,17 @@ public:
     /* Returns the residual of the inequality constraints */
     Vec residual_ineq(const Vec& z) const;
 
-    /* Returns the residual of the complementarity constraints */
+    /* Returns L*z + l */
+    Vec residual_comp_L(const Vec& z) const;
+
+    /* Returns R*z + r */
+    Vec residual_comp_R(const Vec& z) const;
+
+    /* Returns (L*z + l) .* (R*z + r) */
     Vec residual_comp(const Vec& z) const;
+
+private:
+    // Verify all stored blocks have mutually consistent dimensions. Called from
+    // the constructors; throws std::invalid_argument on any mismatch
+    void validate_dims() const;
 };
