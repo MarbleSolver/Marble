@@ -59,49 +59,50 @@ end
 # Configuration is stacked position [x; y] of each mass (foot, then head) 
 # State is [configuration; velocity], 8 dimensions
 # Controls are internal x and y forces (correspond to prismatic joint and linearized revolute)
-nq, nx, nu, nd = 4, 8, 2, 2 # nd is num dimensions (2 = planar)
-pos_xi, pos_zi = 1, 2 # Indexing for coordinates
-g = 9.81
-grav_comp = [0; -g]
-N, dt, μ = 60, 0.05, 0.1
-Q, Qf = diagm([1e1; 0; 1e1; 0; 1e-1*ones(4)]), diagm([1e3; 0; 1e3; 1e3; 1e-2*ones(4)])
-R, Rd = diagm([1e-3; 1e-3])/90/90,diagm([1e1; 1e1])/90
-speed = 0.04
-x_goal = [[[speed*k; 0.0; speed*k; 0.0; zeros(4)] for k in 1:N]..., [speed*N + 0.3; 0.0; speed*N + 0.3; 0.0; zeros(4)]]
 
 problem, x, u, f, comp, comp_type = let
+    nq, nx, nu, nd = 4, 8, 2, 2 # nd is num dimensions (2 = planar)
+    pos_xi, pos_zi = 1, 2 # Indexing for coordinates
+    g = 9.81
+    grav_comp = [0; -g]
+    N, dt, μ = 2, 0.05, 0.1
+    Q, Qf = diagm([1e1; 0; 1e1; 0; 1e-1*ones(4)]), diagm([1e3; 0; 1e3; 1e3; 1e-2*ones(4)])
+    R, Rd = diagm([1e-3; 1e-3])/90/90,diagm([1e0; 1e0])/90
+    speed = 0.04
+    x_goal = [[[speed*k; 0.0; speed*k; 0.0; zeros(4)] for k in 0:N-1]..., [speed*N + 0.3; 0.0; speed*N + 0.3; 0.0; zeros(4)]]
+
     problem = JuMP.Model()
 
     # Init state, controls, and forces variables
     @variable(problem, x[1:N+1, 1:nx])
-    @variable(problem, u_scaled[1:N, 1:nu])
-    @variable(problem, f_scaled[1:N, 1:nd])
-    @variable(problem, s_fric_scaled[1:N, 1:2])
+    @variable(problem, u[1:N, 1:nu])
+    @variable(problem, f[1:N, 1:nd])
+    @variable(problem, s_fric[1:N, 1:2])
     @variable(problem, s_step[1:N, 1:12])
-    u = u_scaled*90
-    f = f_scaled*30
-    s_fric = s_fric_scaled/20
     q_foot, q_head = x[:, 1:nd], x[:, nd .+ (1:nd)]
     v_foot, v_head = x[:, 2*nd .+ (1:nd)], x[:, 3*nd .+ (1:nd)]
 
     # Objective
     @objective(problem, Min, 
-        0.5*sum((x[k, :] - x_goal[k])'*Q*(x[k, :] - x_goal[k]) + u_scaled[k, :]'*R*u_scaled[k, :] for k = 1:N) +    # Tracking
+        0.5*sum((x[k, :] - x_goal[k])'*Q*(x[k, :] - x_goal[k]) + u[k, :]'*R*u[k, :] for k = 1:N) +    # Tracking
         0.5*(x[end, :] - x_goal[end])'*Qf*(x[end, :] - x_goal[end]) +                                                           # terminal
-        0.5*sum((q_foot[k+1, pos_xi] - q_head[k+1, pos_xi])^2 for k = 1:N) +                    # prismatic joint length
-        0.5*sum((u_scaled[k + 1, :] - u_scaled[k, :])'*Rd*(u_scaled[k + 1, :] - u_scaled[k, :])*10 for k in 1:N-1) +
-        0.5*sum((s_fric[k, :])'*s_fric[k, :] for k in 1:N)
+        0.5*sum((q_foot[k+1, pos_zi] - q_head[k+1, pos_zi])^2*1e1 for k = 1:N) +                    # prismatic joint length
+        0.5*sum((u[k + 1, :] - u[k, :])'*Rd*(u[k + 1, :] - u[k, :])*10 for k in 1:N-1) +
+        0.5*sum((s_fric[k, :])'*s_fric[k, :]/20/20 for k in 1:N)
         )
 
     @constraint(problem, x[1, :] .== zeros(8)) # Initial condition
 
+    s_fric = s_fric./20 # Rescale for conditioning
+
     # Backwards euler dynamics
+    u_scale, f_scale = 90, 30
     @constraint(problem, [k=1:N], q_foot[k+1, :] .== q_foot[k, :] + v_foot[k+1, :]*dt);
     @constraint(problem, [k=1:N], q_head[k+1, :] .== q_head[k, :] + v_head[k+1, :]*dt);
     @constraint(problem, [k=1:N], 
-                        v_foot[k+1, :] .== v_foot[k, :] + (-[0; g] + f[k, :] + (u[k, :] + grav_comp))*dt);
+                        v_foot[k+1, :]/dt .== v_foot[k, :]/dt + (-[0; g] + f[k, :]*f_scale + (u[k, :]*u_scale + grav_comp)));
     @constraint(problem, [k=1:N], 
-                        v_head[k+1, :] .== v_head[k, :] + (-[0; g] - (u[k, :] + grav_comp))*dt);
+                        v_head[k+1, :]/dt .== v_head[k, :]/dt + (-[0; g] - (u[k, :]*u_scale + grav_comp)));
 
     # steps
     step1_start, step_height1 = 0.5, 0.1
@@ -139,10 +140,7 @@ problem, x, u, f, comp, comp_type = let
 
     # Signed distance function
     height = q_foot[2:end, pos_zi] - 0.5*(h1 .+ 1)*step_height1 - 0.5*(h2 .+ 1)*step_height2 - 0.5*(h3 .+ 1)*step_height3 + 0.5*(h4 .+ 1)*0.3
-
-    # Normal force complementarity
     @constraint(problem, [k=1:N], height[k] >= 0)
-    @constraint(problem, contact_normal_f_comp[k=1:N], f[k, pos_zi] >= 0)
 
     # Friction force (TODO: motion)
     @constraint(problem, [k=1:N], q_foot[k+1, pos_xi] - q_foot[k, pos_xi] .== s_fric[k, 1] - s_fric[k, 2])
@@ -151,6 +149,7 @@ problem, x, u, f, comp, comp_type = let
     @constraint(problem, s_fric .≥ 0)
 
     # Complementarity between normal force and combined position + velocity magnitude
+    @constraint(problem, contact_normal_f_comp[k=1:N], f[k, pos_zi] >= 0)
     @constraint(problem, contact_normal_x_comp[k=1:N], height[k] + s_fric[k, 1] + s_fric[k, 2] ≥ 0)
 
     # Collect complementarities (MUST BE DONE AFTER PROBLEM CONSTRUCTION)
@@ -172,13 +171,40 @@ end;
 solver = Marble.Solver();
 Marble.setup!(solver, problem, first.(comp), last.(comp), comp_type; 
             verbosity = 1, max_iters = 10000);
+prob = solver.problem
+
+# TEMP: test for problem alignment vs hopper_testing.jld2 
+using JLD2, SparseArrays
+@load joinpath(@__DIR__, "hopper_testing.jld2") H g J_eq J_ineq J_comp c_eq c_ineq c_comp x_inds u_inds f_inds s_inds box_s_inds
+
+# Permutation matrix
+x_reorg = [2; 4; 1; 3; 6; 8; 5; 7]
+perm = spzeros(length(g), length(prob.cost_gradient))
+[perm[CartesianIndex.(i1, i2[x_reorg])] .= 1.0 for (i1, i2) in zip(x_inds, [var_inds(problem)[:x][k+1, :] for k in 1:N])]
+[perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(u_inds, [var_inds(problem)[:u][k, :] for k in 1:N])]
+[perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(f_inds, [var_inds(problem)[:f][k, :] for k in 1:N])]
+[perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(s_inds, [var_inds(problem)[:s_fric][k, :] for k in 1:N])]
+[perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(box_s_inds, [var_inds(problem)[:s_step][k, :] for k in 1:N])]
+
+@assert norm(perm*prob.cost_gradient - g, Inf) < eps()
+@assert norm(perm*prob.cost_hessian*perm' - H, Inf) < eps()
+
+# Test procrustes
+pro_A = J_eq
+pro_B = prob.J_eq[9:end, :]*perm'
+pro_svd = svd(Matrix(pro_B*pro_A'), alg=LinearAlgebra.QRIteration())
+pro_R = sparse(pro_svd.U*pro_svd.V')
+norm(pro_A - pro_R'*pro_B, Inf)
+
+[pro_R[k, :] = [i == argmax(abs.(pro_R[k, :])) for i in 1:size(pro_R, 2)] for k=1:size(pro_R, 1) if 1 - maximum(abs.(pro_R[k, :])) < 1e-3]
+
 results = Marble.solve!(solver);
 
 z = Marble.z(results);
 
 X = [z[var_inds(problem)[:x]][k, :] for k in 1:N + 1];
-U = [z[var_inds(problem)[:u_scaled]][k, :].*90 for k in 1:N];
-F = [z[var_inds(problem)[:f_scaled]][k, :].*30 for k in 1:N];
-S = [z[var_inds(problem)[:s_fric_scaled]][k, :].*20 for k in 1:N];
+U = [z[var_inds(problem)[:u]][k, :].*90 for k in 1:N];
+F = [z[var_inds(problem)[:f]][k, :].*30 for k in 1:N];
+S = [z[var_inds(problem)[:s_fric]][k, :].*20 for k in 1:N];
 init_vis(vis);
 animate(vis, X, dt)

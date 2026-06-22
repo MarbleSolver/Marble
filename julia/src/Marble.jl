@@ -165,7 +165,6 @@ module Marble
     solver_property(solver::Marble.Solver, ::Val{:problem}) = CxxWrap.dereference_argument(Marble.get_problem(solver))
     solver_property(solver::Marble.Solver, ::Val{sym}) where sym = getfield(solver, sym)
 
-    Base.setproperty!(solver::Marble.Solver, sym::Symbol, val) = @warn "Setting properties of Marble.Solver is not supported"
 
     Base.propertynames(solver::Marble.Solver, private::Bool=false) = (:options, :problem, fieldnames(typeof(solver))...)
 
@@ -180,7 +179,6 @@ module Marble
     problem_property(problem::Marble.Problem, ::Val{:cost_gradient}) = Marble.cost_gradient(problem)
     problem_property(problem::Marble.Problem, ::Val{sym}) where sym = getfield(problem, sym)
 
-    Base.setproperty!(problem::Marble.Problem, sym::Symbol, val) = @warn "Setting properties of Marble.Solver is not supported"
 
     Base.propertynames(problem::Marble.Problem, private::Bool=false) = 
         (:cost_hessian, :J_eq, :J_ineq, :J_comp, :c_eq, :c_ineq, :c_comp, :cost_gradient, fieldnames(typeof(problem))...)
