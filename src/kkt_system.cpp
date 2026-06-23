@@ -5,10 +5,15 @@ namespace {
 
 using Coords = LdltSystem::Coords;
 
-// Logical coordinates of the structural nonzeros of `B`, mapped through the
-// index vectors: local (r,c) -> (rows[r], cols[c]). `rows`/`cols` must match
-// B's dimensions. When `upper_only`, keep only entries with i <= j — used for
-// the symmetric (z,z) Hessian block, whose lower half is implied.
+/**
+ * Map sparse matrix nonzeros to logical block coordinates
+ *
+ * @param B Sparse matrix whose pattern is mapped
+ * @param rows Logical row indices
+ * @param cols Logical column indices
+ * @param upper_only If true, keep only entries with row <= col
+ * @return Logical coordinates in traversal order
+ */
 Coords block_coords(const SMat& B, const Eigen::VectorXi& rows,
                     const Eigen::VectorXi& cols, bool upper_only) {
     assert(B.rows() == rows.size() && B.cols() == cols.size() &&
@@ -25,10 +30,14 @@ Coords block_coords(const SMat& B, const Eigen::VectorXi& rows,
     return c;
 }
 
-// Coordinates of Bᵀ placed at logical (rows, cols), iterating B directly (no
-// transpose materialized): each nonzero of B at local (r,c) becomes the entry
-// Bᵀ(c,r) -> (rows[c], cols[r]). `rows` matches B's COLUMN count, `cols` its
-// ROW count. Used for the Jacobian-transpose blocks, all strictly upper.
+/**
+ * Map transpose nonzeros to logical block coordinates
+ *
+ * @param B Sparse matrix whose transpose pattern is mapped
+ * @param rows Logical row indices for columns of B
+ * @param cols Logical column indices for rows of B
+ * @return Logical coordinates in traversal order
+ */
 Coords block_coords_T(const SMat& B, const Eigen::VectorXi& rows,
                       const Eigen::VectorXi& cols) {
     assert(B.cols() == rows.size() && B.rows() == cols.size() &&
@@ -41,7 +50,13 @@ Coords block_coords_T(const SMat& B, const Eigen::VectorXi& rows,
     return c;
 }
 
-// Coordinates of a paired diagonal coupling block: (rows[k], cols[k]).
+/**
+ * Build paired coordinates (rows[k], cols[k])
+ *
+ * @param rows Logical row indices
+ * @param cols Logical column indices
+ * @return Paired logical coordinates
+ */
 Coords paired_coords(const Eigen::VectorXi& rows, const Eigen::VectorXi& cols) {
     Coords c;
     c.reserve(rows.size());
@@ -50,12 +65,13 @@ Coords paired_coords(const Eigen::VectorXi& rows, const Eigen::VectorXi& cols) {
     return c;
 }
 
-
-// Values of B's nonzeros in column-major traversal order, matching block_coords'
-// ordering so they line up positionally with the declared coords (Block writes
-// are positional). `upper_only` drops the same lower-triangle entries as
-// block_coords; it is only used for the on-diagonal Hessian block, where the row
-// and column index sets coincide, so the local it.row() > it.col() test matches.
+/**
+ * Extract sparse values in the same order as block_coords()
+ *
+ * @param B Sparse matrix whose values are extracted
+ * @param upper_only If true, keep only entries with row <= col
+ * @return Values in declaration order
+ */
 Vec block_values(const SMat& B, bool upper_only) {
     std::vector<double> v;
     v.reserve(B.nonZeros());
@@ -67,9 +83,12 @@ Vec block_values(const SMat& B, bool upper_only) {
     return Eigen::Map<Vec>(v.data(), static_cast<Eigen::Index>(v.size()));
 }
 
-
-// Values of Bᵀ in the same traversal order as block_coords_T (Bᵀ shares B's
-// nonzero values, so this is just B's values in column-major order).
+/**
+ * Extract sparse values in the same order as block_coords_T()
+ *
+ * @param B Sparse matrix whose transpose values are extracted
+ * @return Values in declaration order
+ */
 Vec block_values_T(const SMat& B) {
     Vec v(B.nonZeros());
     Eigen::Index n = 0;
@@ -81,9 +100,6 @@ Vec block_values_T(const SMat& B) {
 
 }  // namespace
 
-// Lay out the column / variable indices from the problem dimensions:
-// [ z | v | sigma | m_eq | m_ineq | m_comp_L | m_comp_R ]. Members are const, so
-// each block's start offset is the running sum of the prior blocks' sizes.
 MarbleKKTSystem::KktVariableIndices::KktVariableIndices(const std::shared_ptr<const Problem>& p)
     : z       (safe_linspaced(p->nz,     0)),
       v       (safe_linspaced(p->n_ineq, p->nz)),
@@ -100,9 +116,6 @@ MarbleKKTSystem::MarbleKKTSystem(std::shared_ptr<const Problem> problem,
       n_vars(n_primals + n_duals),
       prob(problem),
       workspace(std::move(ws)),
-      // variable_inds is laid out from the problem dimensions; residual_inds
-      // then aliases it (same storage, residual-equation names). Both are bound
-      // here in declaration order (variable_inds first, see the header).
       variable_inds(problem),
       residual_inds{variable_inds.z, variable_inds.v, variable_inds.sigma,
                     variable_inds.m_eq, variable_inds.m_ineq,
@@ -112,7 +125,6 @@ MarbleKKTSystem::MarbleKKTSystem(std::shared_ptr<const Problem> problem,
 }
 
 void MarbleKKTSystem::initialize_sparsity() {
-    // Constant problem-data blocks
     if (prob->nz > 0)
         blocks.hessian = &kkt.add_entries(
             block_coords(prob->cost_hessian, residual_inds.z_stat, variable_inds.z, /*upper_only=*/true));
@@ -144,7 +156,6 @@ void MarbleKKTSystem::initialize_sparsity() {
             paired_coords(variable_inds.sigma, variable_inds.m_comp_R));
     }
 
-    // Primal-dual diagonal regularization blocks
     if (prob->n_eq   > 0) blocks.pd_eq   = &kkt.add_diagonal(variable_inds.m_eq);
     if (prob->n_ineq > 0) blocks.pd_ineq = &kkt.add_diagonal(variable_inds.m_ineq);
     if (prob->n_comp > 0) {
@@ -152,8 +163,6 @@ void MarbleKKTSystem::initialize_sparsity() {
         blocks.pd_comp_R = &kkt.add_diagonal(variable_inds.m_comp_R);
     }
 
-    // Primal diagonal handle for the inertia-correction regularizer, ensures
-    // every primal diagonal slot exists
     if (n_primals > 0)
         blocks.primal_reg = &kkt.add_diagonal(safe_linspaced(n_primals, 0));
 }
@@ -161,11 +170,9 @@ void MarbleKKTSystem::initialize_sparsity() {
 Vec MarbleKKTSystem::ruiz_equilibration(int niter) const {
     const int nz = prob->nz, n_eq = prob->n_eq, n_ineq = prob->n_ineq, n_comp = prob->n_comp;
 
-    // Working copies, progressively equilibrated in place.
     SMat H = prob->cost_hessian, J_eq = prob->J_eq, J_ineq = prob->J_ineq,
          L = prob->L, R = prob->R;
 
-    // Accumulated scalings: d for the z columns, e_* for the constraint rows.
     Vec d = Vec::Ones(nz), e_eq = Vec::Ones(n_eq), e_ineq = Vec::Ones(n_ineq),
         e_comp_L = Vec::Ones(n_comp), e_comp_R = Vec::Ones(n_comp);
 
@@ -209,7 +216,7 @@ Vec MarbleKKTSystem::ruiz_equilibration(int niter) const {
         e_comp_L = e_comp_L.cwiseProduct(cL_t); e_comp_R = e_comp_R.cwiseProduct(cR_t);
     }
 
-    Vec s = Vec::Ones(n_vars);   // v, sigma columns stay 1
+    Vec s = Vec::Ones(n_vars);
     s(variable_inds.z)        = d;
     s(variable_inds.m_eq)     = e_eq;
     s(variable_inds.m_ineq)   = e_ineq;
@@ -219,10 +226,8 @@ Vec MarbleKKTSystem::ruiz_equilibration(int niter) const {
 }
 
 void MarbleKKTSystem::build(const Vec& s) {
-    // Build KKT system matrix and resolve block coordinates to indices
     kkt.build(s);
 
-    // Seed the constant problem-data blocks once (values in declaration order)
     if (blocks.hessian)
         blocks.hessian->set(block_values(prob->cost_hessian, true));
     if (blocks.J_eq_T)
@@ -237,15 +242,6 @@ void MarbleKKTSystem::build(const Vec& s) {
     residual = Vec::Zero(n_vars);
     grad_residual_relax_param = Vec::Zero(n_vars);
 }
-
-// ---------------------------------------------------------------------------
-//  KKT residual
-//
-//  Reads the current iterates and cached retraction values from the workspace
-//  and recomputes residual. The workspace is const here: the solver is
-//  responsible for keeping the iterates, primal residuals (residual_eq, ...),
-//  and retraction values (ineq_retract, comp_retract) up to date beforehand.
-// ---------------------------------------------------------------------------
 
 void MarbleKKTSystem::update_residual() {
     update_z_stationarity();
@@ -318,10 +314,7 @@ void MarbleKKTSystem::update_ineq_blocks() {
     
     const RelaxedSlackValues& ineq = workspace->ineq_retract;
 
-    // d(v_stat)/d v      =  -b''(s_ineq) * (m_ineq + b_kappa(-s_ineq)) + b'(s_ineq) * b'(-s_ineq)   (diagonal)
-    // d(v_stat)/d m_ineq = -b'(s_ineq)                 (diagonal)
     blocks.v_stat_v->set(
-        // -ineq.b_double_prime.cwiseProduct(workspace->m_ineq + ineq.b_neg) +
         ineq.b_prime.cwiseProduct(ineq.b_neg_prime));
     blocks.v_stat_m_ineq->set(-ineq.b_prime);
 }
@@ -331,18 +324,12 @@ void MarbleKKTSystem::update_comp_blocks() {
     
     const RelaxedSlackValues& comp = workspace->comp_retract;
     
-    // d(sigma_stat)/d sigma    = -b''(s_comp) * (m_comp_L + m_comp_R)  (diagonal)
-    // d(sigma_stat)/d m_comp_L = -b'(s_comp)                           (diagonal)
-    // d(sigma_stat)/d m_comp_R =  b'(-s_comp)                          (diagonal)
-    // blocks.sigma_stat_sigma->set(
-    //     -comp.b_double_prime.cwiseProduct(workspace->m_comp_L + workspace->m_comp_R));
     blocks.sigma_stat_sigma->set(
         -comp.b_double_prime.cwiseProduct(workspace->m_comp_L + workspace->m_comp_R));
     blocks.sigma_stat_m_comp_L->set(-comp.b_prime);
     blocks.sigma_stat_m_comp_R->set(comp.b_neg_prime);
 }
 
-// Augmented-Lagrangian proximal regularizer on the multiplier diagonals: -1/rho.
 void MarbleKKTSystem::update_penalty_blocks() {
     if (prob->n_eq == 0 && prob->n_ineq == 0 && prob->n_comp == 0) return;
 
@@ -353,18 +340,6 @@ void MarbleKKTSystem::update_penalty_blocks() {
     if (blocks.pd_comp_R) blocks.pd_comp_R->set(neg_inv_penalty);
 }
 
-// ---------------------------------------------------------------------------
-//  d(KKT residual) / d(relaxation parameter kappa)
-//
-//  By implicit differentiation of r(w; kappa) = 0, the iterate's sensitivity to
-//  a relaxation change is dw/dkappa = -(dr/dw)^{-1} dr/dkappa. This computes the
-//  dr/dkappa right-hand side. Only the relaxation-map terms depend on kappa:
-//    v_stat     : b'_k(s) (-m_ineq - b(-s)) - b'(s) b_k(-s)
-//    sigma_stat : -b'_k(sigma) m_comp_L + b'_k(-sigma) m_comp_R
-//    pd_ineq    : -b_k(s)
-//    pd_comp_L  : -b_k(sigma) ;  pd_comp_R : -b_k(-sigma)
-//  z_stat and pd_eq carry no kappa dependence and stay zero.
-// ---------------------------------------------------------------------------
 void MarbleKKTSystem::update_residual_relax_grad() {
     grad_residual_relax_param.setZero();
 
@@ -384,22 +359,6 @@ void MarbleKKTSystem::update_residual_relax_grad() {
     grad_residual_relax_param(residual_inds.pd_comp_L) = -comp.d_b_d_kappa;
     grad_residual_relax_param(residual_inds.pd_comp_R) = -comp.d_b_neg_d_kappa;
 }
-
-// double MarbleKKTSystem::inertia_correction(double reg_init=0.0, double reg_scale=10.0, double reg_max=1e8) {
-//     auto bump_reg = [](double r) { return r == 0.0 ? 1e-10 : reg_scale * r; };
-    
-//     double reg = reg_init;
-
-//     while (reg <= reg_max) {
-//         if (check_inertia()) return reg;
-
-//         reg = bump_reg(reg);
-//         update_primal_regularizer(reg);
-//         numerical_factorization();
-//     }
-
-//     throw std::runtime_error("Inertia correction failed: regularization exceeded maximum");
-// }
 
 void MarbleKKTSystem::update_primal_regularizer(double regularizer) {
     if (!blocks.primal_reg) return;

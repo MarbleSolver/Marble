@@ -220,8 +220,6 @@ Solver::Result Solver::solve() {
                 }
 
                 workspace->relax_param = relax_param_new;
-                // update_primal_residuals();
-                // update_relaxed_slack_values();
             }
 
             // Clear the filter on outer steps

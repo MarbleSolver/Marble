@@ -10,72 +10,70 @@ public:
         double merit;
     };
 
-    // List of entries in the filter, maintained such that no entry is dominated by any other entry
+    // Entries maintained so no stored entry is dominated by another
     std::vector<Entry> entries;
 
     /**
-     * Construct a new Filter object
+     * Construct a filter with default progress parameters
      */
     Filter() : Filter(1e-5, 1e-5) {}
+
+    /**
+     * Construct a filter with explicit progress parameters
+     *
+     * @param gamma_objective Sufficient merit decrease parameter
+     * @param gamma_constraint Sufficient feasibility decrease parameter
+     */
     Filter(const double gamma_objective, const double gamma_constraint) : gamma_objective(gamma_objective), 
                                                 gamma_constraint(gamma_constraint), entries(std::vector<Entry>()) {}
 
     /**
-     * Determine if a candidate point makes sufficient progress with respect to feasibility and merit
-     * decrease compared to an entry in the filter
-     * 
+     * Check sufficient progress against one filter entry
+     *
      * @param candidate Candidate filter entry 
      * @param entry Existing filter entry to compare against
-     * @return std::pair<bool, bool> Pair indicating whether sufficient progress is made in feasibility, merit decrease, respectively
+     * @return Pair for feasibility progress and merit progress
      */
     std::pair<bool, bool> sufficient_progress(const Entry& candidate, const Entry& entry) const;
 
     /**
-     * Determine if a candidate point is acceptable compared to an existing entry in the filter. Defined as making either
-     * sufficient feasibility progress or sufficient merit decrease compared to any entry in the filter.
-     * 
+     * Check whether a candidate is acceptable against one entry
+     *
      * @param candidate Candidate filter entry
      * @param entry Existing filter entry to compare against
-     * @return true Candidate is acceptable
-     * @return false Candidate is not acceptable
+     * @return True when candidate makes feasibility or merit progress
      */
     bool candidate_acceptable(const Entry& candidate, const Entry& entry) const;
 
     /**
-     * Determine if a candidate point is dominated by an existing entry in the filter. Defined as not making sufficient
-     * progress in either feasibility or merit decrease compared to the existing entry.
-     * 
+     * Check whether a candidate is dominated by one entry
+     *
      * @param candidate Candidate filter entry
      * @param entry Existing filter entry to compare against
-     * @return true Candidate is dominated
-     * @return false Candidate is not dominated
+     * @return True when candidate makes neither feasibility nor merit progress
      */
     bool candidate_dominated(const Entry& candidate, const Entry& entry) const;
 
     /**
-     * Determine if a candidate point is acceptable compared to any entry in the filter. Defined as making either
-     * sufficient feasibility progress or sufficient merit decrease compared to any entry in the filter.
-     * 
+     * Check whether a candidate is acceptable to the whole filter
+     *
      * @param candidate Candidate filter entry
-     * @return true Candidate is acceptable
-     * @return false Candidate is not acceptable
+     * @return True when no existing entry rejects the candidate
      */
     bool acceptable(const Entry& candidate);
 
     /**
-     * Add a new entry to the filter and remove any entries that are dominated by the new entry
-     * 
+     * Add an entry and remove entries it dominates
+     *
      * @param new_entry New filter entry to add
      */
     void update(const Entry& new_entry);
 
     /**
-     * Clear all entries from the filter
+     * Remove every filter entry
      */
     void clear();
 private:
-    // Filter options. Non-const so Filter stays copy/move-assignable (the solver
-    // reconfigures it per problem via assignment); set at construction otherwise.
     double gamma_objective{1e-5};
     double gamma_constraint{1e-5};
 };

@@ -4,6 +4,13 @@
 #include <string>
 
 namespace {
+/**
+ * Format matrix dimensions for error messages
+ *
+ * @param rows Row count
+ * @param cols Column count
+ * @return Dimension string
+ */
 std::string dims2(long rows, long cols) {
     return "(" + std::to_string(rows) + ", " + std::to_string(cols) + ")";
 }
@@ -21,7 +28,6 @@ Problem::Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
     validate_dims();
 }
 
-// Dense convenience overload: convert to sparse 
 Problem::Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
                  Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
                  Mat L, Vec l, Mat R, Vec r)
@@ -31,9 +37,6 @@ Problem::Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
               SMat(L.sparseView()),      std::move(l),
               SMat(R.sparseView()),      std::move(r)) {}
 
-// Verify every stored block has mutually consistent dimensions. nz/n_eq/n_ineq/
-// n_comp are taken from the matrices themselves (Hessian cols, constraint rows),
-// so this checks that the companion vectors and column counts agree.
 void Problem::validate_dims() const {
     if (cost_hessian.rows() != cost_hessian.cols())
         throw std::invalid_argument(

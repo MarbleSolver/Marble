@@ -4,30 +4,22 @@
 #include <Eigen/Sparse>
 #include <iostream>
 
-#include "utils.h"   // Mat, Vec, SMat
+#include "utils.h"
 
 /**
- * A brief description of your class.
- * 
- * A more detailed description of what the class does.
+ * Quadratic program data in Marble's native constraint form
  */
 class Problem {
 public:
-    // Problem dimensions
-    const int nz; // Number of decision variables in the original problem
-    const int n_eq; // Number of equality constraints
+    const int nz;     // Number of decision variables
+    const int n_eq;   // Number of equality constraints
     const int n_ineq; // Number of inequality constraints
     const int n_comp; // Number of complementarity constraints
 
-    // Quadratic cost definition
     SMat cost_hessian;
     Vec cost_gradient;
-    double cost_const{0.0}; // Constant term in the cost
+    double cost_const{0.0};
 
-    // Constraint definitions:
-    //   J_eq z + c_eq = 0
-    //   J_ineq z + c_ineq >= 0
-    //   0 <= L z + l  ⟂  R z + r >= 0
     SMat J_eq;
     Vec c_eq;
     SMat J_ineq;
@@ -37,35 +29,97 @@ public:
     SMat R;
     Vec r;
 
-    //Constructors
+    /**
+     * Construct a problem from sparse matrices
+     *
+     * @param cost_hessian Quadratic objective Hessian
+     * @param cost_gradient Linear objective coefficient
+     * @param cost_const Constant objective offset
+     * @param J_eq Equality constraint matrix
+     * @param c_eq Equality constraint offset
+     * @param J_ineq Inequality constraint matrix
+     * @param c_ineq Inequality constraint offset
+     * @param L Left complementarity matrix
+     * @param l Left complementarity offset
+     * @param R Right complementarity matrix
+     * @param r Right complementarity offset
+     */
     Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
             SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
             SMat L, Vec l, SMat R, Vec r);
 
+    /**
+     * Construct a problem from dense matrices
+     *
+     * @param cost_hessian Quadratic objective Hessian
+     * @param cost_gradient Linear objective coefficient
+     * @param cost_const Constant objective offset
+     * @param J_eq Equality constraint matrix
+     * @param c_eq Equality constraint offset
+     * @param J_ineq Inequality constraint matrix
+     * @param c_ineq Inequality constraint offset
+     * @param L Left complementarity matrix
+     * @param l Left complementarity offset
+     * @param R Right complementarity matrix
+     * @param r Right complementarity offset
+     */
     Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
             Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
             Mat L, Vec l, Mat R, Vec r);
 
-    /* Returns the objective given primal variables z*/
+    /**
+     * Evaluate the quadratic objective
+     *
+     * @param z Primal decision vector
+     * @return Objective value at z
+     */
     double obj(const Vec& z) const;
 
-    /* Returns the residual of the equality constraints */
+    /**
+     * Evaluate equality residuals
+     *
+     * @param z Primal decision vector
+     * @return J_eq * z + c_eq
+     */
     Vec residual_eq(const Vec& z) const;
 
-    /* Returns the residual of the inequality constraints */
+    /**
+     * Evaluate inequality residuals
+     *
+     * @param z Primal decision vector
+     * @return J_ineq * z + c_ineq
+     */
     Vec residual_ineq(const Vec& z) const;
 
-    /* Returns L*z + l */
+    /**
+     * Evaluate left complementarity residuals
+     *
+     * @param z Primal decision vector
+     * @return L * z + l
+     */
     Vec residual_comp_L(const Vec& z) const;
 
-    /* Returns R*z + r */
+    /**
+     * Evaluate right complementarity residuals
+     *
+     * @param z Primal decision vector
+     * @return R * z + r
+     */
     Vec residual_comp_R(const Vec& z) const;
 
-    /* Returns (L*z + l) .* (R*z + r) */
+    /**
+     * Evaluate elementwise complementarity products
+     *
+     * @param z Primal decision vector
+     * @return Elementwise product of left and right complementarity residuals
+     */
     Vec residual_comp(const Vec& z) const;
 
 private:
-    // Verify all stored blocks have mutually consistent dimensions. Called from
-    // the constructors; throws std::invalid_argument on any mismatch
+    /**
+     * Check that all matrices and vectors have compatible dimensions
+     *
+     * @throws std::invalid_argument if any dimension is inconsistent
+     */
     void validate_dims() const;
 };

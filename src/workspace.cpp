@@ -24,20 +24,17 @@ Workspace::Workspace(const Problem& prob) : solution(prob.nz + prob.n_ineq + pro
     newton_step(solution.size()),
     relax_correction_step(solution.size())
 {
-    // Initialize solution to 0
     solution.setZero();
     m_eq_est.setZero();
     m_ineq_est.setZero();
     m_comp_L_est.setZero();
     m_comp_R_est.setZero();
 
-    // Initialize workspace constraint residuals
     residual_eq   = prob.J_eq * z + prob.c_eq;
     residual_ineq = prob.J_ineq * z + prob.c_ineq;
     residual_comp_L = prob.L * z + prob.l;
     residual_comp_R = prob.R * z + prob.r;
 
-    // Initialize steps to 0
     ineq_retract.setZero();
     comp_retract.setZero();
     newton_step.setZero();
