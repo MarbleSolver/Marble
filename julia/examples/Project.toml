@@ -1,4 +1,8 @@
 [deps]
+BlockDiagonals = "0a1fb500-61f7-11e9-3c65-f5ef3456f9f0"
+Combinatorics = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
+ControlSystems = "a6e380b2-a6ca-5380-bf3e-84a91bcd477e"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 Marble = "b3638fc0-1f6f-44b7-b12a-1e2f3108bdcf"
 NLPModelsJuMP = "792afdf1-32c1-5681-94e0-d7bf7a5df49e"

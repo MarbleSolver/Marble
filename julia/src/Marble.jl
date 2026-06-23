@@ -15,31 +15,24 @@ module Marble
         @initcxx
     end
 
+    function setup!(solver::Marble.Solver, problem::NamedTuple; kwargs...)
+        @assert [:ind_cc1, :ind_cc2] ⊆ keys(problem) "problem must have keys :ind_cc1, :ind_cc2"
+        @assert :model ∈ keys(problem) || :nlp ∈ keys(problem) "problem must have key :model or :nlp"
+        
+        if :model ∈ keys(problem)
+            setup!(solver, problem.model, problem.ind_cc1, problem.ind_cc2, problem.cc_types; kwargs...)
+        else
+            setup!(solver, problem.nlp, problem.ind_cc1, problem.ind_cc2, problem.cc_types; kwargs...)
+        end
+    end
+
     function setup!(solver::Marble.Solver, model::Model, ind_cc1, ind_cc2, cc_type; kwargs...)
         Marble.update_settings!(solver; kwargs...)
         setup!(solver, MathOptNLPModel(model), ind_cc1, ind_cc2, cc_type; kwargs...)
         return nothing
     end
 
-    function setup!(solver::Marble.Solver, model::Model, complementarity_blocks; kwargs...)
-        Marble.update_settings!(solver; kwargs...)
-        opts = Marble.options(solver)
-        data = jump_to_marble(model, complementarity_blocks)
-        _set_problem!(solver, opts, data.Q, data.q, data.c0,
-                      data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
-        return nothing
-    end
-
-    function setup!(solver::Marble.Solver, cache::JumpMPCCModel; kwargs...)
-        Marble.update_settings!(solver; kwargs...)
-        opts = Marble.options(solver)
-        data = jump_to_marble(cache)
-        _set_problem!(solver, opts, data.Q, data.q, data.c0,
-                      data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
-        return nothing
-    end
-
-    function setup!(solver::Marble.Solver,nlp::AbstractNLPModel, ind_cc1, ind_cc2, cc_type; kwargs...)
+    function setup!(solver::Marble.Solver, nlp::AbstractNLPModel, ind_cc1, ind_cc2, cc_type; kwargs...)
         Marble.update_settings!(solver; kwargs...)
         opts = Marble.options(solver)
         data = jump_to_marble(nlp, ind_cc1, ind_cc2, cc_type)

@@ -4,39 +4,46 @@
     {
       "name": "python",
       "displayName": "Python bindings only",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/cmake/python",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":   "Release",
+        "FETCHCONTENT_UPDATES_DISCONNECTED": "ON",
         "MARBLE_BUILD_PYTHON":  "ON",
         "MARBLE_BUILD_JULIA":   "OFF",
-        "MARBLE_GENERATE_PYI":  "ON"
+        "MARBLE_GENERATE_PYI":  "ON",
+        "MARBLE_PYTHON_PACKAGE_DIR": "${sourceDir}/build/python/marble"
       }
     },
     {
       "name": "julia",
       "displayName": "Julia bindings only (requires Julia + CxxWrap.jl)",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/cmake/julia",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":   "Release",
+        "FETCHCONTENT_UPDATES_DISCONNECTED": "ON",
         "MARBLE_BUILD_PYTHON":  "OFF",
-        "MARBLE_BUILD_JULIA":   "ON"
+        "MARBLE_BUILD_JULIA":   "ON",
+        "MARBLE_JULIA_LIB_DIR": "${sourceDir}/build/julia/lib"
       }
     },
     {
       "name": "all",
       "displayName": "Python + Julia bindings (requires Julia + CxxWrap.jl)",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/cmake/all",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":   "Release",
+        "FETCHCONTENT_UPDATES_DISCONNECTED": "ON",
         "MARBLE_BUILD_PYTHON":  "ON",
         "MARBLE_BUILD_JULIA":   "ON",
-        "MARBLE_GENERATE_PYI":  "ON"
+        "MARBLE_GENERATE_PYI":  "ON",
+        "MARBLE_PYTHON_PACKAGE_DIR": "${sourceDir}/build/python/marble",
+        "MARBLE_JULIA_LIB_DIR": "${sourceDir}/build/julia/lib"
       }
     }
   ],
   "buildPresets": [
-    { "name": "python", "configurePreset": "python" },
-    { "name": "julia",  "configurePreset": "julia"  },
+    { "name": "python", "configurePreset": "python", "targets": ["marble_python"] },
+    { "name": "julia",  "configurePreset": "julia",  "targets": ["marble_julia"]  },
     { "name": "all",    "configurePreset": "all"    }
   ]
 }
