@@ -15,11 +15,7 @@ module Marble
         @initcxx
     end
 
-    # Utility functions for problem construction with JuMP
-    include("jump_mpcc.jl")
-    include("jump_mpcc2.jl")
-
-    function setup!(solver::Marble.Solver,model::Model, ind_cc1, ind_cc2, cc_type; kwargs...)
+    function setup!(solver::Marble.Solver, model::Model, ind_cc1, ind_cc2, cc_type; kwargs...)
         Marble.update_settings!(solver; kwargs...)
         setup!(solver, MathOptNLPModel(model), ind_cc1, ind_cc2, cc_type; kwargs...)
         return nothing
@@ -193,12 +189,11 @@ module Marble
     # Utility functions for problem construction with JuMP
     include("jump_mpcc.jl")
 
-    export nlp_con_row_map, nlp_var_col_map, ComplementarityIndexBuilder
+    export ComplementarityIndexBuilder, complementarity_indices
     export add_complementarities!
     export add_var_var_complementarities!, add_var_con_complementarities!
     export add_con_var_complementarities!, add_con_con_complementarities!
-    export complementarity_indices, var_var_complementarities, var_con_complementarities, con_con_complementarities
-    export var_inds, reformulate_sos1
+    export reformulate_sos1, var_inds
 
     # Functions to convert stuff to MarbleData
     include("conversion.jl")
