@@ -9,7 +9,7 @@ from ._core import (
     Filter,
     FilterEntry,
     LdltSystem,
-    MarbleKKTSystem,
+    KKTSystem,
     Problem,
     RelaxationMap,
     SolveResult,

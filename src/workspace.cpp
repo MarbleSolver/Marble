@@ -1,14 +1,27 @@
 #include "workspace.h"
+#include "kkt_system.h"
 #include <algorithm>
 
-Workspace::Workspace(const Problem& prob) : solution(prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq + prob.n_ineq + 2 * prob.n_comp),
-    z(solution.data(), prob.nz),
-    s_ineq(solution.data() + prob.nz, prob.n_ineq),
-    s_comp(solution.data() + prob.nz + prob.n_ineq, prob.n_comp),
-    m_eq(solution.data() + prob.nz + prob.n_ineq + prob.n_comp, prob.n_eq),
-    m_ineq(solution.data() + prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq, prob.n_ineq),
-    m_comp_L(solution.data() + prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq + prob.n_ineq, prob.n_comp),
-    m_comp_R(solution.data() + prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq + prob.n_ineq + prob.n_comp, prob.n_comp),
+namespace {
+
+template <typename Indices>
+double* slice_ptr(Vec& x, const Indices& inds) {
+    return x.data() + (inds.size() ? inds[0] : 0);
+}
+
+}  // namespace
+
+Workspace::Workspace(const Problem& prob)
+    : Workspace(prob, KKTSystem::KKTIndices(prob)) {}
+
+Workspace::Workspace(const Problem& prob, const KKTSystem::KKTIndices& inds) : solution(inds.n_vars),
+    z(slice_ptr(solution, inds.z), inds.z.size()),
+    s_ineq(slice_ptr(solution, inds.s_ineq), inds.s_ineq.size()),
+    s_comp(slice_ptr(solution, inds.s_comp), inds.s_comp.size()),
+    m_eq(slice_ptr(solution, inds.m_eq), inds.m_eq.size()),
+    m_ineq(slice_ptr(solution, inds.m_ineq), inds.m_ineq.size()),
+    m_comp_L(slice_ptr(solution, inds.m_comp_L), inds.m_comp_L.size()),
+    m_comp_R(slice_ptr(solution, inds.m_comp_R), inds.m_comp_R.size()),
     m_eq_est(prob.n_eq),
     m_ineq_est(prob.n_ineq),
     m_comp_L_est(prob.n_comp),

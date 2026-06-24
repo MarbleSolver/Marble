@@ -94,7 +94,7 @@ public:
     std::shared_ptr<Workspace> workspace{nullptr};
     Filter filter;
 
-    std::unique_ptr<MarbleKKTSystem> kkt_system;
+    std::unique_ptr<KKTSystem> kkt_system;
 
     /**
      * Construct an empty solver

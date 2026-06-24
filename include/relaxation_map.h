@@ -7,7 +7,7 @@
 /**
  * Cached values for the relaxation map evaluated at one slack vector
  */
-struct RelaxedSlackValues {
+struct RelaxedSlackCache {
     Vec b;                    // b_kappa(x)
     Vec b_neg;                // b_kappa(-x)
     Vec b_prime;              // b'_kappa(x)
@@ -22,14 +22,14 @@ struct RelaxedSlackValues {
     /**
      * Construct an empty cache
      */
-    RelaxedSlackValues() = default;
+    RelaxedSlackCache() = default;
 
     /**
      * Allocate all cached vectors
      *
      * @param n Number of slack entries
      */
-    explicit RelaxedSlackValues(Eigen::Index n) { resize(n); }
+    explicit RelaxedSlackCache(Eigen::Index n) { resize(n); }
 
     /**
      * Resize every cached vector
@@ -114,7 +114,7 @@ public:
      * @param kappa Relaxation parameter
      * @return Cached values for x and -x
      */
-    RelaxedSlackValues values(const Eigen::Ref<const Vec>& x, double kappa) const;
+    RelaxedSlackCache values(const Eigen::Ref<const Vec>& x, double kappa) const;
 
     /**
      * Evaluate all relaxation values into existing storage
@@ -124,7 +124,7 @@ public:
      * @param out Cache to resize and fill
      */
     void evaluate(const Eigen::Ref<const Vec>& x, double kappa,
-                  RelaxedSlackValues& out) const;
+                  RelaxedSlackCache& out) const;
 
 private:
     /**

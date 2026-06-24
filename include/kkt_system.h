@@ -6,39 +6,48 @@
 #include <cmath>
 
 #include "problem.h"
-#include "workspace.h"
 #include "ldlt_system.h"
 
-class MarbleKKTSystem {
-    private:
-        struct KktVariableIndices {
-            const Eigen::VectorXi z;
-            const Eigen::VectorXi v;
-            const Eigen::VectorXi sigma;
-            const Eigen::VectorXi m_eq;
-            const Eigen::VectorXi m_ineq;
-            const Eigen::VectorXi m_comp_L;
-            const Eigen::VectorXi m_comp_R;
+class Workspace;
+
+class KKTSystem {
+    public:
+        /**
+         * Shared slices for the stacked KKT vector
+         */
+        struct KKTIndices {
+            using Range = decltype(Eigen::seqN(Eigen::Index(0), Eigen::Index(0)));
+
+            const Range z;
+            const Range s_ineq;
+            const Range s_comp;
+            const Range m_eq;
+            const Range m_ineq;
+            const Range m_comp_L;
+            const Range m_comp_R;
+
+            const int n_primals;
+            const int n_duals;
+            const int n_vars;
 
             /**
-             * Build logical variable index ranges from problem dimensions
+             * Build contiguous slices from problem dimensions
              *
              * @param prob Problem whose dimensions define the KKT layout
              */
-            explicit KktVariableIndices(const std::shared_ptr<const Problem>& prob);
+            explicit KKTIndices(const Problem& prob)
+                : z       (Eigen::seqN(Eigen::Index(0), Eigen::Index(prob.nz))),
+                  s_ineq  (Eigen::seqN(Eigen::Index(prob.nz), Eigen::Index(prob.n_ineq))),
+                  s_comp  (Eigen::seqN(Eigen::Index(prob.nz + prob.n_ineq), Eigen::Index(prob.n_comp))),
+                  m_eq    (Eigen::seqN(Eigen::Index(prob.nz + prob.n_ineq + prob.n_comp), Eigen::Index(prob.n_eq))),
+                  m_ineq  (Eigen::seqN(Eigen::Index(prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq), Eigen::Index(prob.n_ineq))),
+                  m_comp_L(Eigen::seqN(Eigen::Index(prob.nz + 2 * prob.n_ineq + prob.n_comp + prob.n_eq), Eigen::Index(prob.n_comp))),
+                  m_comp_R(Eigen::seqN(Eigen::Index(prob.nz + 2 * prob.n_ineq + 2 * prob.n_comp + prob.n_eq), Eigen::Index(prob.n_comp))),
+                  n_primals(prob.nz + prob.n_ineq + prob.n_comp),
+                  n_duals(prob.n_eq + prob.n_ineq + 2 * prob.n_comp),
+                  n_vars(n_primals + n_duals) {}
         };
 
-        struct ResidualEquationIndices {
-            const Eigen::VectorXi& z_stat;
-            const Eigen::VectorXi& v_stat;
-            const Eigen::VectorXi& sigma_stat;
-            const Eigen::VectorXi& pd_eq;
-            const Eigen::VectorXi& pd_ineq;
-            const Eigen::VectorXi& pd_comp_L;
-            const Eigen::VectorXi& pd_comp_R;
-        };
-
-    public:
         const int n_primals, n_duals, n_vars;
 
         // The problem that this KKT system corresponds to
@@ -49,30 +58,30 @@ class MarbleKKTSystem {
 
         double primal_regularizer = 0.0; // Current regularization value for inertia correction
 
-        struct KktBlocks {
-            LdltSystem::Block* hessian             = nullptr;  // (z, z)
-            LdltSystem::Block* J_eq_T              = nullptr;  // (z, m_eq)
-            LdltSystem::Block* J_ineq_T            = nullptr;  // (z, m_ineq)
-            LdltSystem::Block* L_T                 = nullptr;  // (z, m_comp_L)
-            LdltSystem::Block* R_T                 = nullptr;  // (z, m_comp_R)
+        // Accessors into the LDLT mat blocks
+        struct KKTBlocks {
+            LdltSystem::SparseBlock* hessian             = nullptr;  // (z, z)
+            LdltSystem::SparseBlock* J_eq_T              = nullptr;  // (z, m_eq)
+            LdltSystem::SparseBlock* J_ineq_T            = nullptr;  // (z, m_ineq)
+            LdltSystem::SparseBlock* L_T                 = nullptr;  // (z, m_comp_L)
+            LdltSystem::SparseBlock* R_T                 = nullptr;  // (z, m_comp_R)
 
-            LdltSystem::Block* v_stat_v            = nullptr;  // (v, v)
-            LdltSystem::Block* v_stat_m_ineq       = nullptr;  // (v, m_ineq)
-            LdltSystem::Block* sigma_stat_sigma    = nullptr;  // (sigma, sigma)
-            LdltSystem::Block* sigma_stat_m_comp_L = nullptr;  // (sigma, m_comp_L)
-            LdltSystem::Block* sigma_stat_m_comp_R = nullptr;  // (sigma, m_comp_R)
+            LdltSystem::SparseBlock* s_ineq_stat_s_ineq  = nullptr;  // (s_ineq, s_ineq)
+            LdltSystem::SparseBlock* s_ineq_stat_m_ineq  = nullptr;  // (s_ineq, m_ineq)
+            LdltSystem::SparseBlock* s_comp_stat_s_comp  = nullptr;  // (s_comp, s_comp)
+            LdltSystem::SparseBlock* s_comp_stat_m_comp_L = nullptr; // (s_comp, m_comp_L)
+            LdltSystem::SparseBlock* s_comp_stat_m_comp_R = nullptr; // (s_comp, m_comp_R)
 
-            LdltSystem::Block* pd_eq               = nullptr;  // (m_eq, m_eq)
-            LdltSystem::Block* pd_ineq             = nullptr;  // (m_ineq, m_ineq)
-            LdltSystem::Block* pd_comp_L           = nullptr;  // (m_comp_L, m_comp_L)
-            LdltSystem::Block* pd_comp_R           = nullptr;  // (m_comp_R, m_comp_R)
+            LdltSystem::SparseBlock* m_eq_m_eq            = nullptr;  // (m_eq, m_eq)
+            LdltSystem::SparseBlock* m_ineq_m_ineq        = nullptr;  // (m_ineq, m_ineq)
+            LdltSystem::SparseBlock* m_comp_L_m_comp_L    = nullptr;  // (m_comp_L, m_comp_L)
+            LdltSystem::SparseBlock* m_comp_R_m_comp_R    = nullptr;  // (m_comp_R, m_comp_R)
 
-            LdltSystem::Block* primal_reg          = nullptr;  // diag(z, v, sigma)
+            LdltSystem::SparseBlock* primal_reg           = nullptr;  // diag(z, s_ineq, s_comp)
         };
 
-        KktVariableIndices variable_inds;
-        ResidualEquationIndices residual_inds;
-        KktBlocks blocks;
+        KKTIndices inds;
+        KKTBlocks blocks;
 
         /**
          * Create a KKT system from problem dimensions and workspace storage
@@ -80,7 +89,7 @@ class MarbleKKTSystem {
          * @param prob Problem data
          * @param workspace Solver workspace
          */
-        MarbleKKTSystem(std::shared_ptr<const Problem> prob,
+        KKTSystem(std::shared_ptr<const Problem> prob,
                         std::shared_ptr<const Workspace> workspace);
 
         /**
@@ -92,14 +101,14 @@ class MarbleKKTSystem {
          * Compute Ruiz equilibration scaling from problem data
          *
          * @param niter Number of Ruiz iterations
-         * @return Logical-indexed scaling vector
+         * @return Problem-indexed scaling vector
          */
         Vec ruiz_equilibration(int niter) const;
 
         /**
          * Build the LDLT system and seed constant KKT blocks
          *
-         * @param s Logical-indexed Ruiz scaling vector
+         * @param s Problem-indexed Ruiz scaling vector
          */
         void build(const Vec& s);
 
@@ -147,7 +156,7 @@ class MarbleKKTSystem {
         double inertia_correction();
 
         /**
-         * Solve the factored KKT system in logical coordinates
+         * Solve the factored KKT system in problem coordinates
          *
          * @param step Output solution vector
          * @param rhs Right-hand side vector

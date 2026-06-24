@@ -21,7 +21,7 @@ void Solver::set_problem(Problem problem, Solver::Options& options) {
     this->options = options;
 
     // Initialize KKT system with fixed sparsity pattern
-    this->kkt_system = std::make_unique<MarbleKKTSystem>(this->prob, this->workspace);
+    this->kkt_system = std::make_unique<KKTSystem>(this->prob, this->workspace);
 
     // Build the KKT system with Ruiz scaling from problem data
     const Vec s = this->kkt_system->ruiz_equilibration(options.ruiz_iters);
@@ -75,8 +75,8 @@ Filter::Entry Solver::entry_from_solution() const {
     require_problem_set("entry_from_solution");
 
     double inv_penalty_param = 1.0 / workspace->penalty_param;
-    const RelaxedSlackValues ineq = workspace->ineq_retract;
-    const RelaxedSlackValues comp = workspace->comp_retract;
+    const RelaxedSlackCache ineq = workspace->ineq_retract;
+    const RelaxedSlackCache comp = workspace->comp_retract;
 
     Vec m_eq_primal_feas = workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
 

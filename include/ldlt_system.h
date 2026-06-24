@@ -12,7 +12,7 @@
 #include "utils.h"
 
 /**
- * Fixed-pattern symmetric system stored as P^T S K S P for QDLDL
+ * Fixed-pattern symmetric system represented internally as P^T S K S P for QDLDL
  */
 class LdltSystem {
 public:
@@ -25,53 +25,53 @@ public:
     using Coords  = std::vector<std::pair<Index, Index>>;
 
     /**
-     * Handle to a fixed set of logical matrix entries
+     * Handle to a fixed set of problem-space matrix entries
      */
-    class Block {
+    class SparseBlock {
     public:
         /**
          * Construct an empty block handle
          */
-        Block() = default;
+        SparseBlock() = default;
 
         /**
-         * Overwrite block entries with logical unscaled values
+         * Overwrite block entries with problem-space nonzero values
          *
-         * @param v Values in declaration order
+         * @param nzval Nonzero values in declaration order
          */
-        void set(const Eigen::Ref<const Vec>& v) const {
-            assert(parent_ && parent_->built_ && "use a Block only after build()");
-            parent_->nz()(idx_) = v.cwiseProduct(scale_);
+        void set(const Eigen::Ref<const Vec>& nzval) const {
+            assert(owner && owner->is_built && "use a SparseBlock only after build()");
+            owner->nonzeros()(internal_nz_indices) = nzval.cwiseProduct(scale);
         }
 
         /**
-         * Overwrite every block entry with one logical unscaled scalar
+         * Overwrite every block entry with one problem-space scalar
          *
          * @param c Value to write to each entry
          */
         void set(Scalar c) const {
-            assert(parent_ && parent_->built_ && "use a Block only after build()");
-            parent_->nz()(idx_) = c * scale_;
+            assert(owner && owner->is_built && "use a SparseBlock only after build()");
+            owner->nonzeros()(internal_nz_indices) = c * scale;
         }
 
         /**
-         * Add logical unscaled values to block entries
+         * Add problem-space nonzero values to block entries
          *
-         * @param v Values in declaration order
+         * @param nzval Nonzero values in declaration order
          */
-        void add(const Eigen::Ref<const Vec>& v) const {
-            assert(parent_ && parent_->built_ && "use a Block only after build()");
-            parent_->nz()(idx_) += v.cwiseProduct(scale_);
+        void add(const Eigen::Ref<const Vec>& nzval) const {
+            assert(owner && owner->is_built && "use a SparseBlock only after build()");
+            owner->nonzeros()(internal_nz_indices) += nzval.cwiseProduct(scale);
         }
 
         /**
-         * Add one logical unscaled scalar to every block entry
+         * Add one problem-space scalar to every block entry
          *
          * @param c Value to add to each entry
          */
         void add(Scalar c) const {
-            assert(parent_ && parent_->built_ && "use a Block only after build()");
-            parent_->nz()(idx_) += c * scale_;
+            assert(owner && owner->is_built && "use a SparseBlock only after build()");
+            owner->nonzeros()(internal_nz_indices) += c * scale;
         }
 
         /**
@@ -80,15 +80,17 @@ public:
          * @return Entry count
          */
         Index size() const {
-            return static_cast<Index>(coords_.size() ? coords_.size() : idx_.size());
+            return static_cast<Index>(problem_coords.size()
+                                      ? problem_coords.size()
+                                      : internal_nz_indices.size());
         }
 
     private:
         friend class LdltSystem;
-        LdltSystem* parent_ = nullptr;
-        Coords coords_;
-        IVec idx_;
-        Vec scale_;
+        LdltSystem* owner = nullptr;  // matrix that owns this block
+        Coords problem_coords;        // problem-space entries, kept until build()
+        IVec internal_nz_indices;     // positions into mat.valuePtr() after build()
+        Vec scale;                    // cached scaling_vec[row] * scaling_vec[col]
     };
 
     /**
@@ -96,7 +98,7 @@ public:
      *
      * @param n Matrix dimension
      */
-    LdltSystem(Index n) : n_(n) {}
+    LdltSystem(Index n) : dim(n) {}
 
     LdltSystem(const LdltSystem&)            = delete;
     LdltSystem& operator=(const LdltSystem&) = delete;
@@ -104,80 +106,81 @@ public:
     LdltSystem& operator=(LdltSystem&&)      = delete;
 
     /**
-     * Declare arbitrary logical matrix entries
+     * Declare arbitrary problem-space matrix entries
      *
-     * @param coords Logical row and column coordinates
+     * @param coords Problem-space row and column coordinates
      * @return Stable block handle, usable after build()
      */
-    Block& add_entries(const Coords& coords) {
-        assert(!built_ && "declare all blocks before build()");
-        blocks_.push_back(std::make_unique<Block>());
-        Block& b = *blocks_.back();
-        b.parent_ = this;
-        b.coords_ = coords;
-        return b;
+    SparseBlock& add_block(const Coords& coords) {
+        assert(!is_built && "declare all blocks before build()");
+        sparse_blocks.push_back(std::make_unique<SparseBlock>());
+        SparseBlock& block = *sparse_blocks.back();
+        block.owner = this;
+        block.problem_coords = coords;
+        return block;
     }
 
     /**
-     * Declare diagonal entries for logical indices
+     * Declare diagonal entries for problem-space indices
      *
-     * @param logical_idx Logical indices whose diagonal entries are declared
+     * @param problem_idx Problem-space indices whose diagonal entries are declared
      * @return Stable block handle, usable after build()
      */
-    Block& add_diagonal(const IVec& logical_idx) {
-        Coords c;
-        c.reserve(logical_idx.size());
-        for (Index k = 0; k < logical_idx.size(); ++k) {
-            c.emplace_back(logical_idx[k], logical_idx[k]);
+    template <typename Indices>
+    SparseBlock& add_block_diagonal(const Indices& problem_idx) {
+        Coords coords;
+        coords.reserve(problem_idx.size());
+        for (Index k = 0; k < problem_idx.size(); ++k) {
+            coords.emplace_back(problem_idx[k], problem_idx[k]);
         }
-        return add_entries(c);
+        return add_block(coords);
     }
 
     /**
-     * Finalize sparsity, AMD ordering, scaling, and symbolic factorization
+     * Finalize sparsity, ordering, scaling, and symbolic factorization
      *
-     * @param s Logical-indexed scaling vector
+     * @param scaling Problem-space Ruiz scaling vector
      */
-    void build(const Vec& s) {
-        assert(!built_ && "build() once");
-        assert(s.size() == n_ && "Ruiz scaling vector must have length n");
-        s_ = s;
-        stored_rhs_.resize(n_);
+    void build(const Vec& scaling) {
+        assert(!is_built && "build() once");
+        assert(scaling.size() == dim && "Ruiz scaling vector must have length n");
+        scaling_vec = scaling;
+        internal_rhs.resize(dim);
 
-        std::vector<Triplet> pat;
-        for (const auto& bp : blocks_) {
-            for (const auto& c : bp->coords_) {
-                Index i = c.first;
-                Index j = c.second;
+        // Merge declared problem-space blocks into a symmetric upper pattern
+        std::vector<Triplet> problem_pattern;
+        for (const auto& block_ptr : sparse_blocks) {
+            for (const auto& coord : block_ptr->problem_coords) {
+                Index i = coord.first;
+                Index j = coord.second;
                 if (i > j) std::swap(i, j);
-                pat.emplace_back(i, j, Scalar(0));
+                problem_pattern.emplace_back(i, j, Scalar(0));
             }
         }
-        SMat Ku(n_, n_);
-        Ku.setFromTriplets(pat.begin(), pat.end());
-        Ku.makeCompressed();
+        SMat problem_upper(dim, dim);
+        problem_upper.setFromTriplets(problem_pattern.begin(), problem_pattern.end());
+        problem_upper.makeCompressed();
 
-        Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, Index> perm;
+        // AMD orders the problem-space symmetric pattern; perm maps internal slots to problem indices
+        Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, Index> perm_matrix;
         Eigen::AMDOrdering<Index> amd;
-        amd(Ku.selfadjointView<Eigen::Upper>(), perm);
-        perm_ = perm.indices();
-        iperm_.resize(n_);
-        for (Index i = 0; i < n_; ++i) iperm_[perm_[i]] = i;
+        amd(problem_upper.selfadjointView<Eigen::Upper>(), perm_matrix);
+        perm_ = perm_matrix.indices();
+        iperm_.resize(dim);
 
-        std::vector<Triplet> st;
-        st.reserve(pat.size());
-        for (const auto& t : pat) {
-            Index a = iperm_[t.row()];
-            Index b = iperm_[t.col()];
-            if (a > b) std::swap(a, b);
-            st.emplace_back(a, b, Scalar(0));
-        }
-        K_ = SMat(n_, n_);
-        K_.setFromTriplets(st.begin(), st.end());
-        K_.makeCompressed();
+        for (Index i = 0; i < dim; ++i)
+            iperm_[perm_[i]] = i;
 
-        built_ = true;
-        for (auto& bp : blocks_) resolve(*bp);
+        SMat internal_full(dim, dim);
+        internal_full = problem_upper.selfadjointView<Eigen::Upper>().twistedBy(perm_matrix.inverse());
+        mat = internal_full.triangularView<Eigen::Upper>();
+        mat.makeCompressed();
+
+        // Resolve each sparse block to value slots and scaling factors
+        is_built = true;
+        for (auto& block_ptr : sparse_blocks) bind_block(*block_ptr);
+
+        // QDLDL reuses this symbolic data for every numeric refactorization
         symbolic_factorize();
     }
 
@@ -186,38 +189,37 @@ public:
      *
      * @return True after build()
      */
-    bool built() const { return built_; }
+    bool built() const { return is_built; }
 
     /**
-     * Numerically factorize the current stored matrix values
+     * Numerically factorize the current internal matrix values
      *
      * @param count Optional unused counter pointer
      * @return True when QDLDL succeeds
      */
-    bool factorize(int *count=nullptr) {
-        (void)count;
+    bool factorize() {
         const QDLDL_int status = QDLDL_factor(
-            n_, Ap_.data(), Ai_.data(), K_.valuePtr(),
-            Lp_.data(), Li_.data(), Lx_.data(), D_.data(), Dinv_.data(),
-            Lnz_.data(), etree_.data(), bwork_.data(), iwork_.data(), fwork_.data());
+            dim, Ap.data(), Ai.data(), mat.valuePtr(),
+            Lp.data(), Li.data(), Lx.data(), D.data(), Dinv.data(),
+            Lnz.data(), etree.data(), bwork.data(), iwork.data(), fwork.data());
         return status != -1;
     }
 
     /**
-     * Solve K x = b in logical coordinates using the current factorization
+     * Solve K x = b in problem coordinates using the current factorization
      *
      * @param x Output solution vector
-     * @param b Logical unscaled right-hand side
+     * @param b Problem-space right-hand side
      */
     void solve(Vec& x, const Vec& b) {
-        assert(b.size() == n_ && "rhs must have length n");
-        assert(stored_rhs_.size() == n_ && "stored_rhs_ must have length n");
-        assert(x.size() == n_ && "solution must have length n");
+        assert(b.size() == dim && "rhs must have length n");
+        assert(internal_rhs.size() == dim && "internal_rhs must have length n");
+        assert(x.size() == dim && "solution must have length n");
 
-        logical_to_stored(b, stored_rhs_);
-        QDLDL_solve(n_, Lp_.data(), Li_.data(), Lx_.data(), Dinv_.data(),
-                    stored_rhs_.data());
-        stored_to_logical(stored_rhs_, x);
+        problem_to_internal(b, internal_rhs);
+        QDLDL_solve(dim, Lp.data(), Li.data(), Lx.data(), Dinv.data(),
+                    internal_rhs.data());
+        internal_to_problem(internal_rhs, x);
     }
 
     /**
@@ -229,110 +231,110 @@ public:
      * @return True when the pivot counts match
      */
     bool check_inertia(Index n_pos, Index n_neg, double atol=1e-10) const {
-        return (D_.array() > atol).count() == n_pos &&
-               (D_.array() < -atol).count() == n_neg;
+        return (D.array() > atol).count() == n_pos &&
+               (D.array() < -atol).count() == n_neg;
     }
 
     /**
-     * Access the stored upper-triangular matrix
+     * Access the internal upper-triangular matrix
      *
-     * @return Mutable stored matrix
+     * @return Mutable internal matrix
      */
-    SMat& matrix() { return K_; }
+    SMat& matrix() { return mat; }
 
     /**
-     * Access the stored upper-triangular matrix
+     * Access the internal upper-triangular matrix
      *
-     * @return Stored matrix
+     * @return Internal matrix
      */
-    const SMat& matrix() const { return K_; }
+    const SMat& matrix() const { return mat; }
 
     /**
-     * Access the stored-to-logical permutation
+     * Access the internal-to-problem permutation
      *
      * @return Permutation indices
      */
     const IVec& perm() const { return perm_; }
 
     /**
-     * Access the logical-to-stored inverse permutation
+     * Access the problem-to-internal inverse permutation
      *
      * @return Inverse permutation indices
      */
     const IVec& iperm() const { return iperm_; }
 
     /**
-     * Access the logical-indexed scaling vector
+     * Access the problem-space scaling vector
      *
      * @return Scaling vector
      */
-    const Vec& scaling() const { return s_; }
+    const Vec& scaling() const { return scaling_vec; }
 
     /**
-     * Convert a stored vector to logical coordinates
+     * Convert an internal vector to problem coordinates
      *
-     * @param x_stored Stored-coordinate vector
-     * @param x_logical Output logical-coordinate vector
+     * @param x_internal Internal-coordinate vector
+     * @param x_problem Output problem-coordinate vector
      */
-    void stored_to_logical(const Vec& x_stored, Vec& x_logical) const {
-        x_logical = s_.cwiseProduct(x_stored(iperm_));
+    void internal_to_problem(const Vec& x_internal, Vec& x_problem) const {
+        x_problem = scaling_vec.cwiseProduct(x_internal(iperm_));
     }
 
     /**
-     * Convert a logical vector to stored coordinates
+     * Convert a problem vector to internal coordinates
      *
-     * @param x_logical Logical-coordinate vector
-     * @param x_stored Output stored-coordinate vector
+     * @param x_problem Problem-coordinate vector
+     * @param x_internal Output internal-coordinate vector
      */
-    void logical_to_stored(const Vec& x_logical, Vec& x_stored) const {
-        x_stored = (x_logical.cwiseProduct(s_))(perm_);
+    void problem_to_internal(const Vec& x_problem, Vec& x_internal) const {
+        x_internal = (x_problem.cwiseProduct(scaling_vec))(perm_);
     }
 
 private:
-    friend class Block;
+    friend class SparseBlock;
 
-    Index n_;
-    bool built_ = false;
-    SMat K_;
+    Index dim;
+    bool is_built = false;
+    SMat mat;
     IVec perm_;
     IVec iperm_;
-    Vec s_;
-    std::vector<std::unique_ptr<Block>> blocks_;
+    Vec scaling_vec;
+    std::vector<std::unique_ptr<SparseBlock>> sparse_blocks;
 
     /**
-     * Map the stored nonzero value array
+     * Map the internal nonzero value array
      *
-     * @return Mutable vector view over K_ values
+     * @return Mutable vector view over mat values
      */
-    Eigen::Map<Vec> nz() {
-        return Eigen::Map<Vec>(K_.valuePtr(), K_.nonZeros());
+    Eigen::Map<Vec> nonzeros() {
+        return Eigen::Map<Vec>(mat.valuePtr(), mat.nonZeros());
     }
 
     /**
-     * Find the stored value index of an upper-triangular stored entry
+     * Find the value index of an upper-triangular internal entry
      *
-     * @param a Stored row index
-     * @param b Stored column index
-     * @return Index into K_.valuePtr()
+     * @param a Internal row index
+     * @param b Internal column index
+     * @return Index into mat.valuePtr()
      */
     Index data_index(Index a, Index b) const {
-        const Index* outer = K_.outerIndexPtr();
-        const Index* inner = K_.innerIndexPtr();
+        const Index* outer = mat.outerIndexPtr();
+        const Index* inner = mat.innerIndexPtr();
         const Index* lo = inner + outer[b];
         const Index* hi = inner + outer[b + 1];
         const Index* p = std::lower_bound(lo, hi, a);
-        assert(p != hi && *p == a && "logical entry is not in the stored pattern");
+        assert(p != hi && *p == a && "problem entry is not in the internal pattern");
         return static_cast<Index>(p - inner);
     }
 
     /**
-     * Find the stored value index of a logical matrix entry
+     * Find the value index of a problem-space matrix entry
      *
-     * @param i Logical row index
-     * @param j Logical column index
-     * @return Index into K_.valuePtr()
+     * @param i Problem-space row index
+     * @param j Problem-space column index
+     * @return Index into mat.valuePtr()
      */
-    Index data_index_logical(Index i, Index j) const {
+    Index data_index_problem(Index i, Index j) const {
         Index a = iperm_[i];
         Index b = iperm_[j];
         if (a > b) std::swap(a, b);
@@ -340,54 +342,54 @@ private:
     }
 
     /**
-     * Resolve a declared block into stored indices and scaling factors
+     * Bind a declared block to internal value slots and scaling factors
      *
-     * @param b Block to resolve
+     * @param block Sparse block to bind
      */
-    void resolve(Block& b) {
-        const Index m = static_cast<Index>(b.coords_.size());
-        b.idx_.resize(m);
-        b.scale_.resize(m);
+    void bind_block(SparseBlock& block) {
+        const Index m = static_cast<Index>(block.problem_coords.size());
+        block.internal_nz_indices.resize(m);
+        block.scale.resize(m);
         for (Index k = 0; k < m; ++k) {
-            const Index i = b.coords_[k].first;
-            const Index j = b.coords_[k].second;
-            b.idx_[k] = data_index_logical(i, j);
-            b.scale_[k] = s_[i] * s_[j];
+            const Index i = block.problem_coords[k].first;
+            const Index j = block.problem_coords[k].second;
+            block.internal_nz_indices[k] = data_index_problem(i, j);
+            block.scale[k] = scaling_vec[i] * scaling_vec[j];
         }
-        b.coords_.clear();
-        b.coords_.shrink_to_fit();
+        block.problem_coords.clear();
+        block.problem_coords.shrink_to_fit();
     }
 
     /**
      * Build QDLDL symbolic factorization data for the fixed structure
      */
     void symbolic_factorize() {
-        const QDLDL_int nnz = static_cast<QDLDL_int>(K_.nonZeros());
-        Ap_.resize(n_ + 1);
-        Ai_.resize(nnz);
-        for (Index k = 0; k <= n_; ++k) Ap_[k] = K_.outerIndexPtr()[k];
-        for (QDLDL_int k = 0; k < nnz; ++k) Ai_[k] = K_.innerIndexPtr()[k];
+        const QDLDL_int nnz = static_cast<QDLDL_int>(mat.nonZeros());
+        Ap.resize(dim + 1);
+        Ai.resize(nnz);
+        for (Index k = 0; k <= dim; ++k) Ap[k] = mat.outerIndexPtr()[k];
+        for (QDLDL_int k = 0; k < nnz; ++k) Ai[k] = mat.innerIndexPtr()[k];
 
-        etree_.resize(n_);
-        Lnz_.resize(n_);
-        iwork_.resize(3 * n_);
-        bwork_.resize(n_);
-        fwork_.resize(n_);
-        Lp_.resize(n_ + 1);
-        D_.resize(n_);
-        Dinv_.resize(n_);
+        etree.resize(dim);
+        Lnz.resize(dim);
+        iwork.resize(3 * dim);
+        bwork.resize(dim);
+        fwork.resize(dim);
+        Lp.resize(dim + 1);
+        D.resize(dim);
+        Dinv.resize(dim);
 
-        sum_Lnz_ = QDLDL_etree(n_, Ap_.data(), Ai_.data(),
-                               iwork_.data(), Lnz_.data(), etree_.data());
-        assert(sum_Lnz_ >= 0 && "LdltSystem: not a valid upper-triangular CSC");
-        Li_.resize(sum_Lnz_);
-        Lx_.resize(sum_Lnz_);
+        sumLnz = QDLDL_etree(dim, Ap.data(), Ai.data(),
+                             iwork.data(), Lnz.data(), etree.data());
+        assert(sumLnz >= 0 && "LdltSystem: not a valid upper-triangular CSC");
+        Li.resize(sumLnz);
+        Lx.resize(sumLnz);
     }
 
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Ap_, Ai_;
-    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> etree_, Lnz_, iwork_, Lp_, Li_;
-    std::vector<QDLDL_bool> bwork_;
-    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> fwork_, Lx_, D_, Dinv_;
-    QDLDL_int sum_Lnz_ = 0;
-    Vec stored_rhs_;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> Ap, Ai;
+    Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> etree, Lnz, iwork, Lp, Li;
+    std::vector<QDLDL_bool> bwork;
+    Eigen::Matrix<QDLDL_float, Eigen::Dynamic, 1> fwork, Lx, D, Dinv;
+    QDLDL_int sumLnz = 0;
+    Vec internal_rhs;
 };

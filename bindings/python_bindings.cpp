@@ -198,41 +198,41 @@ PYBIND11_MODULE(_core, m) {
             s.solve(x, rhs);
             return x;
         }, py::arg("rhs"))
-        .def("logical_to_stored", [](const LdltSystem& s, const Vec& x_logical) {
-            Vec out = Vec::Zero(x_logical.size());
-            s.logical_to_stored(x_logical, out);
+        .def("problem_to_internal", [](const LdltSystem& s, const Vec& x_problem) {
+            Vec out = Vec::Zero(x_problem.size());
+            s.problem_to_internal(x_problem, out);
             return out;
-        }, py::arg("x_logical"))
-        .def("stored_to_logical", [](const LdltSystem& s, const Vec& x_stored) {
-            Vec out = Vec::Zero(x_stored.size());
-            s.stored_to_logical(x_stored, out);
+        }, py::arg("x_problem"))
+        .def("internal_to_problem", [](const LdltSystem& s, const Vec& x_internal) {
+            Vec out = Vec::Zero(x_internal.size());
+            s.internal_to_problem(x_internal, out);
             return out;
-        }, py::arg("x_stored"));
+        }, py::arg("x_internal"));
 
-    py::class_<MarbleKKTSystem>(m, "MarbleKKTSystem")
-        .def_property_readonly("n_primals", [](const MarbleKKTSystem& k) { return k.n_primals; })
-        .def_property_readonly("n_duals", [](const MarbleKKTSystem& k) { return k.n_duals; })
-        .def_property_readonly("n_vars", [](const MarbleKKTSystem& k) { return k.n_vars; })
-        .def_property_readonly("primal_regularizer", [](const MarbleKKTSystem& k) { return k.primal_regularizer; })
-        .def_property_readonly("residual", [](const MarbleKKTSystem& k) { return k.residual; })
-        .def_property_readonly("grad_residual_relax_param", [](const MarbleKKTSystem& k) {
+    py::class_<KKTSystem>(m, "KKTSystem")
+        .def_property_readonly("n_primals", [](const KKTSystem& k) { return k.n_primals; })
+        .def_property_readonly("n_duals", [](const KKTSystem& k) { return k.n_duals; })
+        .def_property_readonly("n_vars", [](const KKTSystem& k) { return k.n_vars; })
+        .def_property_readonly("primal_regularizer", [](const KKTSystem& k) { return k.primal_regularizer; })
+        .def_property_readonly("residual", [](const KKTSystem& k) { return k.residual; })
+        .def_property_readonly("grad_residual_relax_param", [](const KKTSystem& k) {
             return k.grad_residual_relax_param;
         })
-        .def_property_readonly("ldlt", [](MarbleKKTSystem& k) -> LdltSystem& { return k.kkt; },
+        .def_property_readonly("ldlt", [](KKTSystem& k) -> LdltSystem& { return k.kkt; },
              py::return_value_policy::reference_internal)
-        .def_property_readonly("matrix", [](const MarbleKKTSystem& k) { return smat_to_tuple(k.kkt.matrix()); })
-        .def_property_readonly("perm", [](const MarbleKKTSystem& k) { return k.kkt.perm(); })
-        .def_property_readonly("iperm", [](const MarbleKKTSystem& k) { return k.kkt.iperm(); })
-        .def_property_readonly("scaling", [](const MarbleKKTSystem& k) { return k.kkt.scaling(); })
-        .def("ruiz_equilibration", &MarbleKKTSystem::ruiz_equilibration, py::arg("niter"))
-        .def("update_residual", &MarbleKKTSystem::update_residual)
-        .def("update_kkt_system", &MarbleKKTSystem::update_kkt_system)
-        .def("update_primal_regularizer", &MarbleKKTSystem::update_primal_regularizer,
+        .def_property_readonly("matrix", [](const KKTSystem& k) { return smat_to_tuple(k.kkt.matrix()); })
+        .def_property_readonly("perm", [](const KKTSystem& k) { return k.kkt.perm(); })
+        .def_property_readonly("iperm", [](const KKTSystem& k) { return k.kkt.iperm(); })
+        .def_property_readonly("scaling", [](const KKTSystem& k) { return k.kkt.scaling(); })
+        .def("ruiz_equilibration", &KKTSystem::ruiz_equilibration, py::arg("niter"))
+        .def("update_residual", &KKTSystem::update_residual)
+        .def("update_kkt_system", &KKTSystem::update_kkt_system)
+        .def("update_primal_regularizer", &KKTSystem::update_primal_regularizer,
              py::arg("regularizer"))
-        .def("update_residual_relax_grad", &MarbleKKTSystem::update_residual_relax_grad)
-        .def("numerical_factorization", &MarbleKKTSystem::numerical_factorization)
-        .def("check_inertia", &MarbleKKTSystem::check_inertia)
-        .def("compute_step", [](MarbleKKTSystem& k, const Vec& rhs) {
+        .def("update_residual_relax_grad", &KKTSystem::update_residual_relax_grad)
+        .def("numerical_factorization", &KKTSystem::numerical_factorization)
+        .def("check_inertia", &KKTSystem::check_inertia)
+        .def("compute_step", [](KKTSystem& k, const Vec& rhs) {
             Vec step = Vec::Zero(rhs.size());
             k.compute_step(step, rhs);
             return step;
@@ -275,7 +275,7 @@ PYBIND11_MODULE(_core, m) {
         .def("get_problem", &Solver::get_problem, py::return_value_policy::reference_internal)
         .def("get_workspace", &Solver::get_workspace, py::return_value_policy::reference_internal)
         .def("get_filter", &Solver::get_filter, py::return_value_policy::reference_internal)
-        .def("get_kkt_system", [](Solver& s) -> MarbleKKTSystem& {
+        .def("get_kkt_system", [](Solver& s) -> KKTSystem& {
             s.require_problem_set("get_kkt_system");
             return *s.kkt_system;
         }, py::return_value_policy::reference_internal)

@@ -240,7 +240,7 @@ end
         @test sort(collect(Marble.iperm(kkt))) == collect(0:Marble.n_vars(kkt)-1)
     end
 
-    @testset "LDLT stored matrix equals P' S K S P" begin
+    @testset "LDLT internal matrix equals P' S K S P" begin
         solver, _ = setup_and_solve()
         Marble.update_relaxed_slack_values!(solver)
         kkt = Marble.get_kkt_system(solver)
@@ -254,17 +254,17 @@ end
         S = Diagonal(scaling)
         P = sparse(perm, 1:n, ones(n), n, n)
 
-        stored = Matrix(sparse_from_tuple(Marble.matrix(ldlt)))
+        internal = Matrix(sparse_from_tuple(Marble.matrix(ldlt)))
         expected = Matrix(triu(sparse(P' * S * K * S * P)))
-        @test isapprox(stored, expected, atol = 1e-9, rtol = 1e-9)
+        @test isapprox(internal, expected, atol = 1e-9, rtol = 1e-9)
 
-        x_logical = collect(1.0:n)
-        @test isapprox(collect(Marble.logical_to_stored(ldlt, x_logical)),
-                       P' * S * x_logical, atol = 1e-12, rtol = 1e-12)
+        x_problem = collect(1.0:n)
+        @test isapprox(collect(Marble.problem_to_internal(ldlt, x_problem)),
+                       P' * S * x_problem, atol = 1e-12, rtol = 1e-12)
 
-        x_stored = collect(1.0:n)
-        @test isapprox(collect(Marble.stored_to_logical(ldlt, x_stored)),
-                       S * P * x_stored, atol = 1e-12, rtol = 1e-12)
+        x_internal = collect(1.0:n)
+        @test isapprox(collect(Marble.internal_to_problem(ldlt, x_internal)),
+                       S * P * x_internal, atol = 1e-12, rtol = 1e-12)
     end
 
     @testset "dimension validation" begin

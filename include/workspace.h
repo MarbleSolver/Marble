@@ -5,6 +5,7 @@
 #include <Eigen/Sparse>
 #include "problem.h"
 #include "relaxation_map.h"
+#include "kkt_system.h"
 #include <cstring>
 
 /**
@@ -32,8 +33,8 @@ public:
     Vec residual_comp_L; // Left complementarity residuals
     Vec residual_comp_R; // Right complementarity residuals
 
-    RelaxedSlackValues ineq_retract; // Relaxation map values at s_ineq
-    RelaxedSlackValues comp_retract; // Relaxation map values at s_comp
+    RelaxedSlackCache ineq_retract; // Relaxation map values at s_ineq
+    RelaxedSlackCache comp_retract; // Relaxation map values at s_comp
 
     double relax_param;   // Relaxation parameter
     double penalty_param; // Augmented Lagrangian penalty parameter
@@ -48,4 +49,12 @@ public:
      * @param prob Problem whose dimensions determine the workspace layout
      */
     Workspace(const Problem& prob);
+
+    /**
+     * Allocate workspace vectors and views from shared system indices
+     *
+     * @param prob Problem whose dimensions determine cache sizes
+     * @param inds Shared layout for solution component maps
+     */
+    Workspace(const Problem& prob, const KKTSystem::KKTIndices& inds);
 };

@@ -312,43 +312,43 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             s.solve(x, b);
             return make_julia_owned<double>(std::move(x));
         })
-        .method("logical_to_stored", [](const LdltSystem& s, jlcxx::ArrayRef<double, 1> x_logical) {
-            Vec in = to_eigen(x_logical);
+        .method("problem_to_internal", [](const LdltSystem& s, jlcxx::ArrayRef<double, 1> x_problem) {
+            Vec in = to_eigen(x_problem);
             Vec out = Vec::Zero(in.size());
-            s.logical_to_stored(in, out);
+            s.problem_to_internal(in, out);
             return make_julia_owned<double>(std::move(out));
         })
-        .method("stored_to_logical", [](const LdltSystem& s, jlcxx::ArrayRef<double, 1> x_stored) {
-            Vec in = to_eigen(x_stored);
+        .method("internal_to_problem", [](const LdltSystem& s, jlcxx::ArrayRef<double, 1> x_internal) {
+            Vec in = to_eigen(x_internal);
             Vec out = Vec::Zero(in.size());
-            s.stored_to_logical(in, out);
+            s.internal_to_problem(in, out);
             return make_julia_owned<double>(std::move(out));
         });
 
-    mod.add_type<MarbleKKTSystem>("MarbleKKTSystem")
-        .method("n_primals", [](const MarbleKKTSystem& k) { return k.n_primals; })
-        .method("n_duals", [](const MarbleKKTSystem& k) { return k.n_duals; })
-        .method("n_vars", [](const MarbleKKTSystem& k) { return k.n_vars; })
-        .method("primal_regularizer", [](const MarbleKKTSystem& k) { return k.primal_regularizer; })
-        .method("residual", [](const MarbleKKTSystem& k) { return make_julia_owned<double>(k.residual); })
-        .method("grad_residual_relax_param", [](const MarbleKKTSystem& k) {
+    mod.add_type<KKTSystem>("KKTSystem")
+        .method("n_primals", [](const KKTSystem& k) { return k.n_primals; })
+        .method("n_duals", [](const KKTSystem& k) { return k.n_duals; })
+        .method("n_vars", [](const KKTSystem& k) { return k.n_vars; })
+        .method("primal_regularizer", [](const KKTSystem& k) { return k.primal_regularizer; })
+        .method("residual", [](const KKTSystem& k) { return make_julia_owned<double>(k.residual); })
+        .method("grad_residual_relax_param", [](const KKTSystem& k) {
             return make_julia_owned<double>(k.grad_residual_relax_param);
         })
-        .method("ldlt", [](MarbleKKTSystem& k) -> LdltSystem& { return k.kkt; })
-        .method("matrix", [](const MarbleKKTSystem& k) { return smat_to_julia_tuple(k.kkt.matrix()); })
-        .method("perm", [](const MarbleKKTSystem& k) { return make_julia_owned<int>(k.kkt.perm()); })
-        .method("iperm", [](const MarbleKKTSystem& k) { return make_julia_owned<int>(k.kkt.iperm()); })
-        .method("scaling", [](const MarbleKKTSystem& k) { return make_julia_owned<double>(k.kkt.scaling()); })
-        .method("ruiz_equilibration", [](const MarbleKKTSystem& k, int niter) {
+        .method("ldlt", [](KKTSystem& k) -> LdltSystem& { return k.kkt; })
+        .method("matrix", [](const KKTSystem& k) { return smat_to_julia_tuple(k.kkt.matrix()); })
+        .method("perm", [](const KKTSystem& k) { return make_julia_owned<int>(k.kkt.perm()); })
+        .method("iperm", [](const KKTSystem& k) { return make_julia_owned<int>(k.kkt.iperm()); })
+        .method("scaling", [](const KKTSystem& k) { return make_julia_owned<double>(k.kkt.scaling()); })
+        .method("ruiz_equilibration", [](const KKTSystem& k, int niter) {
             return make_julia_owned<double>(k.ruiz_equilibration(niter));
         })
-        .method("update_residual!", &MarbleKKTSystem::update_residual)
-        .method("update_kkt_system!", &MarbleKKTSystem::update_kkt_system)
-        .method("update_primal_regularizer!", &MarbleKKTSystem::update_primal_regularizer)
-        .method("update_residual_relax_grad!", &MarbleKKTSystem::update_residual_relax_grad)
-        .method("numerical_factorization!", &MarbleKKTSystem::numerical_factorization)
-        .method("check_inertia", &MarbleKKTSystem::check_inertia)
-        .method("compute_step", [](MarbleKKTSystem& k, jlcxx::ArrayRef<double, 1> rhs) {
+        .method("update_residual!", &KKTSystem::update_residual)
+        .method("update_kkt_system!", &KKTSystem::update_kkt_system)
+        .method("update_primal_regularizer!", &KKTSystem::update_primal_regularizer)
+        .method("update_residual_relax_grad!", &KKTSystem::update_residual_relax_grad)
+        .method("numerical_factorization!", &KKTSystem::numerical_factorization)
+        .method("check_inertia", &KKTSystem::check_inertia)
+        .method("compute_step", [](KKTSystem& k, jlcxx::ArrayRef<double, 1> rhs) {
             Vec b = to_eigen(rhs);
             Vec step = Vec::Zero(b.size());
             k.compute_step(step, b);
@@ -391,8 +391,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("get_problem", &Solver::get_problem)
         .method("get_workspace", &Solver::get_workspace)
         .method("get_filter", &Solver::get_filter)
-        .method("get_kkt_system", [](Solver& s) -> MarbleKKTSystem& {
-            return julia_call([&]() -> MarbleKKTSystem& {
+        .method("get_kkt_system", [](Solver& s) -> KKTSystem& {
+            return julia_call([&]() -> KKTSystem& {
                 s.require_problem_set("get_kkt_system");
                 return *s.kkt_system;
             });

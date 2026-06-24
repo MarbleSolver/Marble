@@ -1,6 +1,6 @@
 #include "relaxation_map.h"
 
-void RelaxedSlackValues::resize(Eigen::Index n) {
+void RelaxedSlackCache::resize(Eigen::Index n) {
     b.resize(n);
     b_neg.resize(n);
     b_prime.resize(n);
@@ -13,7 +13,7 @@ void RelaxedSlackValues::resize(Eigen::Index n) {
     d_b_neg_prime_d_kappa.resize(n);
 }
 
-void RelaxedSlackValues::setZero() {
+void RelaxedSlackCache::setZero() {
     b.setZero();
     b_neg.setZero();
     b_prime.setZero();
@@ -26,14 +26,14 @@ void RelaxedSlackValues::setZero() {
     d_b_neg_prime_d_kappa.setZero();
 }
 
-RelaxedSlackValues RelaxationMap::values(const Eigen::Ref<const Vec>& x, double kappa) const {
-    RelaxedSlackValues out(x.size());
+RelaxedSlackCache RelaxationMap::values(const Eigen::Ref<const Vec>& x, double kappa) const {
+    RelaxedSlackCache out(x.size());
     evaluate(x, kappa, out);
     return out;
 }
 
 void RelaxationMap::evaluate(const Eigen::Ref<const Vec>& x, double kappa,
-                             RelaxedSlackValues& out) const {
+                             RelaxedSlackCache& out) const {
     out.resize(x.size());
 
     const auto disc = discriminant(x, kappa);

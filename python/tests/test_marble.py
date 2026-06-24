@@ -211,7 +211,7 @@ class TestMarble(unittest.TestCase):
         np.testing.assert_array_equal(np.sort(ldlt.perm), np.arange(kkt.n_vars))
         np.testing.assert_array_equal(np.sort(ldlt.iperm), np.arange(kkt.n_vars))
 
-    def test_ldlt_stored_matrix_matches_scaled_permuted_kkt(self):
+    def test_ldlt_internal_matrix_matches_scaled_permuted_kkt(self):
         m, _ = setup_and_solve()
         m.update_relaxed_slack_values()
         kkt = m.get_kkt_system()
@@ -226,17 +226,17 @@ class TestMarble(unittest.TestCase):
         P = np.zeros((n, n))
         P[perm, np.arange(n)] = 1.0
 
-        stored = sparse_from_tuple(ldlt.matrix).toarray()
+        internal = sparse_from_tuple(ldlt.matrix).toarray()
         expected = np.triu(P.T @ S @ K @ S @ P)
-        np.testing.assert_allclose(stored, expected, atol=1e-9, rtol=1e-9)
+        np.testing.assert_allclose(internal, expected, atol=1e-9, rtol=1e-9)
 
-        x_logical = np.arange(1.0, n + 1.0)
-        np.testing.assert_allclose(ldlt.logical_to_stored(x_logical),
-                                   P.T @ S @ x_logical, atol=1e-12, rtol=1e-12)
+        x_problem = np.arange(1.0, n + 1.0)
+        np.testing.assert_allclose(ldlt.problem_to_internal(x_problem),
+                                   P.T @ S @ x_problem, atol=1e-12, rtol=1e-12)
 
-        x_stored = np.arange(1.0, n + 1.0)
-        np.testing.assert_allclose(ldlt.stored_to_logical(x_stored),
-                                   S @ P @ x_stored, atol=1e-12, rtol=1e-12)
+        x_internal = np.arange(1.0, n + 1.0)
+        np.testing.assert_allclose(ldlt.internal_to_problem(x_internal),
+                                   S @ P @ x_internal, atol=1e-12, rtol=1e-12)
 
 
 class TestDimensionValidation(unittest.TestCase):
