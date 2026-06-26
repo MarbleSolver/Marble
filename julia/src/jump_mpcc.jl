@@ -121,7 +121,7 @@ end
 # Conversion to Marble problem data
 
 """
-    jump_to_marble(mpcc::MPCC) -> NamedTuple
+    mpcc_to_marble(mpcc::MPCC) -> NamedTuple
 
 Convert an [`MPCC`](@ref) — an NLP with linear constraints and resolved
 complementarity pairs — into the matrix/vector data Marble consumes.
@@ -140,7 +140,7 @@ Returns a `NamedTuple` describing
 where the last line is the elementwise complementarity condition
 `(L x + l)_j ≥ 0`, `(R x + r)_j ≥ 0`, `(L x + l)_j (R x + r)_j = 0` for `j = 1..ncc`.
 """
-function jump_to_marble(mpcc::MPCC)
+function mpcc_to_marble(mpcc::MPCC)
     nlp = mpcc.nlp
 
     ind_cc1 = Int.(collect(mpcc.ind_cc1))

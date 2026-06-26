@@ -126,14 +126,14 @@ module Marble
 
     export MPCC, complementarity_indices
     export reformulate_sos1, var_inds
-    export jump_to_marble
+    export mpcc_to_marble
 
     # Build a Marble problem from an MPCC (defined here since it depends on
-    # both MPCC/jump_to_marble above and the _set_problem! helper).
+    # both MPCC/mpcc_to_marble above and the _set_problem! helper).
     function setup!(solver::Marble.Solver, mpcc::MPCC; kwargs...)
         Marble.update_settings!(solver; kwargs...)
         opts = Marble.options(solver)
-        data = jump_to_marble(mpcc)
+        data = mpcc_to_marble(mpcc)
         _set_problem!(solver, opts, data.Q, data.q, data.c0,
                       data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
         return nothing
