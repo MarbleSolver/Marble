@@ -43,8 +43,8 @@ Workspace::Workspace(const Problem& prob, const KKTSystem::KKTIndices& inds) : s
     m_comp_L_est.setZero();
     m_comp_R_est.setZero();
 
-    residual_eq   = prob.J_eq * z + prob.c_eq;
-    residual_ineq = prob.J_ineq * z + prob.c_ineq;
+    residual_eq   = prob.J_eq * z + prob.b_eq;
+    residual_ineq = prob.J_ineq * z + prob.b_ineq;
     residual_comp_L = prob.L * z + prob.l;
     residual_comp_R = prob.R * z + prob.r;
 
