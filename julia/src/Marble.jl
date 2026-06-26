@@ -81,10 +81,10 @@ module Marble
         :convergence_kkt_norm, :convergence_eq_violation, :convergence_ineq_violation,
         :convergence_comp_violation, :outer_step_kkt_norm,
         :penalty_initial, :penalty_max, :penalty_scaling,
-        :relax_initial, :relaxation_min, :relaxation_scaling, :use_relax_correction,
+        :relax_initial, :relax_min, :relax_scaling, :use_relax_correction,
         :max_iters, :max_iters_linesearch,
         :gamma_objective, :gamma_constraint, :ruiz_iters,
-        :verbosity, :print_every
+        :verbosity
     ]
 
     function update_settings!(solver::Marble.Solver; kwargs...)

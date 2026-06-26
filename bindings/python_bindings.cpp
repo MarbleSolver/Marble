@@ -92,8 +92,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("penalty_max", &Solver::Options::penalty_max)
         .def_readwrite("penalty_scaling", &Solver::Options::penalty_scaling)
         .def_readwrite("relax_initial", &Solver::Options::relax_initial)
-        .def_readwrite("relaxation_min", &Solver::Options::relaxation_min)
-        .def_readwrite("relaxation_scaling", &Solver::Options::relaxation_scaling)
+        .def_readwrite("relax_min", &Solver::Options::relax_min)
+        .def_readwrite("relax_scaling", &Solver::Options::relax_scaling)
         .def_readwrite("use_relax_correction", &Solver::Options::use_relax_correction)
         .def_readwrite("max_iters", &Solver::Options::max_iters)
         .def_readwrite("max_iters_linesearch", &Solver::Options::max_iters_linesearch)
@@ -101,7 +101,6 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("gamma_constraint", &Solver::Options::gamma_constraint)
         .def_readwrite("ruiz_iters", &Solver::Options::ruiz_iters)
         .def_readwrite("verbosity", &Solver::Options::verbosity)
-        .def_readwrite("print_every", &Solver::Options::print_every)
         .def("__repr__", [](const Solver::Options& o) {
             return "<SolverOptions max_iters=" + std::to_string(o.max_iters) +
                    " convergence_kkt_norm=" + std::to_string(o.convergence_kkt_norm) + ">";
@@ -285,6 +284,8 @@ PYBIND11_MODULE(_core, m) {
         .def("update_primal_residuals", &Solver::update_primal_residuals)
         .def("apply_newton_step", &Solver::apply_newton_step, py::arg("step_size"))
         .def("filter_linesearch", &Solver::filter_linesearch)
+        .def("relax_correction_linesearch", &Solver::relax_correction_linesearch,
+             py::arg("relax_param_new"))
         .def("entry_from_solution", [](const Solver& s) {
             Filter::Entry entry = s.entry_from_solution();
             return py::make_tuple(entry.feas, entry.merit);

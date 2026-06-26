@@ -197,16 +197,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(penalty_max, double)
         OPTION_RW(penalty_scaling, double)
         OPTION_RW(relax_initial, double)
-        OPTION_RW(relaxation_min, double)
-        OPTION_RW(relaxation_scaling, double)
+        OPTION_RW(relax_min, double)
+        OPTION_RW(relax_scaling, double)
         OPTION_RW(use_relax_correction, bool)
         OPTION_RW(max_iters, int)
         OPTION_RW(max_iters_linesearch, int)
         OPTION_RW(gamma_objective, double)
         OPTION_RW(gamma_constraint, double)
         OPTION_RW(ruiz_iters, int)
-        OPTION_RW(verbosity, int)
-        OPTION_RW(print_every, int);
+        OPTION_RW(verbosity, int);
 
     #undef OPTION_RW
 
@@ -402,6 +401,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("update_primal_residuals!", &Solver::update_primal_residuals)
         .method("apply_newton_step!", &Solver::apply_newton_step)
         .method("filter_linesearch!", &Solver::filter_linesearch)
+        .method("relax_correction_linesearch!", &Solver::relax_correction_linesearch)
         .method("entry_from_solution", [](const Solver& s) {
             Filter::Entry entry = s.entry_from_solution();
             return std::make_tuple(entry.feas, entry.merit);

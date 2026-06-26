@@ -2,9 +2,30 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <cstdio>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <string>
+
+namespace {
+
+void add_sparse_diagonal(Vec& out, const SMat& M) {
+    for (int c = 0; c < M.outerSize(); ++c)
+        for (SMat::InnerIterator it(M, c); it; ++it)
+            if (it.row() == c)
+                out[c] += it.value();
+}
+
+void add_sparse_column_norms_squared(Vec& out, const SMat& M, double scale) {
+    for (int c = 0; c < M.outerSize(); ++c) {
+        double norm_squared = 0.0;
+        for (SMat::InnerIterator it(M, c); it; ++it)
+            norm_squared += it.value() * it.value();
+        out[c] += scale * norm_squared;
+    }
+}
+
+} // namespace
 
 void Solver::require_problem_set(const char* caller) const {
     if (!has_problem()) {
@@ -152,6 +173,7 @@ Solver::Result Solver::solve() {
     // Initialize penalty and relax param
     workspace->penalty_param = options.penalty_initial;
     workspace->relax_param = options.relax_initial;
+
     filter.clear();
 
     int iters_outer = 0, iters_inner = 0;
@@ -182,7 +204,7 @@ Solver::Result Solver::solve() {
         if (residual_norm < beta * options.outer_step_kkt_norm) {
             iters_outer++;
 
-            if (iter > 0 && last_outer_step_iter == iter - 1 && workspace->relax_param <= options.relaxation_min) {
+            if (iter > 0 && last_outer_step_iter == iter - 1 && workspace->relax_param <= options.relax_min) {
                 beta *= 0.1;
             }
 
@@ -199,6 +221,8 @@ Solver::Result Solver::solve() {
             // Update relaxation parameter and compute first-order correction to the iterate
             else {
                 kkt_system->update_residual_relax_grad();
+
+                // TODO: right now we re-use the existing KKT factorization to compute this step
                 // kkt_system->update_kkt_system();
 
                 // if (!kkt_system->numerical_factorization()) {
@@ -208,8 +232,10 @@ Solver::Result Solver::solve() {
                 // ++factorizations;
                 // ++factorizations_ldlt;
 
-                const double relax_param_new = std::max(workspace->relax_param * options.relaxation_scaling, options.relaxation_min);
+                const double relax_param_new = std::max(workspace->relax_param * options.relax_scaling, options.relax_min);
                 const double delta = relax_param_new - workspace->relax_param;
+
+                workspace->relax_param = relax_param_new;
 
                 if (options.use_relax_correction && delta != 0.0) {
                     kkt_system->compute_step(workspace->relax_correction_step,
@@ -218,17 +244,20 @@ Solver::Result Solver::solve() {
                 } else {
                     workspace->relax_correction_step.setZero();
                 }
-
-                workspace->relax_param = relax_param_new;
             }
 
             // Clear the filter on outer steps
             filter.clear();
             last_outer_step_iter = iter;
+            kkt_system->update_primal_regularizer(0.0);
         }
         // Otherwise, continue taking newton steps
         else {
             iters_inner++;
+            kkt_system->update_kkt_system();
+            
+            // Reset step size to 0
+            workspace->newton_step_size = 0.0;
 
             auto bump_reg = [](double &r, double reg_scale) {
                 r = (r == 0.0 ? 1e-10 : reg_scale * r);
@@ -239,14 +268,8 @@ Solver::Result Solver::solve() {
             bool inertia_success = false;
             bool linesearch_success = false;
 
-            kkt_system->update_kkt_system();
+            double reg = kkt_system->primal_regularizer * 0.1;
 
-            // Initialize regularization value, clear step size before linesearch loop
-            // TODO: find a better heuristic for initializing the regularizer, maybe based on
-            // the s_comp_stationarity diagonal values
-            double reg = 0.0;
-            workspace->newton_step_size = 0.0;
-            
             while (!linesearch_success && reg <= 1e8) {
                 kkt_system->update_primal_regularizer(reg);
 

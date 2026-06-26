@@ -101,8 +101,8 @@ class SolverOptions:
     penalty_max: float
     penalty_scaling: float
     relax_initial: float
-    relaxation_min: float
-    relaxation_scaling: float
+    relax_min: float
+    relax_scaling: float
     use_relax_correction: bool
     max_iters: int
     max_iters_linesearch: int
@@ -110,7 +110,6 @@ class SolverOptions:
     gamma_constraint: float
     ruiz_iters: int
     verbosity: int
-    print_every: int
 
     def __init__(self) -> None: ...
     def __repr__(self) -> str: ...
@@ -301,6 +300,7 @@ class Solver:
     def update_primal_residuals(self) -> None: ...
     def apply_newton_step(self, step_size: float) -> None: ...
     def filter_linesearch(self) -> bool: ...
+    def relax_correction_linesearch(self, relax_param_new: float) -> bool: ...
     def entry_from_solution(self) -> tuple[float, float]: ...
     def get_options(self) -> SolverOptions: ...
 

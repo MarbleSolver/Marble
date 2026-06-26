@@ -62,9 +62,9 @@ public:
         // Initial relaxation parameter
         double relax_initial{1e-1};
         // Minimum relaxation parameter
-        double relaxation_min{1e-7};
+        double relax_min{1e-7};
         // Relaxation scaling factor
-        double relaxation_scaling{0.5};
+        double relax_scaling{0.5};
         // Apply first-order correction when decreasing relaxation
         bool use_relax_correction{true};
         // Maximum total inner plus outer iterations
@@ -79,8 +79,6 @@ public:
         int ruiz_iters{10};
         // Verbosity level
         int verbosity{0};
-        // Iteration print stride when verbosity is enabled
-        int print_every{1};
 
         /**
          * Construct options with default values
