@@ -27,9 +27,9 @@ class Problem:
         cost_gradient: numpy.ndarray,
         cost_const: float,
         J_eq: numpy.ndarray,
-        c_eq: numpy.ndarray,
+        b_eq: numpy.ndarray,
         J_ineq: numpy.ndarray,
-        c_ineq: numpy.ndarray,
+        b_ineq: numpy.ndarray,
         L: numpy.ndarray,
         l: numpy.ndarray,
         R: numpy.ndarray,
@@ -43,9 +43,9 @@ class Problem:
         cost_gradient: numpy.ndarray,
         cost_const: float,
         J_eq: scipy.sparse.csc_matrix,
-        c_eq: numpy.ndarray,
+        b_eq: numpy.ndarray,
         J_ineq: scipy.sparse.csc_matrix,
-        c_ineq: numpy.ndarray,
+        b_ineq: numpy.ndarray,
         L: scipy.sparse.csc_matrix,
         l: numpy.ndarray,
         R: scipy.sparse.csc_matrix,
@@ -76,11 +76,11 @@ class Problem:
     @property
     def J_eq(self) -> tuple[int, int, numpy.ndarray, numpy.ndarray, numpy.ndarray]: ...
     @property
-    def c_eq(self) -> numpy.ndarray: ...
+    def b_eq(self) -> numpy.ndarray: ...
     @property
     def J_ineq(self) -> tuple[int, int, numpy.ndarray, numpy.ndarray, numpy.ndarray]: ...
     @property
-    def c_ineq(self) -> numpy.ndarray: ...
+    def b_ineq(self) -> numpy.ndarray: ...
     @property
     def L(self) -> tuple[int, int, numpy.ndarray, numpy.ndarray, numpy.ndarray]: ...
     @property

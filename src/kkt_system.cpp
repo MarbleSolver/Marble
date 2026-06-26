@@ -242,11 +242,11 @@ void KKTSystem::update_dual_feasibility() {
     const RelaxedSlackCache& comp = workspace->comp_retract;
     const double inv_penalty = 1.0 / workspace->penalty_param;
 
-    // J_eq * z + c_eq - 1/rho * (m_eq - m_eq_est) = 0
+    // J_eq * z + b_eq - 1/rho * (m_eq - m_eq_est) = 0
     residual(inds.m_eq) =
         workspace->residual_eq - inv_penalty * (workspace->m_eq - workspace->m_eq_est);
 
-    // J_ineq * z + c_ineq - b(s_ineq) - 1/rho * (m_ineq - m_ineq_est) = 0
+    // J_ineq * z + b_ineq - b(s_ineq) - 1/rho * (m_ineq - m_ineq_est) = 0
     residual(inds.m_ineq) =
         workspace->residual_ineq - ineq.b -
         inv_penalty * (workspace->m_ineq - workspace->m_ineq_est);

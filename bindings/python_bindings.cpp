@@ -34,29 +34,29 @@ PYBIND11_MODULE(_core, m) {
 
     py::class_<Problem>(m, "Problem")
         .def(py::init([](const Mat& cost_hessian, const Vec& cost_gradient, double cost_const,
-                         const Mat& J_eq, const Vec& c_eq,
-                         const Mat& J_ineq, const Vec& c_ineq,
+                         const Mat& J_eq, const Vec& b_eq,
+                         const Mat& J_ineq, const Vec& b_ineq,
                          const Mat& L, const Vec& l,
                          const Mat& R, const Vec& r) {
             return new Problem(cost_hessian, cost_gradient, cost_const,
-                               J_eq, c_eq, J_ineq, c_ineq, L, l, R, r);
+                               J_eq, b_eq, J_ineq, b_ineq, L, l, R, r);
         }),
              py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
-             py::arg("J_eq"), py::arg("c_eq"),
-             py::arg("J_ineq"), py::arg("c_ineq"),
+             py::arg("J_eq"), py::arg("b_eq"),
+             py::arg("J_ineq"), py::arg("b_ineq"),
              py::arg("L"), py::arg("l"),
              py::arg("R"), py::arg("r"))
         .def(py::init([](const SMat& cost_hessian, const Vec& cost_gradient, double cost_const,
-                         const SMat& J_eq, const Vec& c_eq,
-                         const SMat& J_ineq, const Vec& c_ineq,
+                         const SMat& J_eq, const Vec& b_eq,
+                         const SMat& J_ineq, const Vec& b_ineq,
                          const SMat& L, const Vec& l,
                          const SMat& R, const Vec& r) {
             return new Problem(cost_hessian, cost_gradient, cost_const,
-                               J_eq, c_eq, J_ineq, c_ineq, L, l, R, r);
+                               J_eq, b_eq, J_ineq, b_ineq, L, l, R, r);
         }),
              py::arg("cost_hessian"), py::arg("cost_gradient"), py::arg("cost_const"),
-             py::arg("J_eq"), py::arg("c_eq"),
-             py::arg("J_ineq"), py::arg("c_ineq"),
+             py::arg("J_eq"), py::arg("b_eq"),
+             py::arg("J_ineq"), py::arg("b_ineq"),
              py::arg("L"), py::arg("l"),
              py::arg("R"), py::arg("r"))
         .def_readonly("nz", &Problem::nz)
@@ -67,9 +67,9 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("cost_gradient", [](const Problem& p) { return p.cost_gradient; })
         .def_readonly("cost_const", &Problem::cost_const)
         .def_property_readonly("J_eq", [](const Problem& p) { return smat_to_tuple(p.J_eq); })
-        .def_property_readonly("c_eq", [](const Problem& p) { return p.c_eq; })
+        .def_property_readonly("b_eq", [](const Problem& p) { return p.b_eq; })
         .def_property_readonly("J_ineq", [](const Problem& p) { return smat_to_tuple(p.J_ineq); })
-        .def_property_readonly("c_ineq", [](const Problem& p) { return p.c_ineq; })
+        .def_property_readonly("b_ineq", [](const Problem& p) { return p.b_ineq; })
         .def_property_readonly("L", [](const Problem& p) { return smat_to_tuple(p.L); })
         .def_property_readonly("l", [](const Problem& p) { return p.l; })
         .def_property_readonly("R", [](const Problem& p) { return smat_to_tuple(p.R); })

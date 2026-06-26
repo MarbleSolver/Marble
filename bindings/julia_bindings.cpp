@@ -107,15 +107,15 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .constructor([](jlcxx::ArrayRef<double, 2> cost_hessian,
                         jlcxx::ArrayRef<double, 1> cost_gradient,
                         double cost_const,
-                        jlcxx::ArrayRef<double, 2> J_eq, jlcxx::ArrayRef<double, 1> c_eq,
-                        jlcxx::ArrayRef<double, 2> J_ineq, jlcxx::ArrayRef<double, 1> c_ineq,
+                        jlcxx::ArrayRef<double, 2> J_eq, jlcxx::ArrayRef<double, 1> b_eq,
+                        jlcxx::ArrayRef<double, 2> J_ineq, jlcxx::ArrayRef<double, 1> b_ineq,
                         jlcxx::ArrayRef<double, 2> L, jlcxx::ArrayRef<double, 1> l,
                         jlcxx::ArrayRef<double, 2> R, jlcxx::ArrayRef<double, 1> r) {
             return julia_call([&]() {
                 return new Problem(
                     to_eigen(cost_hessian), to_eigen(cost_gradient), cost_const,
-                    to_eigen(J_eq), to_eigen(c_eq),
-                    to_eigen(J_ineq), to_eigen(c_ineq),
+                    to_eigen(J_eq), to_eigen(b_eq),
+                    to_eigen(J_ineq), to_eigen(b_ineq),
                     to_eigen(L), to_eigen(l),
                     to_eigen(R), to_eigen(r));
             });
@@ -127,11 +127,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
                         int n_eq,
                         jlcxx::ArrayRef<int64_t, 1> Ecp, jlcxx::ArrayRef<int64_t, 1> Erv,
                         jlcxx::ArrayRef<double, 1> Enz,
-                        jlcxx::ArrayRef<double, 1> c_eq,
+                        jlcxx::ArrayRef<double, 1> b_eq,
                         int n_ineq,
                         jlcxx::ArrayRef<int64_t, 1> Icp, jlcxx::ArrayRef<int64_t, 1> Irv,
                         jlcxx::ArrayRef<double, 1> Inz,
-                        jlcxx::ArrayRef<double, 1> c_ineq,
+                        jlcxx::ArrayRef<double, 1> b_ineq,
                         int n_comp,
                         jlcxx::ArrayRef<int64_t, 1> Lcp, jlcxx::ArrayRef<int64_t, 1> Lrv,
                         jlcxx::ArrayRef<double, 1> Lnz,
@@ -142,8 +142,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             return julia_call([&]() {
                 return new Problem(
                     csc_to_smat(nz, nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
-                    csc_to_smat(n_eq, nz, Ecp, Erv, Enz), to_eigen(c_eq),
-                    csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
+                    csc_to_smat(n_eq, nz, Ecp, Erv, Enz), to_eigen(b_eq),
+                    csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(b_ineq),
                     csc_to_smat(n_comp, nz, Lcp, Lrv, Lnz), to_eigen(l),
                     csc_to_smat(n_comp, nz, Rcp, Rrv, Rnz), to_eigen(r));
             });
@@ -156,9 +156,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("cost_gradient", [](const Problem& p) { return make_julia_owned<double>(p.cost_gradient); })
         .method("cost_const", [](const Problem& p) { return p.cost_const; })
         .method("J_eq", [](const Problem& p) { return smat_to_julia_tuple(p.J_eq); })
-        .method("c_eq", [](const Problem& p) { return make_julia_owned<double>(p.c_eq); })
+        .method("b_eq", [](const Problem& p) { return make_julia_owned<double>(p.b_eq); })
         .method("J_ineq", [](const Problem& p) { return smat_to_julia_tuple(p.J_ineq); })
-        .method("c_ineq", [](const Problem& p) { return make_julia_owned<double>(p.c_ineq); })
+        .method("b_ineq", [](const Problem& p) { return make_julia_owned<double>(p.b_ineq); })
         .method("L", [](const Problem& p) { return smat_to_julia_tuple(p.L); })
         .method("l", [](const Problem& p) { return make_julia_owned<double>(p.l); })
         .method("R", [](const Problem& p) { return smat_to_julia_tuple(p.R); })

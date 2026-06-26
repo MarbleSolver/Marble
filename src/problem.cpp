@@ -17,23 +17,23 @@ std::string dims2(long rows, long cols) {
 } // namespace
 
 Problem::Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
-                 SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
+                 SMat J_eq, Vec b_eq, SMat J_ineq, Vec b_ineq,
                  SMat L, Vec l, SMat R, Vec r)
     : nz(cost_hessian.cols()), n_eq(J_eq.rows()), n_ineq(J_ineq.rows()), n_comp(L.rows()),
       cost_hessian(std::move(cost_hessian)), cost_gradient(std::move(cost_gradient)), cost_const(cost_const),
-      J_eq(std::move(J_eq)), c_eq(std::move(c_eq)),
-      J_ineq(std::move(J_ineq)), c_ineq(std::move(c_ineq)),
+      J_eq(std::move(J_eq)), b_eq(std::move(b_eq)),
+      J_ineq(std::move(J_ineq)), b_ineq(std::move(b_ineq)),
       L(std::move(L)), l(std::move(l)),
       R(std::move(R)), r(std::move(r)) {
     validate_dims();
 }
 
 Problem::Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
-                 Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
+                 Mat J_eq, Vec b_eq, Mat J_ineq, Vec b_ineq,
                  Mat L, Vec l, Mat R, Vec r)
     : Problem(SMat(cost_hessian.sparseView()), std::move(cost_gradient), cost_const,
-              SMat(J_eq.sparseView()),   std::move(c_eq),
-              SMat(J_ineq.sparseView()), std::move(c_ineq),
+              SMat(J_eq.sparseView()),   std::move(b_eq),
+              SMat(J_ineq.sparseView()), std::move(b_ineq),
               SMat(L.sparseView()),      std::move(l),
               SMat(R.sparseView()),      std::move(r)) {}
 
@@ -47,19 +47,19 @@ void Problem::validate_dims() const {
             "Marble problem: cost gradient has length " + std::to_string(cost_gradient.size()) +
             " but expected " + std::to_string(nz));
 
-    if (c_eq.size() != n_eq)
+    if (b_eq.size() != n_eq)
         throw std::invalid_argument(
             "Marble problem: J_eq has " + std::to_string(n_eq) +
-            " rows but c_eq has length " + std::to_string(c_eq.size()) + "; they must match");
+            " rows but b_eq has length " + std::to_string(b_eq.size()) + "; they must match");
     if (n_eq > 0 && J_eq.cols() != nz)
         throw std::invalid_argument(
             "Marble problem: J_eq has " + std::to_string(J_eq.cols()) +
             " columns but expected " + std::to_string(nz));
 
-    if (c_ineq.size() != n_ineq)
+    if (b_ineq.size() != n_ineq)
         throw std::invalid_argument(
             "Marble problem: J_ineq has " + std::to_string(n_ineq) +
-            " rows but c_ineq has length " + std::to_string(c_ineq.size()) + "; they must match");
+            " rows but b_ineq has length " + std::to_string(b_ineq.size()) + "; they must match");
     if (n_ineq > 0 && J_ineq.cols() != nz)
         throw std::invalid_argument(
             "Marble problem: J_ineq has " + std::to_string(J_ineq.cols()) +
@@ -89,11 +89,11 @@ double Problem::obj(const Vec& z) const {
 }
 
 Vec Problem::residual_eq(const Vec& z) const {
-    return J_eq * z + c_eq;
+    return J_eq * z + b_eq;
 }
 
 Vec Problem::residual_ineq(const Vec& z) const {
-    return J_ineq * z + c_ineq;
+    return J_ineq * z + b_ineq;
 }
 
 Vec Problem::residual_comp_L(const Vec& z) const {

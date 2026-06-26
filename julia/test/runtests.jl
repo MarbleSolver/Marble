@@ -17,7 +17,7 @@ using Marble
 const Q = 2.0 * Matrix(1.0I, 4, 4)
 const q = zeros(4)
 const c0 = 0.0
-const J_eq,   c_eq   = [1.0 0.0 0.0 0.0], [-1.0]
+const J_eq,   b_eq   = [1.0 0.0 0.0 0.0], [-1.0]
 const J_ineq, b_ineq = [0.0 1.0 0.0 0.0], [-1.0]
 const L, l          = [0.0 0.0 1.0 0.0], [1.0]
 const R, r          = [0.0 0.0 0.0 1.0], [-1.0]
@@ -29,7 +29,7 @@ function setup_and_solve(; sparse_problem = false, opts...)
     conv = sparse_problem ? sparse : identity
     solver = Marble.Solver()
     Marble.setup!(solver, conv(Q), q, c0;
-        J_eq = conv(J_eq), b_eq = c_eq, J_ineq = conv(J_ineq), b_ineq = b_ineq,
+        J_eq = conv(J_eq), b_eq = b_eq, J_ineq = conv(J_ineq), b_ineq = b_ineq,
         L = conv(L), l = l, R = conv(R), r = r, opts...)
     return solver, Marble.solve!(solver)
 end

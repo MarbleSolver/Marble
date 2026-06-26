@@ -21,9 +21,9 @@ public:
     double cost_const{0.0};
 
     SMat J_eq;
-    Vec c_eq;
+    Vec b_eq;
     SMat J_ineq;
-    Vec c_ineq;
+    Vec b_ineq;
     SMat L;
     Vec l;
     SMat R;
@@ -36,16 +36,16 @@ public:
      * @param cost_gradient Linear objective coefficient
      * @param cost_const Constant objective offset
      * @param J_eq Equality constraint matrix
-     * @param c_eq Equality constraint offset
+     * @param b_eq Equality constraint offset
      * @param J_ineq Inequality constraint matrix
-     * @param c_ineq Inequality constraint offset
+     * @param b_ineq Inequality constraint offset
      * @param L Left complementarity matrix
      * @param l Left complementarity offset
      * @param R Right complementarity matrix
      * @param r Right complementarity offset
      */
     Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
-            SMat J_eq, Vec c_eq, SMat J_ineq, Vec c_ineq,
+            SMat J_eq, Vec b_eq, SMat J_ineq, Vec b_ineq,
             SMat L, Vec l, SMat R, Vec r);
 
     /**
@@ -55,16 +55,16 @@ public:
      * @param cost_gradient Linear objective coefficient
      * @param cost_const Constant objective offset
      * @param J_eq Equality constraint matrix
-     * @param c_eq Equality constraint offset
+     * @param b_eq Equality constraint offset
      * @param J_ineq Inequality constraint matrix
-     * @param c_ineq Inequality constraint offset
+     * @param b_ineq Inequality constraint offset
      * @param L Left complementarity matrix
      * @param l Left complementarity offset
      * @param R Right complementarity matrix
      * @param r Right complementarity offset
      */
     Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
-            Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
+            Mat J_eq, Vec b_eq, Mat J_ineq, Vec b_ineq,
             Mat L, Vec l, Mat R, Vec r);
 
     /**
@@ -79,7 +79,7 @@ public:
      * Evaluate equality residuals
      *
      * @param z Primal decision vector
-     * @return J_eq * z + c_eq
+     * @return J_eq * z + b_eq
      */
     Vec residual_eq(const Vec& z) const;
 
@@ -87,7 +87,7 @@ public:
      * Evaluate inequality residuals
      *
      * @param z Primal decision vector
-     * @return J_ineq * z + c_ineq
+     * @return J_ineq * z + b_ineq
      */
     Vec residual_ineq(const Vec& z) const;
 
