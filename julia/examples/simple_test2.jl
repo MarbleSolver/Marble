@@ -24,12 +24,12 @@ model = JuMP.Model()
 @constraint(model, x3_comp, x[3] + 1 >= 0)
 @constraint(model, x4_comp, x[4] - 1 >= 0)
 
-ind_cc1, ind_cc2, cc_types = complementarity_indices(model,
+mpcc = MPCC(model,
     (model[:x3_comp], model[:x4_comp])
 )
 
 solver = Marble.Solver()
-Marble.setup!(solver, model, ind_cc1, ind_cc2, cc_types; verbosity = 1)
+Marble.setup!(solver, mpcc; verbosity = 1)
 results = Marble.solve!(solver)
 z = Marble.z(results)
 

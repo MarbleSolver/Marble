@@ -401,7 +401,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("update_primal_residuals!", &Solver::update_primal_residuals)
         .method("apply_newton_step!", &Solver::apply_newton_step)
         .method("filter_linesearch!", &Solver::filter_linesearch)
-        .method("relax_correction_linesearch!", &Solver::relax_correction_linesearch)
         .method("entry_from_solution", [](const Solver& s) {
             Filter::Entry entry = s.entry_from_solution();
             return std::make_tuple(entry.feas, entry.merit);

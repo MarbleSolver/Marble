@@ -284,8 +284,6 @@ PYBIND11_MODULE(_core, m) {
         .def("update_primal_residuals", &Solver::update_primal_residuals)
         .def("apply_newton_step", &Solver::apply_newton_step, py::arg("step_size"))
         .def("filter_linesearch", &Solver::filter_linesearch)
-        .def("relax_correction_linesearch", &Solver::relax_correction_linesearch,
-             py::arg("relax_param_new"))
         .def("entry_from_solution", [](const Solver& s) {
             Filter::Entry entry = s.entry_from_solution();
             return py::make_tuple(entry.feas, entry.merit);

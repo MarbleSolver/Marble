@@ -7,25 +7,6 @@
 #include <limits>
 #include <string>
 
-namespace {
-
-void add_sparse_diagonal(Vec& out, const SMat& M) {
-    for (int c = 0; c < M.outerSize(); ++c)
-        for (SMat::InnerIterator it(M, c); it; ++it)
-            if (it.row() == c)
-                out[c] += it.value();
-}
-
-void add_sparse_column_norms_squared(Vec& out, const SMat& M, double scale) {
-    for (int c = 0; c < M.outerSize(); ++c) {
-        double norm_squared = 0.0;
-        for (SMat::InnerIterator it(M, c); it; ++it)
-            norm_squared += it.value() * it.value();
-        out[c] += scale * norm_squared;
-    }
-}
-
-} // namespace
 
 void Solver::require_problem_set(const char* caller) const {
     if (!has_problem()) {
@@ -268,7 +249,7 @@ Solver::Result Solver::solve() {
             bool inertia_success = false;
             bool linesearch_success = false;
 
-            double reg = kkt_system->primal_regularizer * 0.1;
+            double reg = 0.0; //kkt_system->primal_regularizer * 0.1;
 
             while (!linesearch_success && reg <= 1e8) {
                 kkt_system->update_primal_regularizer(reg);

@@ -15,21 +15,6 @@ module Marble
         @initcxx
     end
 
-    function setup!(solver::Marble.Solver, model::Model, ind_cc1, ind_cc2, cc_type; kwargs...)
-        Marble.update_settings!(solver; kwargs...)
-        setup!(solver, MathOptNLPModel(model), ind_cc1, ind_cc2, cc_type; kwargs...)
-        return nothing
-    end
-
-    function setup!(solver::Marble.Solver,nlp::AbstractNLPModel, ind_cc1, ind_cc2, cc_type; kwargs...)
-        Marble.update_settings!(solver; kwargs...)
-        opts = Marble.options(solver)
-        data = jump_to_marble(nlp, ind_cc1, ind_cc2, cc_type)
-        _set_problem!(solver, opts, data.Q, data.q, data.c0,
-                      data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
-        return nothing
-    end
-
     function setup!(solver::Marble.Solver, Q::AbstractMatrix, q::AbstractVector, c0::Real=0.0;
                     J_eq=nothing, b_eq=nothing, J_ineq=nothing, b_ineq=nothing,
                     L=nothing, l=nothing, R=nothing, r=nothing, kwargs...)
@@ -135,18 +120,24 @@ module Marble
     residual_ineq(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_ineq(Marble.get_problem(solver), z)
     residual_comp(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_comp(Marble.get_problem(solver), z)
 
-    # Utility functions for problem construction with JuMP
+    # Problem construction with JuMP: MPCC, complementarity indexing, and
+    # the conversion of an MPCC into the matrix/vector data Marble consumes.
     include("jump_mpcc.jl")
 
-    export ComplementarityIndexBuilder, complementarity_indices
-    export add_complementarities!
-    export add_var_var_complementarities!, add_var_con_complementarities!
-    export add_con_var_complementarities!, add_con_con_complementarities!
+    export MPCC, complementarity_indices
     export reformulate_sos1, var_inds
-
-    # Functions to convert stuff to MarbleData
-    include("conversion.jl")
     export jump_to_marble
+
+    # Build a Marble problem from an MPCC (defined here since it depends on
+    # both MPCC/jump_to_marble above and the _set_problem! helper).
+    function setup!(solver::Marble.Solver, mpcc::MPCC; kwargs...)
+        Marble.update_settings!(solver; kwargs...)
+        opts = Marble.options(solver)
+        data = jump_to_marble(mpcc)
+        _set_problem!(solver, opts, data.Q, data.q, data.c0,
+                      data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
+        return nothing
+    end
 
     # Debug log loader
     include("debug.jl")
