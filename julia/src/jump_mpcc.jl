@@ -266,39 +266,3 @@ function mpcc_to_marble(mpcc::MPCC)
         R=R, r=r,
     )
 end
-
-# SOS1 reformulation (for handing the MPCC to an MILP solver such as Gurobi)
-
-"""
-    reformulate_sos1(model, ind_cc1, ind_cc2, cc_types) -> JuMP.Model
-
-Return a copy of `model` with each complementarity pair reformulated as an SOS1
-set. A `:var` term uses its variable directly; a `:con` term is replaced by a
-nonnegative slack equal to the constraint body, and the original constraint is
-deleted in the returned copy.
-"""
-function reformulate_sos1(model::JuMP.Model, ind_cc1, ind_cc2, cc_types)::JuMP.Model
-    m = copy(model)
-    var_by_col = Dict(col => vi for (vi, col) in nlp_var_col_map(m))
-    con_by_row = Dict(row => ci for (ci, row) in nlp_con_row_map(m))
-    slack = Dict{Int, JuMP.VariableRef}()
-
-    # SOS1 member for term `idx` of kind `kind` in the copied model `m`.
-    member(::Val{:var}, idx) = JuMP.VariableRef(m, var_by_col[idx])
-    member(::Val{:con}, idx) = get!(slack, idx) do
-        con = JuMP.ConstraintRef(m, con_by_row[idx], JuMP.ScalarShape())
-        obj = JuMP.constraint_object(con)
-        s = @variable(m, lower_bound = 0)
-        @constraint(m, s == obj.func - MOI.constant(obj.set))
-        delete(m, con)
-        s
-    end
-
-    for j in eachindex(ind_cc1)
-        k1, k2 = cc_types[j]
-        a = member(Val(k1), ind_cc1[j])
-        b = member(Val(k2), ind_cc2[j])
-        @constraint(m, [a, b] in JuMP.SOS1())
-    end
-    return m
-end

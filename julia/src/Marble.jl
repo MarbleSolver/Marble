@@ -31,35 +31,32 @@ module Marble
         R = isnothing(R) ? zeros(0, n) : R
         r = isnothing(r) ? zeros(0)    : r
 
-        _set_problem!(solver, opts, Q, q, Float64(c0),
-                      J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+        prob = Problem(Q, q, c0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+        Marble.set_problem!(solver, prob, opts)
         return nothing
     end
 
-    # Build a Marble.Problem (dense or sparse, based on storage) and hand it to the
-    # solver. When any block is sparse every block is converted to a SparseMatrixCSC
-    # so the solver sees consistent compressed-sparse data
-    function _set_problem!(solver::Marble.Solver, opts, Q, q, c0,
-                           J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
+    # Build a Marble.Problem (dense or sparse, based on storage). When any block is
+    # sparse every block is converted to a SparseMatrixCSC so the solver sees
+    # consistent compressed-sparse data
+    function Problem(Q, q, c0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
         blocks = (Q, J_eq, J_ineq, L, R)
         fvec(v) = collect(Float64, v)
         if any(b -> b isa AbstractSparseMatrix, blocks)
             Qs, Es, Is, Ls, Rs = sparse(Q), sparse(J_eq), sparse(J_ineq), sparse(L), sparse(R)
-            prob = Marble.Problem(size(Qs, 2),
-                Qs.colptr, Qs.rowval, Qs.nzval, fvec(q), c0,
+            return Marble.Problem(size(Qs, 2),
+                Qs.colptr, Qs.rowval, Qs.nzval, fvec(q), Float64(c0),
                 size(Es, 1), Es.colptr, Es.rowval, Es.nzval, fvec(b_eq),
                 size(Is, 1), Is.colptr, Is.rowval, Is.nzval, fvec(b_ineq),
                 size(Ls, 1), Ls.colptr, Ls.rowval, Ls.nzval, fvec(l),
                              Rs.colptr, Rs.rowval, Rs.nzval, fvec(r))
         else
             fmat(M) = Matrix{Float64}(M)
-            prob = Marble.Problem(
-                fmat(Q), fvec(q), c0,
+            return Marble.Problem(
+                fmat(Q), fvec(q), Float64(c0),
                 fmat(J_eq), fvec(b_eq), fmat(J_ineq), fvec(b_ineq),
                 fmat(L), fvec(l), fmat(R), fvec(r))
         end
-        Marble.set_problem!(solver, prob, opts)
-        return nothing
     end
 
     const OPTIONS = [
@@ -129,13 +126,14 @@ module Marble
     export mpcc_to_marble
 
     # Build a Marble problem from an MPCC (defined here since it depends on
-    # both MPCC/mpcc_to_marble above and the _set_problem! helper).
+    # both MPCC/mpcc_to_marble above and the build_problem helper).
     function setup!(solver::Marble.Solver, mpcc::MPCC; kwargs...)
         Marble.update_settings!(solver; kwargs...)
         opts = Marble.options(solver)
         data = mpcc_to_marble(mpcc)
-        _set_problem!(solver, opts, data.Q, data.q, data.c0,
-                      data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
+        prob = Problem(data.Q, data.q, data.c0,
+                       data.J_eq, data.b_eq, data.J_ineq, data.b_ineq, data.L, data.l, data.R, data.r)
+        Marble.set_problem!(solver, prob, opts)
         return nothing
     end
 
