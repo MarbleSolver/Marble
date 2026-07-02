@@ -641,8 +641,8 @@ SolveResult Solver::solve() {
                 return r == 0.0 ? 1e-8 : 10.0 * r;
             };
 
-            double regularizer_to_try =
-                std::isnan(last_regularizer) ? 0.0 : last_regularizer;
+            double regularizer_to_try = 0.0;
+                // std::isnan(last_regularizer) ? 0.0 : last_regularizer;
 
             bool any_factorization_succeeded = false;
             bool any_inertia_succeeded = false;
