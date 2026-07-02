@@ -3,7 +3,8 @@
 # s.t.  x[1] = 1
 #       x[2] ≥ 1
 #       0 ≤ (x[3] + 1) ⟂ (x[4] - 1) ≥ 0
-# The solution is x = [1, 1, 0, 1] with an objective of 3
+#       w ≥ 10
+
 using Pkg; Pkg.activate(@__DIR__)
 using Revise
 using JuMP, Marble, NLPModelsJuMP
@@ -12,9 +13,11 @@ using JuMP, Marble, NLPModelsJuMP
 model = JuMP.Model()
 
 @variable(model, x[1:4])
+@variable(model, w)
 @objective(model, Min, x'*x)
 @constraint(model, x[1] == 1)
 @constraint(model, x[2] >= 1)
+@constraint(model, w >= 10)
 
 # For complementarities, we define each inequality and then specify indices
 # for the complementarity pairs
