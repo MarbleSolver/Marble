@@ -60,25 +60,23 @@ namespace {
 
 Vec Solver::retract(const Vec& s, double sqrt_relax_param) const {
     // Vectorized retraction map for both inequality and complementarity slacks
-    // p(s) = sqrt(s^2 + relax_param)
-    // Eigen::VectorXd p = 0.5*(s/sqrt_relax_param + (s.))
-    auto s_arr = s.array() / sqrt_relax_param;
-    Vec p = 0.5 * (s_arr + (s_arr.square() + 4.0).sqrt());
-    return sqrt_relax_param * p;
+    // p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa)), kappa = sqrt_relax_param^2
+    const double four_kappa = 4.0 * sqrt_relax_param * sqrt_relax_param;
+    return (0.5 * (s.array() + (s.array().square() + four_kappa).sqrt())).matrix();
 }
 
 Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) const {
     // Derivative of the vectorized retraction map above
-    auto s_arr = s.array() / sqrt_relax_param;
-    Vec p_deriv = 0.5 * (s_arr / sqrt(s_arr.square() + 4.0) + 1.0);
-    return p_deriv;
+    // p'(s) = 0.5 * (1 + s / sqrt(s^2 + 4*kappa))
+    const double four_kappa = 4.0 * sqrt_relax_param * sqrt_relax_param;
+    return (0.5 * (1.0 + s.array() / (s.array().square() + four_kappa).sqrt())).matrix();
 }
 
 Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
     // Second derivative of the vectorized retraction map above
-    auto s_arr = s.array() / sqrt_relax_param;
-    Vec p_second_deriv = 2.0 / (s_arr.square() + 4.0).pow(1.5);
-    return p_second_deriv / sqrt_relax_param;
+    // p''(s) = 2*kappa / (s^2 + 4*kappa)^(3/2)
+    const double kappa = sqrt_relax_param * sqrt_relax_param;
+    return (2.0 * kappa * (s.array().square() + 4.0 * kappa).pow(-1.5)).matrix();
 }
 
 void Solver::set_problem(Problem problem, Solver::Options& options) {
@@ -641,7 +639,8 @@ SolveResult Solver::solve() {
                 return r == 0.0 ? 1e-8 : 10.0 * r;
             };
 
-            double regularizer_to_try = std::isnan(last_regularizer) ? 0.0 : last_regularizer;
+            double regularizer_to_try =
+                (options.inertia_warmstart && !std::isnan(last_regularizer)) ? last_regularizer : 0.0;
 
             bool any_factorization_succeeded = false;
             bool any_inertia_succeeded = false;

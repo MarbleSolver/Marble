@@ -41,9 +41,6 @@ static Vec arr_to_vec(py::array_t<double> arr) {
 PYBIND11_MODULE(_core, m) {
     m.doc() = "Marble compiled core: constrained optimization solver with complementarity constraints";
 
-    // -------------------------------------------------------------------------
-    // Problem
-    // -------------------------------------------------------------------------
     py::class_<Problem>(m, "Problem")
         // Dense numpy-array constructor (mirrors Julia wrapper)
         .def(py::init([](const Mat& cost_hessian, const Vec& cost_gradient, double cost_const,
@@ -122,9 +119,6 @@ PYBIND11_MODULE(_core, m) {
             return py::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), cp, rv, nz);
         });
 
-    // -------------------------------------------------------------------------
-    // SolveResult
-    // -------------------------------------------------------------------------
     py::class_<SolveResult>(m, "SolveResult")
         .def_readonly("converged",         &SolveResult::converged)
         .def_readonly("iterations",        &SolveResult::iterations)
@@ -145,9 +139,6 @@ PYBIND11_MODULE(_core, m) {
                  + " factorizations=" + std::to_string(r.factorizations) + ">";
         });
 
-    // -------------------------------------------------------------------------
-    // Solver::Options
-    // -------------------------------------------------------------------------
     py::class_<Solver::Options>(m, "SolverOptions")
         .def(py::init<>())
         .def_readwrite("convergence_kkt_norm",       &Solver::Options::convergence_kkt_norm)
@@ -166,6 +157,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("gamma_objective",            &Solver::Options::gamma_objective)
         .def_readwrite("gamma_constraint",           &Solver::Options::gamma_constraint)
         .def_readwrite("ruiz_iterations",            &Solver::Options::ruiz_iterations)
+        .def_readwrite("inertia_warmstart",          &Solver::Options::inertia_warmstart)
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
         .def_readwrite("print_every",                &Solver::Options::print_every)
         .def_readwrite("debug",                      &Solver::Options::debug)
@@ -179,9 +171,6 @@ PYBIND11_MODULE(_core, m) {
                  + " max_iters=" + std::to_string(o.max_iters) + ">";
         });
 
-    // -------------------------------------------------------------------------
-    // Filter::Entry
-    // -------------------------------------------------------------------------
     py::class_<Filter::Entry>(m, "FilterEntry")
         .def(py::init<>())
         .def_readwrite("feas",  &Filter::Entry::feas)
@@ -191,9 +180,6 @@ PYBIND11_MODULE(_core, m) {
                  + " merit=" + std::to_string(e.merit) + ">";
         });
 
-    // -------------------------------------------------------------------------
-    // Filter
-    // -------------------------------------------------------------------------
     py::class_<Filter>(m, "Filter")
         .def(py::init<>())
         .def(py::init<double, double>(),
@@ -218,9 +204,6 @@ PYBIND11_MODULE(_core, m) {
         .def("acceptable", &Filter::acceptable, py::arg("candidate"))
         .def("update", &Filter::update, py::arg("new_entry"));
 
-    // -------------------------------------------------------------------------
-    // Workspace  (read-only view into solver internals)
-    // -------------------------------------------------------------------------
     py::class_<Workspace>(m, "Workspace")
         // Solution components – copy Maps to plain Vec so numpy owns the data
         .def_property_readonly("solution",
@@ -284,9 +267,6 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("scaling",
             [](const Workspace& w) { return w.scaling; });
 
-    // -------------------------------------------------------------------------
-    // Solver
-    // -------------------------------------------------------------------------
     py::class_<Solver>(m, "Solver")
         .def(py::init<>())
         // Problem setup: takes a Problem (built from dense numpy arrays or scipy

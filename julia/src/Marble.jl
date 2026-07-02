@@ -98,6 +98,7 @@ module Marble
         :relaxation_initial, :relaxation_min, :relaxation_scaling,
         :max_iters, :max_iters_linesearch,
         :gamma_objective, :gamma_constraint, :ruiz_iterations,
+        :inertia_warmstart,
         :output_dir, :verbosity, :print_every, :debug,
         :debug_output_path, :debug_log_every
     ]

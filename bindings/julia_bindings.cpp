@@ -9,10 +9,6 @@ namespace jlcxx {
     template<> struct IsMirroredType<SolveResult>  : std::false_type {};
 }
 
-// ---------------------------------------------------------------------------
-// Eigen ↔ Julia array helpers
-// ---------------------------------------------------------------------------
-
 // Map a Julia matrix to an Eigen matrix using its *true* dimensions (Julia is
 // column-major, matching Eigen's default). Reading the real shape — rather than
 // reshaping to caller-supplied dimensions — lets a misshapen block reach the
@@ -81,15 +77,8 @@ static SMat csc_to_smat(int rows, int cols,
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// Module definition
-// ---------------------------------------------------------------------------
-
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
 
-    // -----------------------------------------------------------------------
-    // Problem
-    // -----------------------------------------------------------------------
     mod.add_type<Problem>("Problem")
         .constructor([](jlcxx::ArrayRef<double, 2> cost_hessian,
                         jlcxx::ArrayRef<double, 1> cost_gradient,
@@ -152,9 +141,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         //     return std::make_tuple((int)p.cost_hessian().rows(), (int)p.cost_hessian().cols(), colptr, rowval, nzval);
         // });
 
-    // -----------------------------------------------------------------------
-    // SolverOptions
-    // -----------------------------------------------------------------------
     #define OPTION_RW(name, T) \
         .method(#name,       [](const Solver::Options& o)    { return o.name; }) \
         .method(#name "!",   [](Solver::Options& o, T v)     { o.name = v; })
@@ -177,6 +163,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(gamma_objective,            double)
         OPTION_RW(gamma_constraint,           double)
         OPTION_RW(ruiz_iterations,            int)
+        OPTION_RW(inertia_warmstart,          bool)
         OPTION_RW(verbosity,                  int)
         OPTION_RW(print_every,                int)
         OPTION_RW(debug,                      bool)
@@ -187,9 +174,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
 
     #undef OPTION_RW
 
-    // -----------------------------------------------------------------------
-    // FilterEntry
-    // -----------------------------------------------------------------------
     mod.add_type<Filter::Entry>("FilterEntry")
         .constructor()
         .constructor([](double feas, double merit) {
@@ -200,9 +184,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("merit",  [](const Filter::Entry& e) { return e.merit; })
         .method("merit!", [](Filter::Entry& e, double v) { e.merit = v; });
 
-    // -----------------------------------------------------------------------
-    // Filter
-    // -----------------------------------------------------------------------
     mod.add_type<Filter>("Filter")
         .constructor()
         .constructor([](double gamma_objective, double gamma_constraint) {
@@ -234,9 +215,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("acceptable",           &Filter::acceptable)
         .method("update",               &Filter::update);
 
-    // -----------------------------------------------------------------------
-    // Workspace  (read-only accessors)
-    // -----------------------------------------------------------------------
     mod.add_type<Workspace>("Workspace")
         // Full solution and decomposed views
         .method("solution", [](Workspace& w) { return to_julia(w.solution); })
@@ -275,9 +253,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); })
         .method("scaling", [](Workspace& w) { return to_julia(w.scaling); });
 
-    // -----------------------------------------------------------------------
-    // SolveResult
-    // -----------------------------------------------------------------------
     mod.add_type<SolveResult>("SolveResult")
         .method("converged",        [](const SolveResult& r) { return r.converged; })
         .method("iterations",       [](const SolveResult& r) { return r.iterations; })
@@ -293,9 +268,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("setup_time_s", [](const SolveResult& r) { return r.setup_time_s; })
         .method("solve_time_s", [](const SolveResult& r) { return r.solve_time_s; });
 
-    // -----------------------------------------------------------------------
-    // Solver
-    // -----------------------------------------------------------------------
     mod.add_type<Solver>("Solver")
         .constructor()
         // Problem setup

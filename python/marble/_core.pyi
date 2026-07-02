@@ -245,6 +245,7 @@ class SolverOptions:
     debug_output_path: str
     gamma_constraint: float
     gamma_objective: float
+    inertia_warmstart: bool
     max_iters: int
     max_iters_linesearch: int
     outer_step_kkt_norm: float

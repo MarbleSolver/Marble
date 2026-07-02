@@ -69,6 +69,9 @@ public:
         double gamma_constraint{1e-5};
         /// Number of ruiz iterations for scaling
         int ruiz_iterations{10};
+        /// Warm-start each inner Newton step's inertia regularizer from the last successful value
+        /// (false restarts the regularizer from 0 at every inner step)
+        bool inertia_warmstart{true};
         /// Output directory for solution and solve information
         std::filesystem::path output_dir{"/dev/null"};
         /// Verbosity level: 0=silent, 1=per-iteration table + footer
