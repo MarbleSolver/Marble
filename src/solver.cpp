@@ -641,8 +641,7 @@ SolveResult Solver::solve() {
                 return r == 0.0 ? 1e-8 : 10.0 * r;
             };
 
-            double regularizer_to_try = 0.0;
-                // std::isnan(last_regularizer) ? 0.0 : last_regularizer;
+            double regularizer_to_try = std::isnan(last_regularizer) ? 0.0 : last_regularizer;
 
             bool any_factorization_succeeded = false;
             bool any_inertia_succeeded = false;
@@ -662,6 +661,10 @@ SolveResult Solver::solve() {
                     continue;
                 }
 
+                if (!any_inertia_succeeded) {
+                    last_regularizer = regularizer_to_try <= 1e-8 ? 0.0 : regularizer_to_try / 10.0;
+                }
+
                 any_inertia_succeeded = true;
 
                 backsolve();
@@ -673,7 +676,7 @@ SolveResult Solver::solve() {
                 );
 
                 if (linesearch_succeeded) {
-                    last_regularizer = regularizer_to_try == 0.0 ? 0.0 : regularizer_to_try / 10.0;
+                    // last_regularizer = regularizer_to_try == 0.0 ? 0.0 : regularizer_to_try / 10.0;
                     break;
                 }
 
