@@ -10,6 +10,16 @@
 #include <filesystem>
 #include <utility>
 
+// Compile-time selection of the retraction map. Set via CMake
+// -DMARBLE_RETRACTION=SOFTPLUS|EXP|EXP_SCALED (default SOFTPLUS).
+#define MARBLE_RETRACTION_SOFTPLUS   0
+#define MARBLE_RETRACTION_EXP        1
+#define MARBLE_RETRACTION_EXP_SCALED 2
+
+#ifndef MARBLE_RETRACTION_MAP
+#define MARBLE_RETRACTION_MAP MARBLE_RETRACTION_SOFTPLUS
+#endif
+
 /**
  * A brief description of your class.
  * 
