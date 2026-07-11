@@ -16,11 +16,6 @@ option(MARBLE_BUILD_PYTHON  "Build Python bindings"                   ON)
 option(MARBLE_BUILD_JULIA   "Build Julia bindings"                    ON)
 option(MARBLE_GENERATE_PYI  "Generate .pyi stubs via pybind11-stubgen" ON)
 
-# Retraction map used by the solver (compile-time selection)
-set(MARBLE_RETRACTION "SOFTPLUS" CACHE STRING
-    "Retraction map: SOFTPLUS, EXP, or EXP_SCALED")
-set_property(CACHE MARBLE_RETRACTION PROPERTY STRINGS SOFTPLUS EXP EXP_SCALED)
-
 # ---------------------------------------------------------------------------
 # Output directories  (keeps build/ tidy)
 # ---------------------------------------------------------------------------
@@ -79,18 +74,6 @@ add_library(marble STATIC
 )
 target_include_directories(marble PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(marble PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json marble_qdldl)
-
-# Resolve the retraction map choice to a public compile definition (propagates to bindings)
-if(MARBLE_RETRACTION STREQUAL "EXP")
-    target_compile_definitions(marble PUBLIC MARBLE_RETRACTION_MAP=MARBLE_RETRACTION_EXP)
-elseif(MARBLE_RETRACTION STREQUAL "EXP_SCALED")
-    target_compile_definitions(marble PUBLIC MARBLE_RETRACTION_MAP=MARBLE_RETRACTION_EXP_SCALED)
-elseif(MARBLE_RETRACTION STREQUAL "SOFTPLUS")
-    target_compile_definitions(marble PUBLIC MARBLE_RETRACTION_MAP=MARBLE_RETRACTION_SOFTPLUS)
-else()
-    message(FATAL_ERROR "MARBLE_RETRACTION must be SOFTPLUS, EXP, or EXP_SCALED (got '${MARBLE_RETRACTION}')")
-endif()
-message(STATUS "Marble retraction map: ${MARBLE_RETRACTION}")
 
 # ---------------------------------------------------------------------------
 # Python bindings  (cmake -DMARBLE_BUILD_PYTHON=ON  — default ON)

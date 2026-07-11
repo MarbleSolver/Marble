@@ -58,64 +58,26 @@ namespace {
     }
 }
 
-// Vectorized retraction map for both inequality and complementarity slacks.
-// The map is selected at compile time via MARBLE_RETRACTION_MAP (see solver.h).
-// In all variants kappa = sqrt_relax_param^2, so sqrt(kappa) = sqrt_relax_param.
-#if MARBLE_RETRACTION_MAP == MARBLE_RETRACTION_EXP
-
 Vec Solver::retract(const Vec& s, double sqrt_relax_param) const {
-    // p(s) = sqrt(kappa) * exp(s)
-    return (sqrt_relax_param * s.array().exp()).matrix();
-}
-
-Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) const {
-    // p'(s) = sqrt(kappa) * exp(s)
-    return (sqrt_relax_param * s.array().exp()).matrix();
-}
-
-Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
-    // p''(s) = sqrt(kappa) * exp(s)
-    return (sqrt_relax_param * s.array().exp()).matrix();
-}
-
-#elif MARBLE_RETRACTION_MAP == MARBLE_RETRACTION_EXP_SCALED
-
-Vec Solver::retract(const Vec& s, double sqrt_relax_param) const {
-    // p(s) = sqrt(kappa) * exp(s / sqrt(kappa))
-    return (sqrt_relax_param * (s.array() / sqrt_relax_param).exp()).matrix();
-}
-
-Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) const {
-    // p'(s) = exp(s / sqrt(kappa))
-    return (s.array() / sqrt_relax_param).exp().matrix();
-}
-
-Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
-    // p''(s) = exp(s / sqrt(kappa)) / sqrt(kappa)
-    return ((s.array() / sqrt_relax_param).exp() / sqrt_relax_param).matrix();
-}
-
-#else  // MARBLE_RETRACTION_SOFTPLUS (default)
-
-Vec Solver::retract(const Vec& s, double sqrt_relax_param) const {
-    // p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa))
+    // Vectorized retraction map for both inequality and complementarity slacks
+    // p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa)), kappa = sqrt_relax_param^2
     const double four_kappa = 4.0 * sqrt_relax_param * sqrt_relax_param;
     return (0.5 * (s.array() + (s.array().square() + four_kappa).sqrt())).matrix();
 }
 
 Vec Solver::retract_deriv(const Vec& s, double sqrt_relax_param) const {
+    // Derivative of the vectorized retraction map above
     // p'(s) = 0.5 * (1 + s / sqrt(s^2 + 4*kappa))
     const double four_kappa = 4.0 * sqrt_relax_param * sqrt_relax_param;
     return (0.5 * (1.0 + s.array() / (s.array().square() + four_kappa).sqrt())).matrix();
 }
 
 Vec Solver::retract_second_deriv(const Vec& s, double sqrt_relax_param) const {
+    // Second derivative of the vectorized retraction map above
     // p''(s) = 2*kappa / (s^2 + 4*kappa)^(3/2)
     const double kappa = sqrt_relax_param * sqrt_relax_param;
     return (2.0 * kappa * (s.array().square() + 4.0 * kappa).pow(-1.5)).matrix();
 }
-
-#endif
 
 void Solver::set_problem(Problem problem, Solver::Options& options) {
     this->prob = std::make_shared<Problem>(std::move(problem));
