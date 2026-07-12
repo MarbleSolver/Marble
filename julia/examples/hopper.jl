@@ -64,7 +64,7 @@ problem, x, u, f, comp, comp_type = let
     nq, nx, nu, nd = 4, 8, 2, 2 # nd is num dimensions (2 = planar)
     pos_xi, pos_zi = 1, 2 # Indexing for coordinates
     g = 9.81
-    grav_comp = [0; -g]
+    grav_comp = [0; g]
     N, dt, μ = 2, 0.05, 0.1
     Q, Qf = diagm([1e1; 0; 1e1; 0; 1e-1*ones(4)]), diagm([1e3; 0; 1e3; 1e3; 1e-2*ones(4)])
     R, Rd = diagm([1e-3; 1e-3])/90/90,diagm([1e0; 1e0])/90
@@ -100,9 +100,9 @@ problem, x, u, f, comp, comp_type = let
     @constraint(problem, [k=1:N], q_foot[k+1, :] .== q_foot[k, :] + v_foot[k+1, :]*dt);
     @constraint(problem, [k=1:N], q_head[k+1, :] .== q_head[k, :] + v_head[k+1, :]*dt);
     @constraint(problem, [k=1:N], 
-                        v_foot[k+1, :]/dt .== v_foot[k, :]/dt + (-[0; g] + f[k, :]*f_scale + (u[k, :]*u_scale + grav_comp)));
+                        v_foot[k+1, :]/dt .== v_foot[k, :]/dt + (-[0; g] + f[k, :]*f_scale - (u[k, :]*u_scale + grav_comp)));
     @constraint(problem, [k=1:N], 
-                        v_head[k+1, :]/dt .== v_head[k, :]/dt + (-[0; g] - (u[k, :]*u_scale + grav_comp)));
+                        v_head[k+1, :]/dt .== v_head[k, :]/dt + (-[0; g] + (u[k, :]*u_scale + grav_comp)));
 
     # steps
     step1_start, step_height1 = 0.5, 0.1
@@ -175,14 +175,15 @@ prob = solver.problem
 
 # TEMP: test for problem alignment vs hopper_testing.jld2 
 using JLD2, SparseArrays
+N = 2
 @load joinpath(@__DIR__, "hopper_testing.jld2") H g J_eq J_ineq J_comp c_eq c_ineq c_comp x_inds u_inds f_inds s_inds box_s_inds
 
 # Permutation matrix
 x_reorg = [2; 4; 1; 3; 6; 8; 5; 7]
 perm = spzeros(length(g), length(prob.cost_gradient))
 [perm[CartesianIndex.(i1, i2[x_reorg])] .= 1.0 for (i1, i2) in zip(x_inds, [var_inds(problem)[:x][k+1, :] for k in 1:N])]
-[perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(u_inds, [var_inds(problem)[:u][k, :] for k in 1:N])]
-[perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(f_inds, [var_inds(problem)[:f][k, :] for k in 1:N])]
+[perm[CartesianIndex.(i1, i2[[2; 1]])] .= 1.0 for (i1, i2) in zip(u_inds, [var_inds(problem)[:u][k, :] for k in 1:N])]
+[perm[CartesianIndex.(i1, i2[[2; 1]])] .= 1.0 for (i1, i2) in zip(f_inds, [var_inds(problem)[:f][k, :] for k in 1:N])]
 [perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(s_inds, [var_inds(problem)[:s_fric][k, :] for k in 1:N])]
 [perm[CartesianIndex.(i1, i2)] .= 1.0 for (i1, i2) in zip(box_s_inds, [var_inds(problem)[:s_step][k, :] for k in 1:N])]
 
@@ -196,7 +197,17 @@ pro_svd = svd(Matrix(pro_B*pro_A'), alg=LinearAlgebra.QRIteration())
 pro_R = sparse(pro_svd.U*pro_svd.V')
 norm(pro_A - pro_R'*pro_B, Inf)
 
-[pro_R[k, :] = [i == argmax(abs.(pro_R[k, :])) for i in 1:size(pro_R, 2)] for k=1:size(pro_R, 1) if 1 - maximum(abs.(pro_R[k, :])) < 1e-3]
+pro_A = J_ineq
+pro_B = prob.J_ineq*perm'
+pro_svd = svd(Matrix(pro_B*pro_A'), alg=LinearAlgebra.QRIteration())
+pro_R = sparse(pro_svd.U*pro_svd.V')
+norm(pro_A - pro_R'*pro_B, Inf)
+
+pro_A = J_comp
+pro_B = prob.J_comp*perm'
+pro_svd = svd(Matrix(pro_B*pro_A'), alg=LinearAlgebra.QRIteration())
+pro_R = sparse(pro_svd.U*pro_svd.V')
+norm(pro_A - pro_R'*pro_B, Inf)
 
 results = Marble.solve!(solver);
 
