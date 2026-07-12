@@ -29,7 +29,7 @@ public:
     Vec m_ineq_est;             /** Inequality multiplier estimates for AL */
     Vec m_comp_est;             /** Complementarity multiplier estimates for AL */
 
-    
+    Vec dkkt_residual_drelax;
     Vec kkt_residual; /** KKT residual, driven to 0 in each subproblem solve */
 
     // Diagonal terms for s_ineq and s_comp stationarity, stored
@@ -60,7 +60,8 @@ public:
 
     // KKT step
     Vec newton_step; /** Newton step for the KKT system (possibly computed with regularization) */
-
+    Vec dsolution_drelax; /** Derivative of the solution with respect to the relaxation parameter, computed using IFT */
+    
     // Work arrays for QDLDL
     // Workspace arrays required by QDLDL
     Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> etree;

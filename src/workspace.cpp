@@ -17,9 +17,11 @@ Workspace::Workspace(const Problem& prob)
 
     int n_vars = prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq + prob.n_ineq + 2 * prob.n_comp;
     kkt_residual.resize(n_vars);
+    dkkt_residual_drelax.resize(n_vars);
     s_comp_stationarity.resize(prob.n_comp);
     s_ineq_stationarity.resize(prob.n_ineq);
     newton_step.resize(n_vars);
+    dsolution_drelax.resize(n_vars);
 
     residual_eq.resize(prob.n_eq);
     residual_ineq.resize(prob.n_ineq);

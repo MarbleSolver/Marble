@@ -72,6 +72,11 @@ public:
         /// Warm-start each inner Newton step's inertia regularizer from the last successful value
         /// (false restarts the regularizer from 0 at every inner step)
         bool inertia_warmstart{true};
+        /// Initialize s_comp with small random noise (true) or zeros (false)
+        bool comp_init_random{true};
+        /// Seed for the small random noise used to initialize s_comp
+        /// (negative leaves the RNG unseeded, i.e. non-deterministic across runs)
+        int comp_init_seed{-1};
         /// Output directory for solution and solve information
         std::filesystem::path output_dir{"/dev/null"};
         /// Verbosity level: 0=silent, 1=per-iteration table + footer
@@ -131,17 +136,27 @@ public:
     /**
      * Retraction map (elementwise)
      */
-    Vec retract(const Vec& s, double sqrt_relax_param) const;
+    Vec retract(const Vec& s, double relax_param) const;
 
     /**
      * Retraction map derivative (elementwise)
      */
-    Vec retract_deriv(const Vec& s, double sqrt_relax_param) const;
+    Vec retract_deriv(const Vec& s, double relax_param) const;
 
     /**
      * Retraction map second derivative (elementwise)
      */
-    Vec retract_second_deriv(const Vec& s, double sqrt_relax_param) const;
+    Vec retract_second_deriv(const Vec& s, double relax_param) const;
+
+    /**
+     * Derivative of the retraction map wrt the relaxation parameter kappa (elementwise)
+     */
+    Vec retract_drelax(const Vec& s, double relax_param) const;
+
+    /**
+     * Mixed derivative of the retraction map wrt s and the relaxation parameter kappa (elementwise)
+     */
+    Vec retract_deriv_drelax(const Vec& s, double relax_param) const;
 
     /**
      * Ruiz equilibration for current problem data using copies of H and J_*.
@@ -176,22 +191,24 @@ public:
     /**
      * Compute KKT residual given the current guess stored in the workspace
      */
-    void update_KKT_residual(double sqrt_relax_param, double inv_penalty_param);
+    void update_KKT_residual(double relax_param, double inv_penalty_param);
+
+    void update_dKKT_residual_drelax(double relax_param);
 
     /**
      * Update KKT system given the current guess stored in the workspace
      */
-    void update_KKT_system(double sqrt_relax_param, double inv_penalty_param);
+    void update_KKT_system(double relax_param, double inv_penalty_param);
 
     /**
      * Update the KKT terms associated with s_ineq (no dependence on m_ineq)
      */
-    void update_KKT_ineq(const Vec& s_ineq, double sqrt_relax_param);
+    void update_KKT_ineq(const Vec& s_ineq, double relax_param);
 
     /**
      * Update the KKT terms associated with s_comp and m_comp
      */
-    void update_KKT_comp(const Vec& s_comp, const Vec& m_comp, double sqrt_relax_param);
+    void update_KKT_comp(const Vec& s_comp, const Vec& m_comp, double relax_param);
 
     /**
      * Update the KKT penalty diagonal
@@ -222,9 +239,19 @@ public:
 
     /**
      * Solve the KKT system using the factorized matrix, populating the solution
-     * in workspace->newton_step.
+     * in workspace->newton_step with rhs -kkt_residual.
      */
     void backsolve();
+
+    /**
+     * Solve K x = b using the currently factorized KKT matrix, where K is the
+     * unscaled system (the Ruiz scaling stored in workspace->scaling is applied
+     * internally). Populates x with the solution.
+     *
+     * @param b right-hand side vector (length n_vars)
+     * @param x solution vector to populate (length n_vars); must not alias b
+     */
+    void backsolve(const Vec& b, Vec& x);
 
     /**
      * Compute AMD ordering
@@ -247,19 +274,19 @@ public:
         return *filter;
     }
 
-    Filter::Entry entry_from_solution(double sqrt_relax_param, double inv_penalty_param) const;
+    Filter::Entry entry_from_solution(double relax_param, double inv_penalty_param) const;
 
     /**
      * Perform backtracking filter linesearch given a step direction
      * 
-     * @param sqrt_relax_param Square root of the complementarity and inequality relaxation parameter 
+     * @param relax_param Complementarity and inequality relaxation parameter (kappa)
      * @param inv_penalty_param Inverse of the AL penalty parameter
      * @param max_iters Maximum number of iterations for the linesearch
      * @warning This function modifies the workspace solution to store the candidate solution, and updates the constraint residuals based on the candidate solution, which are used to evaluate the filter conditions. If the linesearch fails, the workspace solution is restored to its original value before returning.
      * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
      * @return false Linesearch failed
      */
-    bool filter_linesearch(const double sqrt_relax_param, const double inv_penalty_param, int max_iters);
+    bool filter_linesearch(const double relax_param, const double inv_penalty_param, int max_iters);
 
     /**
      * Solve the current problem instance.

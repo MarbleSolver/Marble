@@ -158,6 +158,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("gamma_constraint",           &Solver::Options::gamma_constraint)
         .def_readwrite("ruiz_iterations",            &Solver::Options::ruiz_iterations)
         .def_readwrite("inertia_warmstart",          &Solver::Options::inertia_warmstart)
+        .def_readwrite("comp_init_random",           &Solver::Options::comp_init_random)
+        .def_readwrite("comp_init_seed",             &Solver::Options::comp_init_seed)
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
         .def_readwrite("print_every",                &Solver::Options::print_every)
         .def_readwrite("debug",                      &Solver::Options::debug)
@@ -294,24 +296,24 @@ PYBIND11_MODULE(_core, m) {
              py::return_value_policy::reference_internal)
         // Retraction maps
         .def("retract", &Solver::retract,
-             py::arg("s"), py::arg("sqrt_relax_param"))
+             py::arg("s"), py::arg("relax_param"))
         .def("retract_deriv", &Solver::retract_deriv,
-             py::arg("s"), py::arg("sqrt_relax_param"))
+             py::arg("s"), py::arg("relax_param"))
         .def("retract_second_deriv", &Solver::retract_second_deriv,
-             py::arg("s"), py::arg("sqrt_relax_param"))
+             py::arg("s"), py::arg("relax_param"))
         // KKT updates
         .def("update_KKT_residual", &Solver::update_KKT_residual,
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"))
+             py::arg("relax_param"), py::arg("inv_penalty_param"))
         .def("update_KKT_system", &Solver::update_KKT_system,
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"))
-        .def("update_KKT_ineq", [](Solver& s, const Vec& s_ineq, double sqrt_relax_param) {
-                 s.update_KKT_ineq(s_ineq, sqrt_relax_param);
+             py::arg("relax_param"), py::arg("inv_penalty_param"))
+        .def("update_KKT_ineq", [](Solver& s, const Vec& s_ineq, double relax_param) {
+                 s.update_KKT_ineq(s_ineq, relax_param);
              },
-             py::arg("s_ineq"), py::arg("sqrt_relax_param"))
-        .def("update_KKT_comp", [](Solver& s, const Vec& s_comp, const Vec& m_comp, double sqrt_relax_param) {
-                 s.update_KKT_comp(s_comp, m_comp, sqrt_relax_param);
+             py::arg("s_ineq"), py::arg("relax_param"))
+        .def("update_KKT_comp", [](Solver& s, const Vec& s_comp, const Vec& m_comp, double relax_param) {
+                 s.update_KKT_comp(s_comp, m_comp, relax_param);
              },
-             py::arg("s_comp"), py::arg("m_comp"), py::arg("sqrt_relax_param"))
+             py::arg("s_comp"), py::arg("m_comp"), py::arg("relax_param"))
         .def("update_KKT_penalty", &Solver::update_KKT_penalty,
              py::arg("inv_penalty_param"))
         .def("update_KKT_primal_regularizer", &Solver::update_KKT_primal_regularizer,
@@ -322,15 +324,20 @@ PYBIND11_MODULE(_core, m) {
         .def("analytical_factorization",&Solver::analytical_factorization)
         .def("numerical_factorization", &Solver::numerical_factorization)
         .def("check_inertia",           &Solver::check_inertia)
-        .def("backsolve",               &Solver::backsolve)
+        .def("backsolve",               static_cast<void (Solver::*)()>(&Solver::backsolve))
+        .def("backsolve", [](Solver& s, const Vec& b) {
+                 Vec x;
+                 s.backsolve(b, x);
+                 return x;
+             }, py::arg("b"))
         // Linesearch
         .def("filter_linesearch", &Solver::filter_linesearch,
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"), py::arg("max_iters"))
-        .def("entry_from_solution", [](const Solver& s, double sqrt_relax_param, double inv_penalty_param) {
-                 Filter::Entry e = s.entry_from_solution(sqrt_relax_param, inv_penalty_param);
+             py::arg("relax_param"), py::arg("inv_penalty_param"), py::arg("max_iters"))
+        .def("entry_from_solution", [](const Solver& s, double relax_param, double inv_penalty_param) {
+                 Filter::Entry e = s.entry_from_solution(relax_param, inv_penalty_param);
                  return py::make_tuple(e.feas, e.merit);
              },
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"))
+             py::arg("relax_param"), py::arg("inv_penalty_param"))
         // Dimension info
         .def_readonly("n_primals", &Solver::n_primals)
         .def_readonly("n_duals",   &Solver::n_duals)

@@ -164,6 +164,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(gamma_constraint,           double)
         OPTION_RW(ruiz_iterations,            int)
         OPTION_RW(inertia_warmstart,          bool)
+        OPTION_RW(comp_init_random,           bool)
+        OPTION_RW(comp_init_seed,             int)
         OPTION_RW(verbosity,                  int)
         OPTION_RW(print_every,                int)
         OPTION_RW(debug,                      bool)
@@ -291,26 +293,26 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("get_workspace", &Solver::get_workspace)
         .method("get_filter",    &Solver::get_filter)
         // Retraction maps
-        .method("retract", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double sqrt_relax_param) {
-            Vec r = s.retract(to_eigen(v), sqrt_relax_param);
+        .method("retract", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double relax_param) {
+            Vec r = s.retract(to_eigen(v), relax_param);
             return std::vector<double>(r.data(), r.data() + r.size());
         })
-        .method("retract_deriv", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double sqrt_relax_param) {
-            Vec r = s.retract_deriv(to_eigen(v), sqrt_relax_param);
+        .method("retract_deriv", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double relax_param) {
+            Vec r = s.retract_deriv(to_eigen(v), relax_param);
             return std::vector<double>(r.data(), r.data() + r.size());
         })
-        .method("retract_second_deriv", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double sqrt_relax_param) {
-            Vec r = s.retract_second_deriv(to_eigen(v), sqrt_relax_param);
+        .method("retract_second_deriv", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double relax_param) {
+            Vec r = s.retract_second_deriv(to_eigen(v), relax_param);
             return std::vector<double>(r.data(), r.data() + r.size());
         })
         // KKT updates
         .method("update_KKT_residual!",          &Solver::update_KKT_residual)
         .method("update_KKT_system!",            &Solver::update_KKT_system)
-        .method("update_KKT_ineq!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_ineq, double sqrt_relax_param) {
-            s.update_KKT_ineq(to_eigen(s_ineq), sqrt_relax_param);
+        .method("update_KKT_ineq!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_ineq, double relax_param) {
+            s.update_KKT_ineq(to_eigen(s_ineq), relax_param);
         })
-        .method("update_KKT_comp!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_comp, jlcxx::ArrayRef<double, 1> m_comp, double sqrt_relax_param) {
-            s.update_KKT_comp(to_eigen(s_comp), to_eigen(m_comp), sqrt_relax_param);
+        .method("update_KKT_comp!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_comp, jlcxx::ArrayRef<double, 1> m_comp, double relax_param) {
+            s.update_KKT_comp(to_eigen(s_comp), to_eigen(m_comp), relax_param);
         })
         .method("update_KKT_penalty!",            &Solver::update_KKT_penalty)
         .method("update_KKT_primal_regularizer!", &Solver::update_KKT_primal_regularizer)
@@ -320,11 +322,16 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("analytical_factorization!", &Solver::analytical_factorization)
         .method("numerical_factorization!",  &Solver::numerical_factorization)
         .method("check_inertia",            &Solver::check_inertia)
-        .method("backsolve!",                &Solver::backsolve)
+        .method("backsolve!",                static_cast<void (Solver::*)()>(&Solver::backsolve))
+        .method("backsolve!", [](Solver& s, jlcxx::ArrayRef<double, 1> b, jlcxx::ArrayRef<double, 1> x) {
+            Vec xv;
+            s.backsolve(to_eigen(b), xv);
+            for (int i = 0; i < xv.size(); i++) x[i] = xv[i];
+        })
         // Linesearch
         .method("filter_linesearch!", &Solver::filter_linesearch)
-        .method("entry_from_solution", [](const Solver& s, double sqrt_relax_param, double inv_penalty_param) {
-            Filter::Entry e = s.entry_from_solution(sqrt_relax_param, inv_penalty_param);
+        .method("entry_from_solution", [](const Solver& s, double relax_param, double inv_penalty_param) {
+            Filter::Entry e = s.entry_from_solution(relax_param, inv_penalty_param);
             return std::make_tuple(e.feas, e.merit);
         })
         // Dimensions
