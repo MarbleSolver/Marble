@@ -225,16 +225,19 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_comp",   [](Workspace& w) { return to_julia(w.s_comp); })
         .method("m_eq",     [](Workspace& w) { return to_julia(w.m_eq); })
         .method("m_ineq",   [](Workspace& w) { return to_julia(w.m_ineq); })
-        .method("m_comp",   [](Workspace& w) { return to_julia(w.m_comp); })
+        .method("m_comp_L", [](Workspace& w) { return to_julia(w.m_comp_L); })
+        .method("m_comp_R", [](Workspace& w) { return to_julia(w.m_comp_R); })
         // Multiplier estimates
         .method("m_eq_est",   [](Workspace& w) { return to_julia(w.m_eq_est); })
         .method("m_ineq_est", [](Workspace& w) { return to_julia(w.m_ineq_est); })
-        .method("m_comp_est", [](Workspace& w) { return to_julia(w.m_comp_est); })
+        .method("m_comp_L_est", [](Workspace& w) { return to_julia(w.m_comp_L_est); })
+        .method("m_comp_R_est", [](Workspace& w) { return to_julia(w.m_comp_R_est); })
         // Residuals
         .method("kkt_residual",  [](Workspace& w) { return to_julia(w.kkt_residual); })
         .method("residual_eq",   [](Workspace& w) { return to_julia(w.residual_eq); })
         .method("residual_ineq", [](Workspace& w) { return to_julia(w.residual_ineq); })
-        .method("residual_comp", [](Workspace& w) { return to_julia(w.residual_comp); })
+        .method("residual_comp_L", [](Workspace& w) { return to_julia(w.residual_comp_L); })
+        .method("residual_comp_R", [](Workspace& w) { return to_julia(w.residual_comp_R); })
         // Scalar parameters
         .method("relax_param",   [](const Workspace& w) { return w.relax_param; })
         .method("penalty_param", [](const Workspace& w) { return w.penalty_param; })
@@ -266,7 +269,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_comp", [](SolveResult& r) { return to_julia(r.s_comp); })
         .method("m_eq",         [](SolveResult& r) { return to_julia(r.m_eq); })
         .method("m_ineq",       [](SolveResult& r) { return to_julia(r.m_ineq); })
-        .method("m_comp",       [](SolveResult& r) { return to_julia(r.m_comp); })
+        .method("m_comp_L",     [](SolveResult& r) { return to_julia(r.m_comp_L); })
+        .method("m_comp_R",     [](SolveResult& r) { return to_julia(r.m_comp_R); })
         .method("setup_time_s", [](const SolveResult& r) { return r.setup_time_s; })
         .method("solve_time_s", [](const SolveResult& r) { return r.solve_time_s; });
 
@@ -311,8 +315,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("update_KKT_ineq!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_ineq, double relax_param) {
             s.update_KKT_ineq(to_eigen(s_ineq), relax_param);
         })
-        .method("update_KKT_comp!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_comp, jlcxx::ArrayRef<double, 1> m_comp, double relax_param) {
-            s.update_KKT_comp(to_eigen(s_comp), to_eigen(m_comp), relax_param);
+        .method("update_KKT_comp!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_comp, jlcxx::ArrayRef<double, 1> m_comp_L, jlcxx::ArrayRef<double, 1> m_comp_R, double relax_param) {
+            s.update_KKT_comp(to_eigen(s_comp), to_eigen(m_comp_L), to_eigen(m_comp_R), relax_param);
         })
         .method("update_KKT_penalty!",            &Solver::update_KKT_penalty)
         .method("update_KKT_primal_regularizer!", &Solver::update_KKT_primal_regularizer)
@@ -322,7 +326,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("analytical_factorization!", &Solver::analytical_factorization)
         .method("numerical_factorization!",  &Solver::numerical_factorization)
         .method("check_inertia",            &Solver::check_inertia)
-        .method("backsolve!",                static_cast<void (Solver::*)()>(&Solver::backsolve))
         .method("backsolve!", [](Solver& s, jlcxx::ArrayRef<double, 1> b, jlcxx::ArrayRef<double, 1> x) {
             Vec xv;
             s.backsolve(to_eigen(b), xv);
@@ -344,13 +347,13 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("s_comp_inds",        [](Solver& s) { return to_julia(s.s_comp_inds); })
         .method("m_eq_inds",          [](Solver& s) { return to_julia(s.m_eq_inds); })
         .method("m_ineq_inds",        [](Solver& s) { return to_julia(s.m_ineq_inds); })
-        .method("m_comp_inds",        [](Solver& s) { return to_julia(s.m_comp_inds); })
-        .method("comp_L_inds",        [](Solver& s) { return to_julia(s.comp_L_inds); })
-        .method("comp_R_inds",        [](Solver& s) { return to_julia(s.comp_R_inds); })
+        .method("m_comp_L_inds",      [](Solver& s) { return to_julia(s.m_comp_L_inds); })
+        .method("m_comp_R_inds",      [](Solver& s) { return to_julia(s.m_comp_R_inds); })
         .method("z_z_inds",           [](Solver& s) { return to_julia(s.z_z_inds); })
         .method("s_ineq_s_ineq_inds", [](Solver& s) { return to_julia(s.s_ineq_s_ineq_inds); })
         .method("s_ineq_m_ineq_inds", [](Solver& s) { return to_julia(s.s_ineq_m_ineq_inds); })
         .method("s_comp_s_comp_inds", [](Solver& s) { return to_julia(s.s_comp_s_comp_inds); })
-        .method("s_comp_m_comp_inds", [](Solver& s) { return to_julia(s.s_comp_m_comp_inds); })
+        .method("s_comp_m_comp_L_inds", [](Solver& s) { return to_julia(s.s_comp_m_comp_L_inds); })
+        .method("s_comp_m_comp_R_inds", [](Solver& s) { return to_julia(s.s_comp_m_comp_R_inds); })
         .method("options", [](Solver& s) -> Solver::Options& { return s.options; });
 }

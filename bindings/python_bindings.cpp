@@ -100,15 +100,24 @@ PYBIND11_MODULE(_core, m) {
             return py::make_tuple((int)p.J_ineq.rows(), (int)p.J_ineq.cols(), cp, rv, nz);
         })
         .def_property_readonly("c_ineq", [](const Problem& p) { return p.c_ineq; })
-        .def_property_readonly("J_comp", [](Problem& p) {
-            p.J_comp.makeCompressed();
-            Eigen::VectorXi cp(p.J_comp.outerSize() + 1), rv(p.J_comp.nonZeros()); Vec nz(p.J_comp.nonZeros());
-            std::copy(p.J_comp.outerIndexPtr(), p.J_comp.outerIndexPtr() + p.J_comp.outerSize() + 1, cp.data());
-            std::copy(p.J_comp.innerIndexPtr(), p.J_comp.innerIndexPtr() + p.J_comp.nonZeros(),      rv.data());
-            std::copy(p.J_comp.valuePtr(),      p.J_comp.valuePtr()      + p.J_comp.nonZeros(),      nz.data());
-            return py::make_tuple((int)p.J_comp.rows(), (int)p.J_comp.cols(), cp, rv, nz);
+        .def_property_readonly("L_comp", [](Problem& p) {
+            p.L_comp.makeCompressed();
+            Eigen::VectorXi cp(p.L_comp.outerSize() + 1), rv(p.L_comp.nonZeros()); Vec nz(p.L_comp.nonZeros());
+            std::copy(p.L_comp.outerIndexPtr(), p.L_comp.outerIndexPtr() + p.L_comp.outerSize() + 1, cp.data());
+            std::copy(p.L_comp.innerIndexPtr(), p.L_comp.innerIndexPtr() + p.L_comp.nonZeros(),      rv.data());
+            std::copy(p.L_comp.valuePtr(),      p.L_comp.valuePtr()      + p.L_comp.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.L_comp.rows(), (int)p.L_comp.cols(), cp, rv, nz);
         })
-        .def_property_readonly("c_comp", [](const Problem& p) { return p.c_comp; })
+        .def_property_readonly("l_comp", [](const Problem& p) { return p.l_comp; })
+        .def_property_readonly("R_comp", [](Problem& p) {
+            p.R_comp.makeCompressed();
+            Eigen::VectorXi cp(p.R_comp.outerSize() + 1), rv(p.R_comp.nonZeros()); Vec nz(p.R_comp.nonZeros());
+            std::copy(p.R_comp.outerIndexPtr(), p.R_comp.outerIndexPtr() + p.R_comp.outerSize() + 1, cp.data());
+            std::copy(p.R_comp.innerIndexPtr(), p.R_comp.innerIndexPtr() + p.R_comp.nonZeros(),      rv.data());
+            std::copy(p.R_comp.valuePtr(),      p.R_comp.valuePtr()      + p.R_comp.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.R_comp.rows(), (int)p.R_comp.cols(), cp, rv, nz);
+        })
+        .def_property_readonly("r_comp", [](const Problem& p) { return p.r_comp; })
         // Cost hessian (same CSC tuple format)
         .def_property_readonly("cost_hessian", [](Problem& p) {
             p.cost_hessian.makeCompressed();
@@ -132,7 +141,8 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("s_comp",   [](const SolveResult& r) { return r.s_comp; })
         .def_property_readonly("m_eq",     [](const SolveResult& r) { return r.m_eq; })
         .def_property_readonly("m_ineq",   [](const SolveResult& r) { return r.m_ineq; })
-        .def_property_readonly("m_comp",   [](const SolveResult& r) { return r.m_comp; })
+        .def_property_readonly("m_comp_L", [](const SolveResult& r) { return r.m_comp_L; })
+        .def_property_readonly("m_comp_R", [](const SolveResult& r) { return r.m_comp_R; })
         .def("__repr__", [](const SolveResult& r) {
             return "<SolveResult converged=" + std::string(r.converged ? "True" : "False")
                  + " iterations=" + std::to_string(r.iterations)
@@ -220,15 +230,19 @@ PYBIND11_MODULE(_core, m) {
             [](const Workspace& w) { return copy_map(w.m_eq); })
         .def_property_readonly("m_ineq",
             [](const Workspace& w) { return copy_map(w.m_ineq); })
-        .def_property_readonly("m_comp",
-            [](const Workspace& w) { return copy_map(w.m_comp); })
+        .def_property_readonly("m_comp_L",
+            [](const Workspace& w) { return copy_map(w.m_comp_L); })
+        .def_property_readonly("m_comp_R",
+            [](const Workspace& w) { return copy_map(w.m_comp_R); })
         // Multiplier estimates
         .def_property_readonly("m_eq_est",
             [](const Workspace& w) { return w.m_eq_est; })
         .def_property_readonly("m_ineq_est",
             [](const Workspace& w) { return w.m_ineq_est; })
-        .def_property_readonly("m_comp_est",
-            [](const Workspace& w) { return w.m_comp_est; })
+        .def_property_readonly("m_comp_L_est",
+            [](const Workspace& w) { return w.m_comp_L_est; })
+        .def_property_readonly("m_comp_R_est",
+            [](const Workspace& w) { return w.m_comp_R_est; })
         // Residuals
         .def_property_readonly("kkt_residual",
             [](const Workspace& w) { return w.kkt_residual; })
@@ -236,8 +250,10 @@ PYBIND11_MODULE(_core, m) {
             [](const Workspace& w) { return w.residual_eq; })
         .def_property_readonly("residual_ineq",
             [](const Workspace& w) { return w.residual_ineq; })
-        .def_property_readonly("residual_comp",
-            [](const Workspace& w) { return w.residual_comp; })
+        .def_property_readonly("residual_comp_L",
+            [](const Workspace& w) { return w.residual_comp_L; })
+        .def_property_readonly("residual_comp_R",
+            [](const Workspace& w) { return w.residual_comp_R; })
         // Scalar parameters
         .def_property_readonly("relax_param",
             [](const Workspace& w) { return w.relax_param; })
@@ -310,10 +326,10 @@ PYBIND11_MODULE(_core, m) {
                  s.update_KKT_ineq(s_ineq, relax_param);
              },
              py::arg("s_ineq"), py::arg("relax_param"))
-        .def("update_KKT_comp", [](Solver& s, const Vec& s_comp, const Vec& m_comp, double relax_param) {
-                 s.update_KKT_comp(s_comp, m_comp, relax_param);
+        .def("update_KKT_comp", [](Solver& s, const Vec& s_comp, const Vec& m_comp_L, const Vec& m_comp_R, double relax_param) {
+                 s.update_KKT_comp(s_comp, m_comp_L, m_comp_R, relax_param);
              },
-             py::arg("s_comp"), py::arg("m_comp"), py::arg("relax_param"))
+             py::arg("s_comp"), py::arg("m_comp_L"), py::arg("m_comp_R"), py::arg("relax_param"))
         .def("update_KKT_penalty", &Solver::update_KKT_penalty,
              py::arg("inv_penalty_param"))
         .def("update_KKT_primal_regularizer", &Solver::update_KKT_primal_regularizer,
@@ -324,7 +340,6 @@ PYBIND11_MODULE(_core, m) {
         .def("analytical_factorization",&Solver::analytical_factorization)
         .def("numerical_factorization", &Solver::numerical_factorization)
         .def("check_inertia",           &Solver::check_inertia)
-        .def("backsolve",               static_cast<void (Solver::*)()>(&Solver::backsolve))
         .def("backsolve", [](Solver& s, const Vec& b) {
                  Vec x;
                  s.backsolve(b, x);
@@ -353,12 +368,10 @@ PYBIND11_MODULE(_core, m) {
             [](const Solver& s) { return s.m_eq_inds; })
         .def_property_readonly("m_ineq_inds",
             [](const Solver& s) { return s.m_ineq_inds; })
-        .def_property_readonly("m_comp_inds",
-            [](const Solver& s) { return s.m_comp_inds; })
-        .def_property_readonly("comp_L_inds",
-            [](const Solver& s) { return s.comp_L_inds; })
-        .def_property_readonly("comp_R_inds",
-            [](const Solver& s) { return s.comp_R_inds; })
+        .def_property_readonly("m_comp_L_inds",
+            [](const Solver& s) { return s.m_comp_L_inds; })
+        .def_property_readonly("m_comp_R_inds",
+            [](const Solver& s) { return s.m_comp_R_inds; })
         .def_property_readonly("z_z_inds",
             [](const Solver& s) { return s.z_z_inds; })
         .def_property_readonly("s_ineq_s_ineq_inds",
@@ -367,6 +380,8 @@ PYBIND11_MODULE(_core, m) {
             [](const Solver& s) { return s.s_ineq_m_ineq_inds; })
         .def_property_readonly("s_comp_s_comp_inds",
             [](const Solver& s) { return s.s_comp_s_comp_inds; })
-        .def_property_readonly("s_comp_m_comp_inds",
-            [](const Solver& s) { return s.s_comp_m_comp_inds; });
+        .def_property_readonly("s_comp_m_comp_L_inds",
+            [](const Solver& s) { return s.s_comp_m_comp_L_inds; })
+        .def_property_readonly("s_comp_m_comp_R_inds",
+            [](const Solver& s) { return s.s_comp_m_comp_R_inds; });
 }

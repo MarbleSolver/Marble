@@ -59,35 +59,35 @@ namespace {
     }
 }
 
-Vec Solver::retract(const Vec& s, double relax_param) const {
+Vec Solver::retract(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Vectorized retraction map for both inequality and complementarity slacks
     // p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa)), kappa = relax_param
     const double four_kappa = 4.0 * relax_param;
     return (0.5 * (s.array() + (s.array().square() + four_kappa).sqrt())).matrix();
 }
 
-Vec Solver::retract_deriv(const Vec& s, double relax_param) const {
+Vec Solver::retract_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Derivative of the vectorized retraction map above
     // p'(s) = 0.5 * (1 + s / sqrt(s^2 + 4*kappa))
     const double four_kappa = 4.0 * relax_param;
     return (0.5 * (1.0 + s.array() / (s.array().square() + four_kappa).sqrt())).matrix();
 }
 
-Vec Solver::retract_second_deriv(const Vec& s, double relax_param) const {
+Vec Solver::retract_second_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Second derivative of the vectorized retraction map above
     // p''(s) = 2*kappa / (s^2 + 4*kappa)^(3/2)
     const double kappa = relax_param;
     return (2.0 * kappa * (s.array().square() + 4.0 * kappa).pow(-1.5)).matrix();
 }
 
-Vec Solver::retract_drelax(const Vec& s, double relax_param) const {
+Vec Solver::retract_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Derivative of the retraction map wrt the relaxation parameter kappa = relax_param
     // dp/dkappa = 1 / sqrt(s^2 + 4*kappa)
     const double four_kappa = 4.0 * relax_param;
     return (s.array().square() + four_kappa).rsqrt().matrix();
 }
 
-Vec Solver::retract_deriv_drelax(const Vec& s, double relax_param) const {
+Vec Solver::retract_deriv_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Mixed derivative of the retraction map wrt s and kappa = relax_param
     // d/dkappa p'(s) = -s / (s^2 + 4*kappa)^(3/2)
     const double four_kappa = 4.0 * relax_param;
@@ -96,10 +96,7 @@ Vec Solver::retract_deriv_drelax(const Vec& s, double relax_param) const {
 
 void Solver::set_problem(Problem problem, Solver::Options& options) {
     this->prob = std::make_shared<Problem>(std::move(problem));
-    set_problem(options);
-}
 
-void Solver::set_problem(const Solver::Options& options) {
     const auto t0 = std::chrono::steady_clock::now();
     this->options = options;
     // Define subproblem dimensions
@@ -118,16 +115,8 @@ void Solver::set_problem(const Solver::Options& options) {
     s_comp_inds  = safe_linspaced(this->prob->n_comp, total_inds); total_inds += this->prob->n_comp;
     m_eq_inds    = safe_linspaced(this->prob->n_eq,   total_inds); total_inds += this->prob->n_eq;
     m_ineq_inds  = safe_linspaced(this->prob->n_ineq, total_inds); total_inds += this->prob->n_ineq;
-    m_comp_inds  = safe_linspaced(2 * this->prob->n_comp, total_inds); total_inds += 2 * this->prob->n_comp;
-
-    // Indices into the complementarity residual for extracting the comp residual violation for filter evaluation
-    if (this->prob->n_comp == 0) {
-        comp_L_inds = Eigen::VectorXi(0);
-        comp_R_inds = Eigen::VectorXi(0);
-    } else {
-        comp_L_inds = 2 * Eigen::VectorXi::LinSpaced(this->prob->n_comp, 0, this->prob->n_comp - 1);
-        comp_R_inds = comp_L_inds.array() + 1;
-    }
+    m_comp_L_inds = safe_linspaced(this->prob->n_comp, total_inds); total_inds += this->prob->n_comp;
+    m_comp_R_inds = safe_linspaced(this->prob->n_comp, total_inds); total_inds += this->prob->n_comp;
 
     // Allocate for solution vector, multiplier estimates, and KKT residual
     // Init workspace
@@ -152,7 +141,7 @@ void Solver::initialize_kkt_sparsity() {
     workspace->kkt_system = SMat(n_vars, n_vars);
     std::vector<Eigen::Triplet<double>> triplets;
 
-    // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + J_comp'*m_comp 
+    // Populate stationarity Hz + J_eq'*m_eq + J_ineq'*m_ineq + L_comp'*m_comp_L + R_comp'*m_comp_R
     workspace->appendBlockTriplets(triplets, prob->cost_hessian, z_inds[0], z_inds[0]);
     
     // Guard every block that touches an empty constraint set
@@ -165,8 +154,10 @@ void Solver::initialize_kkt_sparsity() {
         workspace->appendBlockTriplets(triplets, prob->J_ineq,             m_ineq_inds[0], z_inds[0]);
     }
     if (prob->n_comp > 0) {
-        workspace->appendBlockTriplets(triplets, prob->J_comp.transpose(), z_inds[0], m_comp_inds[0]);
-        workspace->appendBlockTriplets(triplets, prob->J_comp,             m_comp_inds[0], z_inds[0]);
+        workspace->appendBlockTriplets(triplets, prob->L_comp.transpose(), z_inds[0], m_comp_L_inds[0]);
+        workspace->appendBlockTriplets(triplets, prob->L_comp,             m_comp_L_inds[0], z_inds[0]);
+        workspace->appendBlockTriplets(triplets, prob->R_comp.transpose(), z_inds[0], m_comp_R_inds[0]);
+        workspace->appendBlockTriplets(triplets, prob->R_comp,             m_comp_R_inds[0], z_inds[0]);
     }
 
     // Populate stationarity for inequality slacks with dummy variables
@@ -179,19 +170,16 @@ void Solver::initialize_kkt_sparsity() {
     }
 
     // Populate stationarity for complementarity slacks with dummy variables
-    // p'(s_comp)*m1 - p'(-s_comp)*m2
-    // where m1 and m2 are subsets of m_comp corresponding to the left and right
-    // side of the complementarity constraint.
-    // TODO: define this indexing somewhere and/or make it more general
+    // p'(s_comp)*m_comp_L - p'(-s_comp)*m_comp_R
     for (int i = 0; i < prob->n_comp; i++) {
         // Derivative with respect to the slacks (diagonal)
         triplets.emplace_back(s_comp_inds[i], s_comp_inds[i], 1.0);
 
-        // Derivative with respect to multipliers (n_comp by 2*n_comp)
-        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2], 1.0);
-        triplets.emplace_back(s_comp_inds[i], m_comp_inds[i*2 + 1], 1.0);
-        triplets.emplace_back(m_comp_inds[i*2], s_comp_inds[i], 1.0);
-        triplets.emplace_back(m_comp_inds[i*2 + 1], s_comp_inds[i], 1.0);
+        // Derivative with respect to the left and right multipliers
+        triplets.emplace_back(s_comp_inds[i], m_comp_L_inds[i], 1.0);
+        triplets.emplace_back(s_comp_inds[i], m_comp_R_inds[i], 1.0);
+        triplets.emplace_back(m_comp_L_inds[i], s_comp_inds[i], 1.0);
+        triplets.emplace_back(m_comp_R_inds[i], s_comp_inds[i], 1.0);
     }
 
     // Populate AL regularizer for multipliers
@@ -201,8 +189,9 @@ void Solver::initialize_kkt_sparsity() {
     for (int i = 0; i < prob->n_ineq; i++) {
         triplets.emplace_back(m_ineq_inds[i], m_ineq_inds[i], 1.0);
     }
-    for (int i = 0; i < 2 * prob->n_comp; i++) {
-        triplets.emplace_back(m_comp_inds[i], m_comp_inds[i], 1.0);
+    for (int i = 0; i < prob->n_comp; i++) {
+        triplets.emplace_back(m_comp_L_inds[i], m_comp_L_inds[i], 1.0);
+        triplets.emplace_back(m_comp_R_inds[i], m_comp_R_inds[i], 1.0);
     }
 
     // TODO: more efficient way to make sure that every diagonal element exists
@@ -242,11 +231,12 @@ void Solver::initialize_kkt_sparsity() {
     }
     
     s_comp_s_comp_inds.resize(prob->n_comp);
-    s_comp_m_comp_inds.resize(2 * prob->n_comp);
+    s_comp_m_comp_L_inds.resize(prob->n_comp);
+    s_comp_m_comp_R_inds.resize(prob->n_comp);
     for (int i = 0; i < prob->n_comp; i++) {
         s_comp_s_comp_inds[i] = workspace->findValuePtrIndex(s_comp_inds[i], s_comp_inds[i]);
-        s_comp_m_comp_inds[i * 2] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2]);
-        s_comp_m_comp_inds[i * 2 + 1] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_inds[i * 2 + 1]);
+        s_comp_m_comp_L_inds[i] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_L_inds[i]);
+        s_comp_m_comp_R_inds[i] = workspace->findValuePtrIndex(s_comp_inds[i], m_comp_R_inds[i]);
     }
 
     penalty_inds.resize(prob->n_eq + prob->n_ineq + 2 * prob->n_comp);
@@ -256,8 +246,11 @@ void Solver::initialize_kkt_sparsity() {
     for (int i = 0; i < prob->n_ineq; i++) {
         penalty_inds[prob->n_eq + i] = workspace->findValuePtrIndex(m_ineq_inds[i], m_ineq_inds[i]);
     }
-    for (int i = 0; i < 2 * prob->n_comp; i++) {
-        penalty_inds[prob->n_eq + prob->n_ineq + i] = workspace->findValuePtrIndex(m_comp_inds[i], m_comp_inds[i]);
+    for (int i = 0; i < prob->n_comp; i++) {
+        penalty_inds[prob->n_eq + prob->n_ineq + i] = workspace->findValuePtrIndex(m_comp_L_inds[i], m_comp_L_inds[i]);
+    }
+    for (int i = 0; i < prob->n_comp; i++) {
+        penalty_inds[prob->n_eq + prob->n_ineq + prob->n_comp + i] = workspace->findValuePtrIndex(m_comp_R_inds[i], m_comp_R_inds[i]);
     }
 
     regularizer_inds.resize(n_primals);
@@ -279,13 +272,15 @@ void Solver::update_KKT_residual(double relax_param, double inv_penalty_param) {
     // just need to compute these in the very beginning before we've run the first linesearch
     workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
     workspace->residual_ineq = prob->J_ineq * workspace->z + prob->c_ineq;
-    workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
+    workspace->residual_comp_L = prob->L_comp * workspace->z + prob->l_comp;
+    workspace->residual_comp_R = prob->R_comp * workspace->z + prob->r_comp;
 
     // z stationarity
-    workspace->kkt_residual(z_inds) = prob->cost_hessian * workspace->z + prob->cost_gradient + 
+    workspace->kkt_residual(z_inds) = prob->cost_hessian * workspace->z + prob->cost_gradient +
                         prob->J_eq.transpose() * workspace->m_eq +
-                        prob->J_ineq.transpose() * workspace->m_ineq + 
-                        prob->J_comp.transpose() * workspace->m_comp;
+                        prob->J_ineq.transpose() * workspace->m_ineq +
+                        prob->L_comp.transpose() * workspace->m_comp_L +
+                        prob->R_comp.transpose() * workspace->m_comp_R;
 
     // Inequality slack stationarity
     Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
@@ -296,7 +291,7 @@ void Solver::update_KKT_residual(double relax_param, double inv_penalty_param) {
     Vec d_p_comp = retract_deriv(workspace->s_comp, relax_param);
     for (int i = 0; i < prob->n_comp; i++) {
         workspace->kkt_residual(s_comp_inds[i]) =
-            -d_p_comp[i] * workspace->m_comp[2 * i] + (1 - d_p_comp[i]) * workspace->m_comp[2 * i + 1];
+            -d_p_comp[i] * workspace->m_comp_L[i] + (1 - d_p_comp[i]) * workspace->m_comp_R[i];
     }
 
     // Equality primal feasibility
@@ -310,12 +305,11 @@ void Solver::update_KKT_residual(double relax_param, double inv_penalty_param) {
 
     // Complementarity primal feasibility
     Vec p_comp = retract(workspace->s_comp, relax_param);
-    workspace->kkt_residual(m_comp_inds) =
-        workspace->residual_comp - inv_penalty_param * (workspace->m_comp - workspace->m_comp_est);
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->kkt_residual(m_comp_inds[2 * i]) += -p_comp[i];                               // p(s)
-        workspace->kkt_residual(m_comp_inds[2 * i + 1]) += -(p_comp[i] - workspace->s_comp[i]);  // p(s) - p(-s) = s
-    }
+    workspace->kkt_residual(m_comp_L_inds) = workspace->residual_comp_L - p_comp -
+                                             inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
+    workspace->kkt_residual(m_comp_R_inds) = workspace->residual_comp_R - 
+                                             (p_comp - workspace->s_comp) -
+                                             inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
 }
 
 void Solver::update_dKKT_residual_drelax(double relax_param) {
@@ -338,7 +332,7 @@ void Solver::update_dKKT_residual_drelax(double relax_param) {
     Vec dd_p_comp_dk = retract_deriv_drelax(workspace->s_comp, relax_param);
     for (int i = 0; i < prob->n_comp; i++) {
         workspace->dkkt_residual_drelax(s_comp_inds[i]) =
-            -dd_p_comp_dk[i] * (workspace->m_comp[2 * i] + workspace->m_comp[2 * i + 1]);
+            -dd_p_comp_dk[i] * (workspace->m_comp_L[i] + workspace->m_comp_R[i]);
     }
 
     // Inequality primal feasibility: r = ... - (s + p(-s)) - ...
@@ -349,8 +343,8 @@ void Solver::update_dKKT_residual_drelax(double relax_param) {
     //   row 2i   += -p(s)        -> d/dkappa = -p_kappa(s)
     //   row 2i+1 += -(p(s) - s)  -> d/dkappa = -p_kappa(s)
     for (int i = 0; i < prob->n_comp; i++) {
-        workspace->dkkt_residual_drelax(m_comp_inds[2 * i]) = -dp_comp_dk[i];
-        workspace->dkkt_residual_drelax(m_comp_inds[2 * i + 1]) = -dp_comp_dk[i];
+        workspace->dkkt_residual_drelax(m_comp_L_inds[i]) = -dp_comp_dk[i];
+        workspace->dkkt_residual_drelax(m_comp_R_inds[i]) = -dp_comp_dk[i];
     }
 }
 
@@ -358,11 +352,11 @@ void Solver::update_KKT_system(double relax_param, double inv_penalty_param) {
     // Update KKT system terms that depend on the solution, which are the nonlinear terms associated with the inequality
     // and complementarity slacks and multipliers, as well as the penalty terms
     update_KKT_ineq(workspace->s_ineq, relax_param);
-    update_KKT_comp(workspace->s_comp, workspace->m_comp, relax_param);
+    update_KKT_comp(workspace->s_comp, workspace->m_comp_L, workspace->m_comp_R, relax_param);
     update_KKT_penalty(inv_penalty_param);
 }
 
-void Solver::update_KKT_ineq(const Vec& s_ineq, double relax_param) {
+void Solver::update_KKT_ineq(const Eigen::Ref<const Vec>& s_ineq, double relax_param) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_ineq, relax_param);
@@ -375,22 +369,22 @@ void Solver::update_KKT_ineq(const Vec& s_ineq, double relax_param) {
     }
 }
 
-// TODO: fix indexing into m_comp so that it can be a const reference
-void Solver::update_KKT_comp(const Vec& s_comp, const Vec& m_comp, double relax_param) {
+void Solver::update_KKT_comp(const Eigen::Ref<const Vec>& s_comp, const Eigen::Ref<const Vec>& m_comp_L,
+                             const Eigen::Ref<const Vec>& m_comp_R, double relax_param) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_comp, relax_param);
     Vec dd_p = retract_second_deriv(s_comp, relax_param);
 
     for (int i = 0; i < prob->n_comp; i++) {
-        // Derivative of -p'(s)*m1 + p'(-s)*m2 wrt s
-        // is -(p''(s)*m1 + p''(s)*m2) but p''(s) = p''(-s) so its -p''(s)*(m1 + m2)
-        workspace->s_comp_stationarity[i] = -dd_p[i]*(m_comp[2*i] + m_comp[2*i + 1]); // stored for diag updating
+        // Derivative of -p'(s)*m_L + p'(-s)*m_R wrt s
+        // is -(p''(s)*m_L + p''(s)*m_R) but p''(s) = p''(-s) so its -p''(s)*(m_L + m_R)
+        workspace->s_comp_stationarity[i] = -dd_p[i]*(m_comp_L[i] + m_comp_R[i]); // stored for diag updating
         nzval(s_comp_s_comp_inds[i]) = scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
 
-        // Derivative wrt to m1 and m2 is just -d_p and -d_neg_p respectively
-        nzval(s_comp_m_comp_inds[2 * i]) = scaling(s_comp_inds[i]) * -d_p[i] * scaling(m_comp_inds[2 * i]);
-        nzval(s_comp_m_comp_inds[2 * i + 1]) = scaling(s_comp_inds[i]) * (1 - d_p[i]) * scaling(m_comp_inds[2 * i + 1]);  // d_neg_p = 1 - d_p
+        // Derivative wrt to m_L and m_R is just -d_p and -d_neg_p respectively
+        nzval(s_comp_m_comp_L_inds[i]) = scaling(s_comp_inds[i]) * -d_p[i] * scaling(m_comp_L_inds[i]);
+        nzval(s_comp_m_comp_R_inds[i]) = scaling(s_comp_inds[i]) * (1 - d_p[i]) * scaling(m_comp_R_inds[i]);  // d_neg_p = 1 - d_p
     }
 }
 
@@ -460,25 +454,19 @@ bool Solver::check_inertia() {
     return (workspace->D.array() > 1e-10).count() == n_primals && (workspace->D.array() < -1e-10).count() == n_duals;
 }
 
-void Solver::backsolve() {
-    // Newton step: solve K * newton_step = -kkt_residual
-    backsolve(-workspace->kkt_residual, workspace->newton_step);
-}
-
-void Solver::backsolve(const Vec& b, Vec& x) {
+void Solver::backsolve(const Eigen::Ref<const Vec>& b, Vec& x) {
     // The factorization is of the scaled system D*K*D (D = diag(scaling)), so to
     // solve K x = b we solve (D*K*D) y = D*b for y and recover x = D*y.
     // The RHS is also permuted into AMD ordering; the result is unpermuted after.
-    // eval() guards against aliasing between b and x.
-    x = (b.cwiseProduct(workspace->scaling))(workspace->amd_perm_vec).eval();
+    // b never aliases x, so scaling+permuting the RHS straight into x needs no temp
+    x.noalias() = b.cwiseProduct(workspace->scaling)(workspace->amd_perm_vec);
 
     // Solve system
     QDLDL_solve(n_vars, workspace->Lp.data(), workspace->Li.data(), workspace->Lx.data(),
                 workspace->Dinv.data(), x.data());
 
-    // Unpermute solution and recover x = D*y
-    x = x(workspace->amd_iperm_vec).eval();
-    x = x.cwiseProduct(workspace->scaling).eval();
+    workspace->backsolve_scratch = x(workspace->amd_iperm_vec).cwiseProduct(workspace->scaling);
+    x.swap(workspace->backsolve_scratch);
 }
 
 void Solver::compute_amd_ordering() {
@@ -499,7 +487,7 @@ bool Solver::convergence(const Solver::Options& options) {
     double eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
     double ineq_violation = workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>();
 
-    double comp_violation = (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
+    double comp_violation = workspace->residual_comp_L.cwiseProduct(workspace->residual_comp_R)
                               .lpNorm<Eigen::Infinity>();
 
     return kkt_norm < options.convergence_kkt_norm && eq_violation < options.convergence_eq_violation &&
@@ -524,13 +512,12 @@ SolveResult Solver::solve() {
     }
     workspace->m_eq_est.setZero();
     workspace->m_ineq_est.setZero();
-    workspace->m_comp_est.setZero();
+    workspace->m_comp_L_est.setZero();
+    workspace->m_comp_R_est.setZero();
     filter->clear();
 
     int n_iter_outer = 0;
     int n_iter_inner = 0;
-
-    double theta_prev = std::numeric_limits<double>::max();
 
     const bool verbose = options.verbosity >= 1;
     const char* last_step_type = "---";
@@ -569,7 +556,7 @@ SolveResult Solver::solve() {
         double eq_vio  = prob->n_eq   > 0 ? workspace->residual_eq.lpNorm<Eigen::Infinity>() : 0.0;
         double ineq_vio= prob->n_ineq > 0 ? workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>() : 0.0;
         double comp_vio= prob->n_comp > 0
-            ? (workspace->residual_comp(comp_L_inds).cwiseProduct(workspace->residual_comp(comp_R_inds)))
+            ? workspace->residual_comp_L.cwiseProduct(workspace->residual_comp_R)
                 .lpNorm<Eigen::Infinity>()
             : 0.0;
         double obj = 0.5 * workspace->z.dot(prob->cost_hessian * workspace->z)
@@ -617,7 +604,8 @@ SolveResult Solver::solve() {
                 rec["s_comp"]        = vec_to_json(workspace->s_comp);
                 rec["m_eq"]          = vec_to_json(workspace->m_eq);
                 rec["m_ineq"]        = vec_to_json(workspace->m_ineq);
-                rec["m_comp"]        = vec_to_json(workspace->m_comp);
+                rec["m_comp_L"]      = vec_to_json(workspace->m_comp_L);
+                rec["m_comp_R"]      = vec_to_json(workspace->m_comp_R);
                 debug_file << rec.dump() << "\n";
             }
         }
@@ -667,7 +655,8 @@ SolveResult Solver::solve() {
                 // If we are at the maximum penalty, we just update multiplier estimates without increasing penalty
                 workspace->m_eq_est = workspace->m_eq;
                 workspace->m_ineq_est = workspace->m_ineq;
-                workspace->m_comp_est = workspace->m_comp;
+                workspace->m_comp_L_est = workspace->m_comp_L;
+                workspace->m_comp_R_est = workspace->m_comp_R;
 
                 // Scale relaxation parameter
                 workspace->relax_param = relax_param_new;
@@ -720,7 +709,7 @@ SolveResult Solver::solve() {
 
                 any_inertia_succeeded = true;
 
-                backsolve();
+                backsolve(-workspace->kkt_residual, workspace->newton_step);
 
                 linesearch_succeeded = filter_linesearch(
                     relaxation_param,
@@ -775,7 +764,8 @@ SolveResult Solver::solve() {
             footer["s_comp"]          = vec_to_json(workspace->s_comp);
             footer["m_eq"]            = vec_to_json(workspace->m_eq);
             footer["m_ineq"]          = vec_to_json(workspace->m_ineq);
-            footer["m_comp"]          = vec_to_json(workspace->m_comp);
+            footer["m_comp_L"]        = vec_to_json(workspace->m_comp_L);
+            footer["m_comp_R"]        = vec_to_json(workspace->m_comp_R);
             debug_file << footer.dump() << "\n";
         }
     }
@@ -795,7 +785,8 @@ SolveResult Solver::solve() {
         Vec(workspace->s_comp),
         Vec(workspace->m_eq),
         Vec(workspace->m_ineq),
-        Vec(workspace->m_comp),
+        Vec(workspace->m_comp_L),
+        Vec(workspace->m_comp_R),
     };
 }
 
@@ -807,23 +798,27 @@ Filter::Entry Solver::entry_from_solution(double relax_param, double inv_penalty
                                 inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
 
     Vec p_comp = retract(workspace->s_comp, relax_param);
-    Vec m_comp_primal_feas =
-        workspace->residual_comp - inv_penalty_param * (workspace->m_comp - workspace->m_comp_est);
+    Vec m_comp_L_primal_feas =
+        workspace->residual_comp_L - inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
+    Vec m_comp_R_primal_feas =
+        workspace->residual_comp_R - inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
 
     for (int i = 0; i < prob->n_comp; i++) {
-        m_comp_primal_feas[2 * i] += -p_comp[i];                               // p(s)
-        m_comp_primal_feas[2 * i + 1] += -(p_comp[i] - workspace->s_comp[i]);  // p(s) - p(-s) = s
+        m_comp_L_primal_feas[i] += -p_comp[i];                               // p(s)
+        m_comp_R_primal_feas[i] += -(p_comp[i] - workspace->s_comp[i]);      // p(s) - p(-s) = s
     }
 
     double candidate_constraint_violation = n_duals == 0 ? 0.0 :
-        (m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() + m_comp_primal_feas.lpNorm<1>()) / n_duals;
+        (m_eq_primal_feas.lpNorm<1>() + m_ineq_primal_feas.lpNorm<1>() +
+         m_comp_L_primal_feas.lpNorm<1>() + m_comp_R_primal_feas.lpNorm<1>()) / n_duals;
 
     double candidate_objective =
         0.5 * workspace->z.transpose() * prob->cost_hessian * workspace->z +
         prob->cost_gradient.dot(workspace->z) + prob->cost_const -
         relax_param * p_ineq.array().log().sum() +
         0.5 * inv_penalty_param *
-            (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() + workspace->m_comp.squaredNorm());
+            (workspace->m_eq.squaredNorm() + workspace->m_ineq.squaredNorm() +
+             workspace->m_comp_L.squaredNorm() + workspace->m_comp_R.squaredNorm());
 
     return {
         candidate_constraint_violation,
@@ -844,7 +839,8 @@ bool Solver::filter_linesearch(double relax_param, double inv_penalty_param, int
         // Update constraint residuals from candidate solution
         workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
         workspace->residual_ineq = prob->J_ineq * workspace->z + prob->c_ineq;
-        workspace->residual_comp = prob->J_comp * workspace->z + prob->c_comp;
+        workspace->residual_comp_L = prob->L_comp * workspace->z + prob->l_comp;
+        workspace->residual_comp_R = prob->R_comp * workspace->z + prob->r_comp;
 
         const Filter::Entry candidate = entry_from_solution(relax_param, inv_penalty_param);
 
@@ -868,7 +864,8 @@ void Solver::ruiz_equilibration(int niter) {
     SMat H_bar = prob->cost_hessian;
     SMat J_eq_bar = prob->J_eq;
     SMat J_ineq_bar = prob->J_ineq;
-    SMat J_comp_bar = prob->J_comp;
+    SMat L_comp_bar = prob->L_comp;
+    SMat R_comp_bar = prob->R_comp;
 
     const int nz = prob->nz;
     const int n_eq = prob->n_eq;
@@ -879,7 +876,8 @@ void Solver::ruiz_equilibration(int niter) {
     Eigen::VectorBlock<Vec> d = workspace->scaling.head(nz);
     Eigen::VectorBlock<Vec> e_eq = workspace->scaling.segment(nz + n_ineq + n_comp, n_eq);
     Eigen::VectorBlock<Vec> e_ineq = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq, n_ineq);
-    Eigen::VectorBlock<Vec> e_comp = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq + n_ineq, 2*n_comp);
+    Eigen::VectorBlock<Vec> e_comp_L = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq + n_ineq, n_comp);
+    Eigen::VectorBlock<Vec> e_comp_R = workspace->scaling.segment(nz + n_ineq + n_comp + n_eq + n_ineq + n_comp, n_comp);
 
     // Helper functions: Inf-norm column/row reductions using sparse nonzero iteration
     for (int iter = 0; iter < niter; ++iter) {
@@ -901,8 +899,13 @@ void Solver::ruiz_equilibration(int niter) {
                 d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
             }
         }
-        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
+        for (int col = 0; col < L_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(L_comp_bar, col); it; ++it) {
+                d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < R_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(R_comp_bar, col); it; ++it) {
                 d_temp[col] = std::max(d_temp[col], std::abs(it.value()));
             }
         }
@@ -910,7 +913,8 @@ void Solver::ruiz_equilibration(int niter) {
         // Compute row-wise norms of second part of KKT system (feasibility)
         Vec e_eq_temp = Vec::Zero(n_eq);
         Vec e_ineq_temp = Vec::Zero(n_ineq);
-        Vec e_comp_temp = Vec::Zero(2*n_comp);
+        Vec e_comp_L_temp = Vec::Zero(n_comp);
+        Vec e_comp_R_temp = Vec::Zero(n_comp);
         for (int col = 0; col < J_eq_bar.outerSize(); ++col) {
             for (SMat::InnerIterator it(J_eq_bar, col); it; ++it) {
                 e_eq_temp[it.row()] = std::max(e_eq_temp[it.row()], std::abs(it.value()));
@@ -921,9 +925,14 @@ void Solver::ruiz_equilibration(int niter) {
                 e_ineq_temp[it.row()] = std::max(e_ineq_temp[it.row()], std::abs(it.value()));
             }
         }
-        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
-                e_comp_temp[it.row()] = std::max(e_comp_temp[it.row()], std::abs(it.value()));
+        for (int col = 0; col < L_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(L_comp_bar, col); it; ++it) {
+                e_comp_L_temp[it.row()] = std::max(e_comp_L_temp[it.row()], std::abs(it.value()));
+            }
+        }
+        for (int col = 0; col < R_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(R_comp_bar, col); it; ++it) {
+                e_comp_R_temp[it.row()] = std::max(e_comp_R_temp[it.row()], std::abs(it.value()));
             }
         }
 
@@ -931,13 +940,15 @@ void Solver::ruiz_equilibration(int niter) {
         d_temp = d_temp.cwiseMax(1e-4).cwiseMin(1e4);
         e_eq_temp = e_eq_temp.cwiseMax(1e-4).cwiseMin(1e4);
         e_ineq_temp = e_ineq_temp.cwiseMax(1e-4).cwiseMin(1e4);
-        e_comp_temp = e_comp_temp.cwiseMax(1e-4).cwiseMin(1e4);
+        e_comp_L_temp = e_comp_L_temp.cwiseMax(1e-4).cwiseMin(1e4);
+        e_comp_R_temp = e_comp_R_temp.cwiseMax(1e-4).cwiseMin(1e4);
 
         // Take square roots, reciprocal, turn into diag vectors
         d_temp = d_temp.array().rsqrt().matrix();
         e_eq_temp = e_eq_temp.array().rsqrt().matrix();
         e_ineq_temp = e_ineq_temp.array().rsqrt().matrix();
-        e_comp_temp = e_comp_temp.array().rsqrt().matrix();
+        e_comp_L_temp = e_comp_L_temp.array().rsqrt().matrix();
+        e_comp_R_temp = e_comp_R_temp.array().rsqrt().matrix();
 
         // Update problem data
         for (int col = 0; col < H_bar.outerSize(); ++col) {
@@ -955,9 +966,14 @@ void Solver::ruiz_equilibration(int niter) {
                 it.valueRef() *= e_ineq_temp[it.row()] * d_temp[col];
             }
         }
-        for (int col = 0; col < J_comp_bar.outerSize(); ++col) {
-            for (SMat::InnerIterator it(J_comp_bar, col); it; ++it) {
-                it.valueRef() *= e_comp_temp[it.row()] * d_temp[col];
+        for (int col = 0; col < L_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(L_comp_bar, col); it; ++it) {
+                it.valueRef() *= e_comp_L_temp[it.row()] * d_temp[col];
+            }
+        }
+        for (int col = 0; col < R_comp_bar.outerSize(); ++col) {
+            for (SMat::InnerIterator it(R_comp_bar, col); it; ++it) {
+                it.valueRef() *= e_comp_R_temp[it.row()] * d_temp[col];
             }
         }
 
@@ -965,7 +981,8 @@ void Solver::ruiz_equilibration(int niter) {
         d = d.cwiseProduct(d_temp);
         e_eq = e_eq.cwiseProduct(e_eq_temp);
         e_ineq = e_ineq.cwiseProduct(e_ineq_temp);
-        e_comp = e_comp.cwiseProduct(e_comp_temp);
+        e_comp_L = e_comp_L.cwiseProduct(e_comp_L_temp);
+        e_comp_R = e_comp_R.cwiseProduct(e_comp_R_temp);
     }
 
 }

@@ -32,5 +32,8 @@ LocalPreferences.toml
 *.jl.mem
 
 # Testing
-docs/
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.gz
 proglogs/

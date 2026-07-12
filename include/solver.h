@@ -28,7 +28,8 @@ struct SolveResult {
     Vec s_comp;   // Complementarity slack solution
     Vec m_eq;     // Equality multiplier solution
     Vec m_ineq;   // Inequality multiplier solution
-    Vec m_comp;   // Complementarity multiplier solution
+    Vec m_comp_L; // Complementarity multiplier solution (left / L_comp side)
+    Vec m_comp_R; // Complementarity multiplier solution (right / R_comp side)
 };
 
 class Solver {
@@ -110,12 +111,8 @@ public:
     Eigen::VectorXi s_comp_inds; // Complementarity slacks
     Eigen::VectorXi m_eq_inds; // Equality multipliers
     Eigen::VectorXi m_ineq_inds; // Inequality multipliers
-    Eigen::VectorXi m_comp_inds; // Complementarity multipliers
-
-    // Indices into the complementarity residual for extracting the comp residual violation for filter evaluation
-    // TODO: currently a duplicate of the one in Problems, remove
-    Eigen::VectorXi comp_L_inds;
-    Eigen::VectorXi comp_R_inds;
+    Eigen::VectorXi m_comp_L_inds; // Complementarity multipliers (left / L_comp side)
+    Eigen::VectorXi m_comp_R_inds; // Complementarity multipliers (right / R_comp side)
 
     // Indices into the sparse KKT matrix valuePtr for jacobians of the KKT residual that are updated
     // based on the nonlinear terms (s_ineq, s_comp, relaxation_param, and penalty_param)
@@ -123,7 +120,8 @@ public:
     Eigen::VectorXi s_ineq_s_ineq_inds; // Diagonal matrix
     Eigen::VectorXi s_ineq_m_ineq_inds; // Diagonal matrix
     Eigen::VectorXi s_comp_s_comp_inds; // Diagonal matrix
-    Eigen::VectorXi s_comp_m_comp_inds;  
+    Eigen::VectorXi s_comp_m_comp_L_inds; // Diagonal matrix (s_comp row, left multiplier)
+    Eigen::VectorXi s_comp_m_comp_R_inds; // Diagonal matrix (s_comp row, right multiplier)
     Eigen::VectorXi penalty_inds;
     Eigen::VectorXi regularizer_inds;
     
@@ -136,27 +134,27 @@ public:
     /**
      * Retraction map (elementwise)
      */
-    Vec retract(const Vec& s, double relax_param) const;
+    Vec retract(const Eigen::Ref<const Vec>& s, double relax_param) const;
 
     /**
      * Retraction map derivative (elementwise)
      */
-    Vec retract_deriv(const Vec& s, double relax_param) const;
+    Vec retract_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const;
 
     /**
      * Retraction map second derivative (elementwise)
      */
-    Vec retract_second_deriv(const Vec& s, double relax_param) const;
+    Vec retract_second_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const;
 
     /**
      * Derivative of the retraction map wrt the relaxation parameter kappa (elementwise)
      */
-    Vec retract_drelax(const Vec& s, double relax_param) const;
+    Vec retract_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const;
 
     /**
      * Mixed derivative of the retraction map wrt s and the relaxation parameter kappa (elementwise)
      */
-    Vec retract_deriv_drelax(const Vec& s, double relax_param) const;
+    Vec retract_deriv_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const;
 
     /**
      * Ruiz equilibration for current problem data using copies of H and J_*.
@@ -170,11 +168,6 @@ public:
      * this with consistent dimensions.
      */
     void set_problem(Problem problem, Solver::Options& options);
-
-    /**
-     * Populates the KKT system, computes sparsity indexing
-     */
-    void set_problem(const Solver::Options& options);
 
     /**
      * Returns the problem currently set for the solver
@@ -203,12 +196,13 @@ public:
     /**
      * Update the KKT terms associated with s_ineq (no dependence on m_ineq)
      */
-    void update_KKT_ineq(const Vec& s_ineq, double relax_param);
+    void update_KKT_ineq(const Eigen::Ref<const Vec>& s_ineq, double relax_param);
 
     /**
      * Update the KKT terms associated with s_comp and m_comp
      */
-    void update_KKT_comp(const Vec& s_comp, const Vec& m_comp, double relax_param);
+    void update_KKT_comp(const Eigen::Ref<const Vec>& s_comp, const Eigen::Ref<const Vec>& m_comp_L,
+                         const Eigen::Ref<const Vec>& m_comp_R, double relax_param);
 
     /**
      * Update the KKT penalty diagonal
@@ -238,12 +232,6 @@ public:
     bool check_inertia();
 
     /**
-     * Solve the KKT system using the factorized matrix, populating the solution
-     * in workspace->newton_step with rhs -kkt_residual.
-     */
-    void backsolve();
-
-    /**
      * Solve K x = b using the currently factorized KKT matrix, where K is the
      * unscaled system (the Ruiz scaling stored in workspace->scaling is applied
      * internally). Populates x with the solution.
@@ -251,7 +239,7 @@ public:
      * @param b right-hand side vector (length n_vars)
      * @param x solution vector to populate (length n_vars); must not alias b
      */
-    void backsolve(const Vec& b, Vec& x);
+    void backsolve(const Eigen::Ref<const Vec>& b, Vec& x);
 
     /**
      * Compute AMD ordering
