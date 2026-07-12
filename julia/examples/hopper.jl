@@ -54,18 +54,19 @@ function animate(vis, X, dt)
     end
     mc.setanimation!(vis, anim)
 end
+vis = mc.Visualizer()
 
 # Planar 2-D hopper problem, two equal mass point masses 
 # Configuration is stacked position [x; y] of each mass (foot, then head) 
 # State is [configuration; velocity], 8 dimensions
 # Controls are internal x and y forces (correspond to prismatic joint and linearized revolute)
 
-problem, x, u, f, comp, comp_type = let
+problem, x, u, f, comp, comp_type, N, dt = let
     nq, nx, nu, nd = 4, 8, 2, 2 # nd is num dimensions (2 = planar)
     pos_xi, pos_zi = 1, 2 # Indexing for coordinates
     g = 9.81
     grav_comp = [0; g]
-    N, dt, μ = 2, 0.05, 0.1
+    N, dt, μ = 60, 0.05, 0.1
     Q, Qf = diagm([1e1; 0; 1e1; 0; 1e-1*ones(4)]), diagm([1e3; 0; 1e3; 1e3; 1e-2*ones(4)])
     R, Rd = diagm([1e-3; 1e-3])/90/90,diagm([1e0; 1e0])/90
     speed = 0.04
@@ -165,7 +166,7 @@ problem, x, u, f, comp, comp_type = let
     comp = [normal_comp; box_comp]
     comp_type = [fill((:con, :con), N); fill((:con, :con), 8*N)]
 
-    problem, x, u, f, comp, comp_type
+    problem, x, u, f, comp, comp_type, N, dt
 end; 
 
 solver = Marble.Solver();
@@ -175,8 +176,7 @@ prob = solver.problem
 
 # TEMP: test for problem alignment vs hopper_testing.jld2 
 using JLD2, SparseArrays
-N = 2
-@load joinpath(@__DIR__, "hopper_testing.jld2") H g J_eq J_ineq J_comp c_eq c_ineq c_comp x_inds u_inds f_inds s_inds box_s_inds
+@load joinpath(@__DIR__, "hopper_testing_$N.jld2") H g J_eq J_ineq J_comp c_eq c_ineq c_comp x_inds u_inds f_inds s_inds box_s_inds
 
 # Permutation matrix
 x_reorg = [2; 4; 1; 3; 6; 8; 5; 7]
@@ -195,19 +195,19 @@ pro_A = J_eq
 pro_B = prob.J_eq[9:end, :]*perm'
 pro_svd = svd(Matrix(pro_B*pro_A'), alg=LinearAlgebra.QRIteration())
 pro_R = sparse(pro_svd.U*pro_svd.V')
-norm(pro_A - pro_R'*pro_B, Inf)
+@assert norm(pro_A - pro_R'*pro_B, Inf) < 1e-10
 
 pro_A = J_ineq
 pro_B = prob.J_ineq*perm'
 pro_svd = svd(Matrix(pro_B*pro_A'), alg=LinearAlgebra.QRIteration())
 pro_R = sparse(pro_svd.U*pro_svd.V')
-norm(pro_A - pro_R'*pro_B, Inf)
+@assert norm(pro_A - pro_R'*pro_B, Inf) < 1e-10
 
 pro_A = J_comp
 pro_B = prob.J_comp*perm'
 pro_svd = svd(Matrix(pro_B*pro_A'), alg=LinearAlgebra.QRIteration())
 pro_R = sparse(pro_svd.U*pro_svd.V')
-norm(pro_A - pro_R'*pro_B, Inf)
+@assert norm(pro_A - pro_R'*pro_B, Inf) < 1e-10
 
 results = Marble.solve!(solver);
 
