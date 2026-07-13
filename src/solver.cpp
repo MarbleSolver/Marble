@@ -1,10 +1,11 @@
 #include "solver.h"
-#include <nlohmann/json.hpp>
-#include <fstream>
-#include <cstdio>
 #include <cstdlib>
 #include <cmath>
 #include <limits>
+#include <string>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/fmt/fmt.h>
 
 namespace {
     Eigen::VectorXi safe_linspaced(int n, int start) {
@@ -12,50 +13,37 @@ namespace {
         return Eigen::VectorXi::LinSpaced(n, start, start + n - 1);
     }
 
-    // -------------------------------------------------------------------------
-    // IPOPT-style printing helpers
-    // -------------------------------------------------------------------------
-    static const int COL_HEADER_REPRINT = 25;  // reprint column headers every N rows
+    // Per-iteration table column header.
+    constexpr const char* kColHeader =
+        " iter  type    lg(ρ)   lg(κ)  lg(reg)       ||kkt||        ||eq||      ||ineq||      ||comp||           obj";
 
-    static void print_col_header() {
-        printf("%5s  %-5s  %7s  %7s  %7s  %12s  %12s  %12s  %12s  %12s\n",
-               "iter", "type", "lg(ρ)", "lg(κ)", "lg(reg)",
-               "||kkt||", "||eq||", "||ineq||", "||comp||", "obj");
-        printf("%s\n", std::string(110, '-').c_str());
-    }
-
-    static void print_solve_header(int nz, int n_eq, int n_ineq, int n_comp) {
-        printf("\nMarble Solver  [nz=%d, n_eq=%d, n_ineq=%d, n_comp=%d]\n\n",
-               nz, n_eq, n_ineq, n_comp);
-        print_col_header();
-    }
-
-    static void print_iter_row(int iter, const char* type,
-                               double penalty, double relax,
-                               double kkt, double eq_vio, double ineq_vio,
-                               double comp_vio, double obj,
-                               double regularizer) {
-        char reg_str[8] = "    ---";
-        if (!std::isnan(regularizer)) {
-            if (regularizer == 0.0) std::snprintf(reg_str, sizeof(reg_str), "      0");
-            else                    std::snprintf(reg_str, sizeof(reg_str), "%7.0f", std::log10(regularizer));
+    // Shared "marble" console logger; its level is set per-solve from Options::verbosity.
+    // The pattern is just the (level-colored) message so the table stays aligned.
+    std::shared_ptr<spdlog::logger> solver_logger() {
+        auto lg = spdlog::get("marble");
+        if (!lg) {
+            lg = spdlog::stdout_color_mt("marble");
+            lg->set_pattern("%^%v%$");
         }
-        printf("%5d  %-5s  %7.1f  %7.1f  %7s  %12.3e  %12.3e  %12.3e  %12.3e  %12.3e\n",
-               iter, type,
-               std::log10(penalty), std::log10(relax), reg_str,
-               kkt, eq_vio, ineq_vio, comp_vio, obj);
-        std::fflush(stdout);
+        return lg;
     }
 
-    static void print_solve_footer(bool converged, int n_outer, int n_inner, int n_fact,
-                                   double kkt, double eq_vio, double ineq_vio,
-                                   double comp_vio, double obj) {
-        printf("\nSolver %-20s  %d iters (%d outer, %d inner),  %d factorizations.\n",
-               converged ? "CONVERGED" : "MAX ITERS REACHED",
-               n_outer + n_inner, n_outer, n_inner, n_fact);
-        printf("Final  ||kkt||=%.2e  ||eq||=%.2e  ||ineq||=%.2e  ||comp||=%.2e  obj=%.6e\n\n",
-               kkt, eq_vio, ineq_vio, comp_vio, obj);
-        std::fflush(stdout);
+    // verbosity -> spdlog threshold:
+    //   0 silent | 1 errors (non-convergence) | 2 + warnings | 3 + header & per-iteration
+    spdlog::level::level_enum level_from_verbosity(int verbosity) {
+        switch (verbosity) {
+            case 0:  return spdlog::level::off;
+            case 1:  return spdlog::level::err;
+            case 2:  return spdlog::level::warn;
+            default: return spdlog::level::debug;
+        }
+    }
+
+    // Format the inertia-regularizer column as log10, or "---" (none) / "0" (exactly zero).
+    std::string fmt_reg(double regularizer) {
+        if (std::isnan(regularizer)) return "---";
+        if (regularizer == 0.0)      return "0";
+        return fmt::format("{:.0f}", std::log10(regularizer));
     }
 }
 
@@ -479,19 +467,19 @@ void Solver::compute_amd_ordering() {
     }
 }
 
-bool Solver::convergence(const Solver::Options& options) {
-    // KKT residual norm
-    double kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
+bool Solver::convergence() const {
+    // // KKT residual norm
+    // double kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
 
     // Primal feasibility
     double eq_violation = workspace->residual_eq.lpNorm<Eigen::Infinity>();
     double ineq_violation = workspace->residual_ineq.cwiseMin(0).lpNorm<Eigen::Infinity>();
 
-    double comp_violation = workspace->residual_comp_L.cwiseProduct(workspace->residual_comp_R)
-                              .lpNorm<Eigen::Infinity>();
+    double comp_violation = workspace->residual_comp_L.cwiseProduct(workspace->residual_comp_R).lpNorm<Eigen::Infinity>();
 
-    return kkt_norm < options.convergence_kkt_norm && eq_violation < options.convergence_eq_violation &&
-           ineq_violation < options.convergence_ineq_violation && comp_violation < options.convergence_comp_violation;
+    return eq_violation < options.convergence_eq_violation &&
+           ineq_violation < options.convergence_ineq_violation &&
+           comp_violation < options.convergence_comp_violation;
 }
 
 SolveResult Solver::solve() {
@@ -519,37 +507,31 @@ SolveResult Solver::solve() {
     int n_iter_outer = 0;
     int n_iter_inner = 0;
 
-    const bool verbose = options.verbosity >= 1;
+    auto log = solver_logger();
+    log->set_level(level_from_verbosity(options.verbosity));
+
     const char* last_step_type = "---";
     double last_regularizer = NAN;
-    int rows_printed = 0;
 
-    if (verbose) {
-        print_solve_header(prob->nz, prob->n_eq, prob->n_ineq, prob->n_comp);
-    }
+    // Solver info header (shown at verbosity >= 3)
+    log->info("");
+    log->info("Marble Solver");
+    log->info("  variables   : {} total  (nz={}, +{} ineq slacks, +{} comp slacks; {} duals)",
+              n_vars, prob->nz, prob->n_ineq, prob->n_comp, n_duals);
+    log->info("  constraints : {} equality, {} inequality, {} complementarity",
+              prob->n_eq, prob->n_ineq, prob->n_comp);
+    log->info("  penalty     : init={:.1e}  max={:.1e}  scale={:.1f}",
+              options.penalty_initial, options.penalty_max, options.penalty_scaling);
+    log->info("  relaxation  : init={:.1e}  min={:.1e}  scale={:.2f}",
+              options.relaxation_initial, options.relaxation_min, options.relaxation_scaling);
+    log->info("  convergence : kkt<{:.1e}  eq<{:.1e}  ineq<{:.1e}  comp<{:.1e}  (max_iters={})",
+              options.convergence_kkt_norm, options.convergence_eq_violation,
+              options.convergence_ineq_violation, options.convergence_comp_violation, options.max_iters);
+    log->info("");
 
-    auto vec_to_json = [](const Eigen::Map<Vec>& v) {
-        return std::vector<double>(v.data(), v.data() + v.size());
-    };
-
-    std::ofstream debug_file;
-    const bool debug = options.debug && !options.debug_output_path.empty();
-    if (debug) {
-        debug_file.open(options.debug_output_path, std::ios::trunc);
-        nlohmann::json header;
-        header["type"]               = "header";
-        header["nz"]                 = prob->nz;
-        header["n_eq"]               = prob->n_eq;
-        header["n_ineq"]             = prob->n_ineq;
-        header["n_comp"]             = prob->n_comp;
-        header["penalty_initial"]    = options.penalty_initial;
-        header["penalty_max"]        = options.penalty_max;
-        header["penalty_scaling"]    = options.penalty_scaling;
-        header["relaxation_initial"] = options.relaxation_initial;
-        header["relaxation_min"]     = options.relaxation_min;
-        header["relaxation_scaling"] = options.relaxation_scaling;
-        debug_file << header.dump() << "\n";
-    }
+    // Per-iteration table header (shown at verbosity >= 3)
+    log->debug("{}", kColHeader);
+    log->debug("{}", std::string(110, '-'));
 
     auto compute_metrics = [&]() {
         double kkt     = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
@@ -572,45 +554,16 @@ SolveResult Solver::solve() {
 
         update_KKT_residual(relaxation_param, inv_penalty_param);
 
-        const bool should_print = verbose && iter % options.print_every == 0;
-        const bool should_log   = debug   && iter % options.debug_log_every == 0;
-        if (should_print || should_log) {
+        if (log->should_log(spdlog::level::debug) && iter % std::max(1, options.print_every) == 0) {
             auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
-            if (should_print) {
-                if (rows_printed > 0 && rows_printed % COL_HEADER_REPRINT == 0) {
-                    print_col_header();
-                }
-                print_iter_row(iter, last_step_type,
-                               workspace->penalty_param, workspace->relax_param,
-                               kkt, eq_vio, ineq_vio, comp_vio, obj,
-                               last_regularizer);
-                ++rows_printed;
-            }
-            if (should_log) {
-                nlohmann::json rec;
-                rec["type"]          = "iterate";
-                rec["iter"]          = iter;
-                rec["step_type"]     = std::string(last_step_type);
-                rec["penalty_param"] = workspace->penalty_param;
-                rec["relax_param"]   = workspace->relax_param;
-                rec["regularizer"]   = std::isnan(last_regularizer) ? nlohmann::json(nullptr) : nlohmann::json(last_regularizer);
-                rec["kkt"]           = kkt;
-                rec["eq_vio"]        = eq_vio;
-                rec["ineq_vio"]      = ineq_vio;
-                rec["comp_vio"]      = comp_vio;
-                rec["obj"]           = obj;
-                rec["z"]             = vec_to_json(workspace->z);
-                rec["s_ineq"]        = vec_to_json(workspace->s_ineq);
-                rec["s_comp"]        = vec_to_json(workspace->s_comp);
-                rec["m_eq"]          = vec_to_json(workspace->m_eq);
-                rec["m_ineq"]        = vec_to_json(workspace->m_ineq);
-                rec["m_comp_L"]      = vec_to_json(workspace->m_comp_L);
-                rec["m_comp_R"]      = vec_to_json(workspace->m_comp_R);
-                debug_file << rec.dump() << "\n";
-            }
+            log->debug("{:5d}  {:<5}  {:7.1f}  {:7.1f}  {:>7}  {:12.3e}  {:12.3e}  {:12.3e}  {:12.3e}  {:12.3e}",
+                       iter, last_step_type,
+                       std::log10(workspace->penalty_param), std::log10(workspace->relax_param),
+                       fmt_reg(last_regularizer),
+                       kkt, eq_vio, ineq_vio, comp_vio, obj);
         }
 
-        if (convergence(options)) {
+        if (convergence()) {
             converged = true;
             break;
         }
@@ -692,6 +645,8 @@ SolveResult Solver::solve() {
                 update_KKT_primal_regularizer(regularizer_to_try);
 
                 if (!numerical_factorization()) {
+                    log->warn("iter {}: numerical factorization failed (reg={:.1e}); increasing regularization",
+                              iter, regularizer_to_try);
                     regularizer_to_try = bump_reg(regularizer_to_try);
                     continue;
                 }
@@ -699,6 +654,8 @@ SolveResult Solver::solve() {
                 any_factorization_succeeded = true;
 
                 if (!check_inertia()) {
+                    log->warn("iter {}: wrong inertia (reg={:.1e}); increasing regularization",
+                              iter, regularizer_to_try);
                     regularizer_to_try = bump_reg(regularizer_to_try);
                     continue;
                 }
@@ -722,51 +679,44 @@ SolveResult Solver::solve() {
                     break;
                 }
 
+                log->warn("iter {}: linesearch failed (reg={:.1e}); increasing regularization",
+                          iter, regularizer_to_try);
                 regularizer_to_try = bump_reg(regularizer_to_try);
             }
 
             if (!linesearch_succeeded) {
                 if (!any_factorization_succeeded) {
+                    log->error("iter {}: numerical factorization failed for all regularization values", iter);
                     throw std::runtime_error("Numerical factorization failed for all regularization values!");
                 }
                 if (!any_inertia_succeeded) {
+                    log->error("iter {}: inertia could not be corrected for any regularization value", iter);
                     throw std::runtime_error("Inertia correction failed for all regularization values!");
                 }
+                log->error("iter {}: linesearch failed for all regularization values", iter);
                 throw std::runtime_error("Linesearch failed for all regularization values!");
             }
         }
     }
 
-    if (verbose || debug) {
-        double relaxation_param = workspace->relax_param;
-        double inv_pen    = 1.0 / workspace->penalty_param;
-        update_KKT_residual(relaxation_param, inv_pen);
+    const bool want_summary = log->should_log(spdlog::level::info);
+    const bool want_reason   = !converged && log->should_log(spdlog::level::err);
+    if (want_summary || want_reason) {
+        // Recompute the residual so the final report reflects the returned iterate
+        update_KKT_residual(workspace->relax_param, 1.0 / workspace->penalty_param);
         auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics();
-        if (verbose) {
-            print_solve_footer(converged, n_iter_outer, n_iter_inner, n_factorizations,
-                               kkt, eq_vio, ineq_vio, comp_vio, obj);
+        if (want_summary) {
+            log->info("");
+            log->info("Marble {}  |  {} iters ({} outer, {} inner), {} factorizations",
+                      converged ? "converged" : "stopped",
+                      n_iter_outer + n_iter_inner, n_iter_outer, n_iter_inner, n_factorizations);
+            log->info("  final: ||kkt||={:.2e}  ||eq||={:.2e}  ||ineq||={:.2e}  ||comp||={:.2e}  obj={:.6e}",
+                      kkt, eq_vio, ineq_vio, comp_vio, obj);
+            log->info("");
         }
-        if (debug) {
-            nlohmann::json footer;
-            footer["type"]            = "footer";
-            footer["converged"]       = converged;
-            footer["iterations"]      = n_iter_outer + n_iter_inner;
-            footer["iterations_outer"]= n_iter_outer;
-            footer["iterations_inner"]= n_iter_inner;
-            footer["factorizations"]  = n_factorizations;
-            footer["kkt"]             = kkt;
-            footer["eq_vio"]          = eq_vio;
-            footer["ineq_vio"]        = ineq_vio;
-            footer["comp_vio"]        = comp_vio;
-            footer["obj"]             = obj;
-            footer["z"]               = vec_to_json(workspace->z);
-            footer["s_ineq"]          = vec_to_json(workspace->s_ineq);
-            footer["s_comp"]          = vec_to_json(workspace->s_comp);
-            footer["m_eq"]            = vec_to_json(workspace->m_eq);
-            footer["m_ineq"]          = vec_to_json(workspace->m_ineq);
-            footer["m_comp_L"]        = vec_to_json(workspace->m_comp_L);
-            footer["m_comp_R"]        = vec_to_json(workspace->m_comp_R);
-            debug_file << footer.dump() << "\n";
+        if (want_reason) {
+            log->error("Marble did not converge: reached max_iters={} (||kkt||={:.2e}, need < {:.1e})",
+                       options.max_iters, kkt, options.convergence_kkt_norm);
         }
     }
 
@@ -788,6 +738,113 @@ SolveResult Solver::solve() {
         Vec(workspace->m_comp_L),
         Vec(workspace->m_comp_R),
     };
+}
+
+void Solver::update_residuals() {
+    workspace->residual_eq = prob->J_eq * workspace->z + prob->c_eq;
+    workspace->residual_ineq = prob->J_ineq * workspace->z + prob->c_ineq;
+    workspace->residual_comp_L = prob->L_comp * workspace->z + prob->l_comp;
+    workspace->residual_comp_R = prob->R_comp * workspace->z + prob->r_comp;
+}
+
+void Solver::update_subproblem_residuals(double relax_param) {
+    workspace->subproblem_residual_eq = workspace->residual_eq;
+    workspace->subproblem_residual_ineq = workspace->residual_ineq - retract(workspace->s_ineq, workspace->relax_param);
+    
+    const Vec p_comp = retract(workspace->s_comp, workspace->relax_param);
+    workspace->subproblem_residual_comp_L = workspace->residual_comp_L - p_comp;
+    workspace->subproblem_residual_comp_R = workspace->residual_comp_R - (p_comp - workspace->s_comp);
+}
+
+double Solver::subproblem_feas(double relax_param) {
+    double subproblem_eq_viol = workspace->subproblem_residual_eq.lpNorm<Eigen::Infinity>();
+    double subproblem_ineq_viol = workspace->subproblem_residual_ineq.lpNorm<Eigen::Infinity>();
+    
+    const Vec p_comp = retract(workspace->s_comp, workspace->relax_param);
+    double subproblem_comp_L_viol = workspace->subproblem_residual_comp_L.lpNorm<Eigen::Infinity>();
+    double subproblem_comp_R_viol = workspace->subproblem_residual_comp_R.lpNorm<Eigen::Infinity>();
+
+    return std::max({subproblem_eq_viol, subproblem_ineq_viol, subproblem_comp_L_viol, subproblem_comp_R_viol});
+}
+
+void Solver::update_primal_dual_multipliers(double penalty_param) {
+    double inv_penalty_param = 1.0 / penalty_param;
+
+    workspace->m_eq = workspace->m_eq_est + inv_penalty_param * workspace->subproblem_residual_eq;
+    workspace->m_ineq = workspace->m_ineq_est + inv_penalty_param * workspace->subproblem_residual_ineq;
+    workspace->m_comp_L = workspace->m_comp_L_est + inv_penalty_param * workspace->subproblem_residual_comp_L;
+    workspace->m_comp_R = workspace->m_comp_R_est + inv_penalty_param * workspace->subproblem_residual_comp_R;
+}
+
+SolveResult Solver::solve() {
+    print_solver_info();
+
+    // Initialize penalty and relaxation parameters
+    workspace->relax_param = options.relaxation_initial;
+    workspace->penalty_param = options.penalty_initial;
+
+    // Initialize flags and counters
+    bool converged = false;
+
+    update_residuals();
+    update_subproblem_residuals(workspace->relax_param);
+
+    double c_prev = subproblem_feas(workspace->relax_param);
+
+    // LANCELOT parameters
+    double omega = 1.0 / workspace->penalty_param;
+    double eta = 1.0 / std::pow(workspace->penalty_param, 0.1);
+
+    for (int iter = 0; iter < options.max_iters; ++iter) {
+        // Check for convergence, return if solved
+        if ((converged = convergence())) break;
+        if (workspace->penalty_param > options.penalty_max && workspace->relax_param < options.relaxation_min) {
+            // log->warn("Reached maximum penalty and minimum relaxation parameters without convergence.");
+            break;
+        }
+
+        double eps_k = std::max({1e-12, 1e-1 * workspace->relax_param});
+
+        // Perform inner AL minimization
+        minimize_augmented_lagrangian(omega, c_prev);
+        
+    }
+
+    return SolveResult{
+        converged,
+        n_iter_outer + n_iter_inner,
+        n_iter_outer,
+        n_iter_inner,
+        n_factorizations,
+        setup_time_s,
+        solve_time_s,
+        Vec(workspace->z),
+        Vec(workspace->s_ineq),
+        Vec(workspace->s_comp),
+        Vec(workspace->m_eq),
+        Vec(workspace->m_ineq),
+        Vec(workspace->m_comp_L),
+        Vec(workspace->m_comp_R),
+    };
+}
+
+void Solver::minimize_augmented_lagrangian(double omega, double subproblem_feas_prev) {
+    // Compute the KKT residual and check convergence
+    for (int iter = 0; iter < options.max_iters; ++iter) {
+        update_KKT_residual(workspace->relax_param, 1.0/workspace->penalty_param);
+        double kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
+
+        // Inner problem has been solved to sufficient tolerance?
+        if (kkt_norm <= std::max({omega, 0.1 * subproblem_feas_prev})) {
+            break;
+        }
+
+        // Do Newton step
+    }
+}
+
+void Solver::newton_step(double relax_param, double penalty_param) {
+    
 }
 
 Filter::Entry Solver::entry_from_solution(double relax_param, double inv_penalty_param) const {

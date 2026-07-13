@@ -7,7 +7,6 @@
 #include "workspace.h"
 #include "filter.h"
 #include <chrono>
-#include <filesystem>
 #include <utility>
 
 /**
@@ -78,24 +77,20 @@ public:
         /// Seed for the small random noise used to initialize s_comp
         /// (negative leaves the RNG unseeded, i.e. non-deterministic across runs)
         int comp_init_seed{-1};
-        /// Output directory for solution and solve information
-        std::filesystem::path output_dir{"/dev/null"};
-        /// Verbosity level: 0=silent, 1=per-iteration table + footer
+        /// Verbosity level, maps to spdlog thresholds:
+        ///   0 = silent
+        ///   1 = errors only (reason for non-convergence)
+        ///   2 = + warnings (regularization bumps, penalty capped, ...)
+        ///   3 = + solver header and per-iteration table
         int verbosity{0};
-        /// Print a row every N iterations (only used when verbosity >= 1)
+        /// Print a per-iteration row every N iterations (only used at verbosity >= 3)
         int print_every{1};
-        /// Write a JSONL debug log with iterates and solver state (one JSON object per line)
-        bool debug{false};
-        /// Path to the debug log file (used when debug=true)
-        std::string debug_output_path{"solver_debug.jsonl"};
-        /// Log every N iterations (1 = every iteration)
-        int debug_log_every{1};
 
         Options() = default;
     };
 
     // Problem instance
-    std::shared_ptr<Problem> prob;
+    std::shared_ptr<const Problem> prob;
 
     // Workspace for solve
     std::shared_ptr<Workspace> workspace;
@@ -172,7 +167,7 @@ public:
     /**
      * Returns the problem currently set for the solver
      */
-    Problem& get_problem() {
+    const Problem& get_problem() {
         return *prob;
     }
 
@@ -284,7 +279,7 @@ public:
     /**
      * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
      */
-    bool convergence(const Options &options);
+    bool convergence() const;
 
     // Solver options
     Options options;

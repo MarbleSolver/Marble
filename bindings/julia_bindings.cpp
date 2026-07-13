@@ -167,12 +167,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(comp_init_random,           bool)
         OPTION_RW(comp_init_seed,             int)
         OPTION_RW(verbosity,                  int)
-        OPTION_RW(print_every,                int)
-        OPTION_RW(debug,                      bool)
-        OPTION_RW(debug_output_path,          std::string)
-        OPTION_RW(debug_log_every,            int)
-        .method("output_dir",  [](const Solver::Options& o) { return o.output_dir.string(); })
-        .method("output_dir!", [](Solver::Options& o, const std::string& v) { o.output_dir = v; });
+        OPTION_RW(print_every,                int);
 
     #undef OPTION_RW
 

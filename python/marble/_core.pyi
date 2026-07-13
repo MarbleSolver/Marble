@@ -240,16 +240,12 @@ class SolverOptions:
     convergence_eq_violation: float
     convergence_ineq_violation: float
     convergence_kkt_norm: float
-    debug: bool
-    debug_log_every: int
-    debug_output_path: str
     gamma_constraint: float
     gamma_objective: float
     inertia_warmstart: bool
     max_iters: int
     max_iters_linesearch: int
     outer_step_kkt_norm: float
-    output_dir: str
     penalty_initial: float
     penalty_max: float
     penalty_scaling: float

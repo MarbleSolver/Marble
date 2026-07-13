@@ -40,10 +40,15 @@ public:
     Vec s_comp_stationarity; /** Complementarity stationarity terms */
 
     // Constraint evaluations
-    Vec residual_eq;        /** Equality constraint residuals */
-    Vec residual_ineq;      /** Inequality constraint residuals */
-    Vec residual_comp_L;    /** Complementarity constraint residuals, left  (L_comp x + l_comp) */
-    Vec residual_comp_R;    /** Complementarity constraint residuals, right (R_comp x + r_comp) */
+    Vec residual_eq;        /** Ax + b */
+    Vec residual_ineq;      /** Gx + h */
+    Vec residual_comp_L;    /** Lx + l */
+    Vec residual_comp_R;    /** Rx + r */
+
+    Vec subproblem_residual_eq;     /** Ax + b */
+    Vec subproblem_residual_ineq;   /** Gx + h - p(v) */
+    Vec subproblem_residual_comp_L; /** Lx + l - p(sigma)*/
+    Vec subproblem_residual_comp_R; /** Rx + r - p(-sigma) */
 
     // Relaxation and penalty parameters
     double relax_param;    /** Relaxation parameter for the retraction map */

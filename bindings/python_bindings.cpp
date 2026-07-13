@@ -172,12 +172,6 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("comp_init_seed",             &Solver::Options::comp_init_seed)
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
         .def_readwrite("print_every",                &Solver::Options::print_every)
-        .def_readwrite("debug",                      &Solver::Options::debug)
-        .def_readwrite("debug_output_path",          &Solver::Options::debug_output_path)
-        .def_readwrite("debug_log_every",            &Solver::Options::debug_log_every)
-        .def_property("output_dir",
-            [](const Solver::Options& o) { return o.output_dir.string(); },
-            [](Solver::Options& o, const std::string& v) { o.output_dir = v; })
         .def("__repr__", [](const Solver::Options& o) {
             return "<SolverOptions convergence_kkt_norm=" + std::to_string(o.convergence_kkt_norm)
                  + " max_iters=" + std::to_string(o.max_iters) + ">";

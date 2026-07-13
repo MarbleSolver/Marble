@@ -99,8 +99,7 @@ module Marble
         :max_iters, :max_iters_linesearch,
         :gamma_objective, :gamma_constraint, :ruiz_iterations,
         :inertia_warmstart,
-        :output_dir, :verbosity, :print_every, :debug,
-        :debug_output_path, :debug_log_every
+        :verbosity, :print_every
     ]
 
     function update_settings!(solver::Marble.Solver; kwargs...)
@@ -177,8 +176,4 @@ module Marble
         Marble.set_problem!(solver, prob, opts)
         return nothing
     end
-
-    # Debug log loader
-    include("debug.jl")
-    export SolverDebugLog, load_debug_log, get_field, get_iterates
 end

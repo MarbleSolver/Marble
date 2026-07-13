@@ -29,7 +29,18 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 include(FetchContent)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-find_package(nlohmann_json CONFIG REQUIRED)
+
+# spdlog – prefer a system install, otherwise fetch it.
+find_package(spdlog CONFIG QUIET)
+if(NOT spdlog_FOUND)
+    FetchContent_Declare(
+        spdlog
+        GIT_REPOSITORY https://github.com/gabime/spdlog.git
+        GIT_TAG        v1.14.1
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(spdlog)
+endif()
 
 # QDLDL – prefer a system install, otherwise fetch as static-only.
 # EXCLUDE_FROM_ALL suppresses QDLDL's cmake --install rules so they don't
@@ -73,7 +84,7 @@ add_library(marble STATIC
     src/filter.cpp
 )
 target_include_directories(marble PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(marble PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json marble_qdldl)
+target_link_libraries(marble PUBLIC Eigen3::Eigen spdlog::spdlog marble_qdldl)
 
 # ---------------------------------------------------------------------------
 # Python bindings  (cmake -DMARBLE_BUILD_PYTHON=ON  — default ON)
