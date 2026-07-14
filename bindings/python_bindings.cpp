@@ -171,7 +171,6 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("comp_init_random",           &Solver::Options::comp_init_random)
         .def_readwrite("comp_init_seed",             &Solver::Options::comp_init_seed)
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
-        .def_readwrite("print_every",                &Solver::Options::print_every)
         .def("__repr__", [](const Solver::Options& o) {
             return "<SolverOptions convergence_kkt_norm=" + std::to_string(o.convergence_kkt_norm)
                  + " max_iters=" + std::to_string(o.max_iters) + ">";
@@ -298,7 +297,7 @@ PYBIND11_MODULE(_core, m) {
              py::return_value_policy::reference_internal)
         // Main solve
         .def("solve", [](Solver& s) { return s.solve(); })
-        .def("convergence", &Solver::convergence, py::arg("options"))
+        .def("convergence", &Solver::convergence)
         // Workspace / filter access
         .def("get_workspace", &Solver::get_workspace,
              py::return_value_policy::reference_internal)
@@ -312,10 +311,11 @@ PYBIND11_MODULE(_core, m) {
         .def("retract_second_deriv", &Solver::retract_second_deriv,
              py::arg("s"), py::arg("relax_param"))
         // KKT updates
+        .def("update_residuals", &Solver::update_residuals)
         .def("update_KKT_residual", &Solver::update_KKT_residual,
-             py::arg("relax_param"), py::arg("inv_penalty_param"))
+             py::arg("relax_param"), py::arg("penalty_param"))
         .def("update_KKT_system", &Solver::update_KKT_system,
-             py::arg("relax_param"), py::arg("inv_penalty_param"))
+             py::arg("relax_param"), py::arg("penalty_param"))
         .def("update_KKT_ineq", [](Solver& s, const Vec& s_ineq, double relax_param) {
                  s.update_KKT_ineq(s_ineq, relax_param);
              },
@@ -325,7 +325,7 @@ PYBIND11_MODULE(_core, m) {
              },
              py::arg("s_comp"), py::arg("m_comp_L"), py::arg("m_comp_R"), py::arg("relax_param"))
         .def("update_KKT_penalty", &Solver::update_KKT_penalty,
-             py::arg("inv_penalty_param"))
+             py::arg("penalty_param"))
         .def("update_KKT_primal_regularizer", &Solver::update_KKT_primal_regularizer,
              py::arg("reg"))
         // Factorization and solve
@@ -341,12 +341,12 @@ PYBIND11_MODULE(_core, m) {
              }, py::arg("b"))
         // Linesearch
         .def("filter_linesearch", &Solver::filter_linesearch,
-             py::arg("relax_param"), py::arg("inv_penalty_param"), py::arg("max_iters"))
-        .def("entry_from_solution", [](const Solver& s, double relax_param, double inv_penalty_param) {
-                 Filter::Entry e = s.entry_from_solution(relax_param, inv_penalty_param);
+             py::arg("relax_param"), py::arg("penalty_param"), py::arg("max_iters"))
+        .def("entry_from_solution", [](const Solver& s, double relax_param, double penalty_param) {
+                 Filter::Entry e = s.entry_from_solution(relax_param, penalty_param);
                  return py::make_tuple(e.feas, e.merit);
              },
-             py::arg("relax_param"), py::arg("inv_penalty_param"))
+             py::arg("relax_param"), py::arg("penalty_param"))
         // Dimension info
         .def_readonly("n_primals", &Solver::n_primals)
         .def_readonly("n_duals",   &Solver::n_duals)

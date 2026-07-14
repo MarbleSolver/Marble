@@ -130,7 +130,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("n_ineq", [](const Problem& p) { return p.n_ineq; })
         .method("n_comp", [](const Problem& p) { return p.n_comp; })
         .method("obj",    [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return p.obj(to_eigen(z)); })
-        .method("residual_eq",   [](Problem& p, jlcxx::ArrayRef<double, 1> z) {return make_julia_owned(p.residual_eq(to_eigen(z))); })
+        .method("residual_eq",   [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_eq(to_eigen(z))); })
         .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_ineq(to_eigen(z))); })
         .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); });
         // .method("cost_hessian", [](Problem& p) { 
@@ -166,8 +166,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(inertia_warmstart,          bool)
         OPTION_RW(comp_init_random,           bool)
         OPTION_RW(comp_init_seed,             int)
-        OPTION_RW(verbosity,                  int)
-        OPTION_RW(print_every,                int);
+        OPTION_RW(verbosity,                  int);
 
     #undef OPTION_RW
 
@@ -305,6 +304,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             return std::vector<double>(r.data(), r.data() + r.size());
         })
         // KKT updates
+        .method("update_residuals!",             &Solver::update_residuals)
         .method("update_KKT_residual!",          &Solver::update_KKT_residual)
         .method("update_KKT_system!",            &Solver::update_KKT_system)
         .method("update_KKT_ineq!", [](Solver& s, jlcxx::ArrayRef<double, 1> s_ineq, double relax_param) {
@@ -328,8 +328,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         })
         // Linesearch
         .method("filter_linesearch!", &Solver::filter_linesearch)
-        .method("entry_from_solution", [](const Solver& s, double relax_param, double inv_penalty_param) {
-            Filter::Entry e = s.entry_from_solution(relax_param, inv_penalty_param);
+        .method("entry_from_solution", [](const Solver& s, double relax_param, double penalty_param) {
+            Filter::Entry e = s.entry_from_solution(relax_param, penalty_param);
             return std::make_tuple(e.feas, e.merit);
         })
         // Dimensions

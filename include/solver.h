@@ -8,6 +8,9 @@
 #include "filter.h"
 #include <chrono>
 #include <utility>
+#include <optional>
+
+namespace spdlog { class logger; }
 
 /**
  * A brief description of your class.
@@ -77,14 +80,12 @@ public:
         /// Seed for the small random noise used to initialize s_comp
         /// (negative leaves the RNG unseeded, i.e. non-deterministic across runs)
         int comp_init_seed{-1};
-        /// Verbosity level, maps to spdlog thresholds:
+        /// Verbosity level for solver logging:
         ///   0 = silent
-        ///   1 = errors only (reason for non-convergence)
-        ///   2 = + warnings (regularization bumps, penalty capped, ...)
-        ///   3 = + solver header and per-iteration table
+        ///   1 = final solve summary
+        ///   2 = + solver setup header
+        ///   3 = + per-iteration table
         int verbosity{0};
-        /// Print a per-iteration row every N iterations (only used at verbosity >= 3)
-        int print_every{1};
 
         Options() = default;
     };
@@ -177,16 +178,25 @@ public:
     void initialize_kkt_sparsity();
 
     /**
-     * Compute KKT residual given the current guess stored in the workspace
+     * Recompute the constraint residuals (residual_eq/ineq/comp_L/comp_R) for the current
+     * primal iterate z. Must be called wherever z changes before update_KKT_residual /
+     * convergence read them (initial point, filter linesearch, IFT relaxation predictor).
      */
-    void update_KKT_residual(double relax_param, double inv_penalty_param);
+    void update_residuals();
+
+    /**
+     * Assemble the KKT residual from the current guess in the workspace. Assumes the
+     * constraint residuals are already up to date (see update_residuals).
+     * Takes the penalty parameter directly (inverted internally).
+     */
+    void update_KKT_residual(double relax_param, double penalty_param);
 
     void update_dKKT_residual_drelax(double relax_param);
 
     /**
      * Update KKT system given the current guess stored in the workspace
      */
-    void update_KKT_system(double relax_param, double inv_penalty_param);
+    void update_KKT_system(double relax_param, double penalty_param);
 
     /**
      * Update the KKT terms associated with s_ineq (no dependence on m_ineq)
@@ -200,9 +210,9 @@ public:
                          const Eigen::Ref<const Vec>& m_comp_R, double relax_param);
 
     /**
-     * Update the KKT penalty diagonal
+     * Update the KKT penalty diagonal (takes the penalty parameter directly, inverted internally)
      */
-    void update_KKT_penalty(const double inv_penalty_param);
+    void update_KKT_penalty(const double penalty_param);
 
     /**
      * Update the KKT regularizer
@@ -257,24 +267,38 @@ public:
         return *filter;
     }
 
-    Filter::Entry entry_from_solution(double relax_param, double inv_penalty_param) const;
+    Filter::Entry entry_from_solution(double relax_param, double penalty_param) const;
 
     /**
      * Perform backtracking filter linesearch given a step direction
      * 
      * @param relax_param Complementarity and inequality relaxation parameter (kappa)
-     * @param inv_penalty_param Inverse of the AL penalty parameter
+     * @param penalty_param AL penalty parameter (inverted internally)
      * @param max_iters Maximum number of iterations for the linesearch
      * @warning This function modifies the workspace solution to store the candidate solution, and updates the constraint residuals based on the candidate solution, which are used to evaluate the filter conditions. If the linesearch fails, the workspace solution is restored to its original value before returning.
      * @return true Linesearch succeeded, new iterate is stored in workspace x_candidate
      * @return false Linesearch failed
      */
-    bool filter_linesearch(const double relax_param, const double inv_penalty_param, int max_iters);
+    bool filter_linesearch(const double relax_param, const double penalty_param, int max_iters);
 
     /**
      * Solve the current problem instance.
      */
     SolveResult solve();
+
+    /**
+     * Run the inner augmented-Lagrangian minimization for the current penalty/relaxation:
+     * take regularized Newton steps until the KKT residual infinity norm drops below stat_tol.
+     * Returns the number of inner (Newton) iterations taken.
+     */
+    int minimize_augmented_lagrangian(double stat_tol);
+
+    /**
+     * Take a single regularized Newton step: update and factorize the KKT system, correcting
+     * inertia by increasing the primal regularizer as needed, backsolve, and run the filter
+     * linesearch. Updates last_regularizer for warm-starting the next step.
+     */
+    void newton_step(double relax_param, double penalty_param);
 
     /**
      * Determine if the solver has converged based on KKT residual norm, constraint satisfaction
@@ -291,6 +315,22 @@ private:
     // Timing for set_problem and solve, in seconds
     double setup_time_s{0.0};
     double solve_time_s{0.0};
+
+    // Shared "marble" console logger; its level is set from Options::verbosity at the
+    // start of each solve(). Created lazily by log_solver_info().
+    std::shared_ptr<spdlog::logger> log;
+
+    // Inertia regularizer carried between inner Newton steps to warm-start the next step's
+    // factorization (nullopt = no successful value yet this solve).
+    std::optional<double> last_regularizer;
+
+    // Logging helpers; each is a no-op unless Options::verbosity enables the relevant level.
+    // Kept out of solve()/minimize_augmented_lagrangian() so the loops stay readable.
+    void log_solver_info();          // header + per-iteration table header (once per solve)
+    void log_initial_step();         // initial data row before any solver iteration
+    void log_newton_step(int iter);  // one "I" (inner) table row
+    void log_outer_step(int iter);   // one "O" (outer) table row
+    void log_solve_summary(bool converged, int iterations_outer, int iterations_inner);  // final solve summary
 
     // KKT system regularizers to try in Newton step
     const std::vector<double> kkt_system_regularizers = {

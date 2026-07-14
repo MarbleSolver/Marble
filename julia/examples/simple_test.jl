@@ -27,7 +27,7 @@ mpcc = MPCC(model,
 
 solver = Marble.Solver()
 Marble.setup!(solver, mpcc;
-verbosity = 1,
+verbosity = 3,
 # comp_init_seed = 42
 comp_init_random=false,
 relaxation_scaling=0.1,

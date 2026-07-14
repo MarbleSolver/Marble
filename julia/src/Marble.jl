@@ -99,7 +99,7 @@ module Marble
         :max_iters, :max_iters_linesearch,
         :gamma_objective, :gamma_constraint, :ruiz_iterations,
         :inertia_warmstart,
-        :verbosity, :print_every
+        :verbosity
     ]
 
     function update_settings!(solver::Marble.Solver; kwargs...)
