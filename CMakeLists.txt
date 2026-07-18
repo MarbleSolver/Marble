@@ -30,17 +30,16 @@ include(FetchContent)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
-# spdlog – prefer a system install, otherwise fetch it.
-find_package(spdlog CONFIG QUIET)
-if(NOT spdlog_FOUND)
-    FetchContent_Declare(
-        spdlog
-        GIT_REPOSITORY https://github.com/gabime/spdlog.git
-        GIT_TAG        v1.14.1
-        EXCLUDE_FROM_ALL
-    )
-    FetchContent_MakeAvailable(spdlog)
-endif()
+# Fetch a specific version of spdlog to avoid fmt/spdlog compatibility issues
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.12.0 # Or whatever version you prefer
+)
+# Make sure spdlog builds its bundled fmt instead of looking for the system one
+set(SPDLOG_FMT_EXTERNAL OFF CACHE BOOL "Use bundled fmt" FORCE)
+FetchContent_MakeAvailable(spdlog)
+add_definitions(-DSPDLOG_COMPILED_LIB)
 
 # QDLDL – prefer a system install, otherwise fetch as static-only.
 # EXCLUDE_FROM_ALL suppresses QDLDL's cmake --install rules so they don't
