@@ -166,7 +166,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(inertia_warmstart,          bool)
         OPTION_RW(comp_init_random,           bool)
         OPTION_RW(comp_init_seed,             int)
-        OPTION_RW(verbosity,                  int);
+        OPTION_RW(verbosity,                  int)
+        OPTION_RW(retraction_type,             int);
 
     #undef OPTION_RW
 
@@ -301,6 +302,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         })
         .method("retract_second_deriv", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double relax_param) {
             Vec r = s.retract_second_deriv(to_eigen(v), relax_param);
+            return std::vector<double>(r.data(), r.data() + r.size());
+        })
+        .method("retract_drelax", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double relax_param) {
+            Vec r = s.retract_drelax(to_eigen(v), relax_param);
+            return std::vector<double>(r.data(), r.data() + r.size());
+        })
+        .method("retract_deriv_drelax", [](Solver& s, jlcxx::ArrayRef<double, 1> v, double relax_param) {
+            Vec r = s.retract_deriv_drelax(to_eigen(v), relax_param);
             return std::vector<double>(r.data(), r.data() + r.size());
         })
         // KKT updates

@@ -93,36 +93,81 @@ namespace {
 Vec Solver::retract(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Vectorized retraction map for both inequality and complementarity slacks
     // p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa)), kappa = relax_param
-    const double four_kappa = 4.0 * relax_param;
-    return (0.5 * (s.array() + (s.array().square() + four_kappa).sqrt())).matrix();
+    if (options.retraction_type == 0) {
+        const double four_kappa = 4.0 * relax_param;
+        return (0.5 * (s.array() + (s.array().square() + four_kappa).sqrt())).matrix();
+    }
+    else if (options.retraction_type == 1) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return sqrt_kappa * s.array().exp();
+    }
+    else {
+        throw std::runtime_error("Invalid retraction type");
+    }
 }
 
 Vec Solver::retract_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Derivative of the vectorized retraction map above
     // p'(s) = 0.5 * (1 + s / sqrt(s^2 + 4*kappa))
-    const double four_kappa = 4.0 * relax_param;
-    return (0.5 * (1.0 + s.array() / (s.array().square() + four_kappa).sqrt())).matrix();
+    if (options.retraction_type == 0) {
+        const double four_kappa = 4.0 * relax_param;
+        return (0.5 * (1.0 + s.array() / (s.array().square() + four_kappa).sqrt())).matrix();
+    }
+    else if (options.retraction_type == 1) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return sqrt_kappa * s.array().exp();
+    }
+    else {
+        throw std::runtime_error("Invalid retraction type");
+    }
 }
 
 Vec Solver::retract_second_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Second derivative of the vectorized retraction map above
     // p''(s) = 2*kappa / (s^2 + 4*kappa)^(3/2)
-    const double kappa = relax_param;
-    return (2.0 * kappa * (s.array().square() + 4.0 * kappa).pow(-1.5)).matrix();
+    if (options.retraction_type == 0) {
+        const double kappa = relax_param;
+        return (2.0 * kappa * (s.array().square() + 4.0 * kappa).pow(-1.5)).matrix();
+    }
+    else if (options.retraction_type == 1) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return sqrt_kappa * s.array().exp();
+    }
+    else {
+        throw std::runtime_error("Invalid retraction type");
+    }
 }
 
 Vec Solver::retract_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Derivative of the retraction map wrt the relaxation parameter kappa = relax_param
     // dp/dkappa = 1 / sqrt(s^2 + 4*kappa)
-    const double four_kappa = 4.0 * relax_param;
-    return (s.array().square() + four_kappa).rsqrt().matrix();
+    if (options.retraction_type == 0) {
+        const double four_kappa = 4.0 * relax_param;
+        return (s.array().square() + four_kappa).rsqrt().matrix();
+    }
+    else if (options.retraction_type == 1) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return 0.5 / sqrt_kappa * s.array().exp();
+    }
+    else {
+        throw std::runtime_error("Invalid retraction type");
+    }
 }
 
 Vec Solver::retract_deriv_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Mixed derivative of the retraction map wrt s and kappa = relax_param
     // d/dkappa p'(s) = -s / (s^2 + 4*kappa)^(3/2)
-    const double four_kappa = 4.0 * relax_param;
-    return (-s.array() * (s.array().square() + four_kappa).pow(-1.5)).matrix();
+    if (options.retraction_type == 0) {
+        const double four_kappa = 4.0 * relax_param;
+        return (-s.array() * (s.array().square() + four_kappa).pow(-1.5)).matrix();
+    }
+    else if (options.retraction_type == 1) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return 0.5 / sqrt_kappa * s.array().exp();
+    }
+    else {
+        throw std::runtime_error("Invalid retraction type");
+    }
 }
 
 void Solver::set_problem(Problem problem, Solver::Options& options) {
@@ -317,28 +362,29 @@ void Solver::update_KKT_residual(double relax_param, double penalty_param) {
                         prob->L_comp.transpose() * workspace->m_comp_L +
                         prob->R_comp.transpose() * workspace->m_comp_R;
 
-    // Inequality slack stationarity
+    // Inequality slack stationarity (p'(s_ineq) * (-m_ineq - p(-s_ineq)))
     Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
     Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
     workspace->kkt_residual(s_ineq_inds) = d_p_ineq.cwiseProduct(-workspace->m_ineq - p_neg_ineq);
 
-    // Complementarity slack stationarity
+    // Complementarity slack stationarity (-p'(s_comp)*m_comp_L + p'(-s_comp)*m_comp_R)
     Vec d_p_comp = retract_deriv(workspace->s_comp, relax_param);
     for (int i = 0; i < prob->n_comp; i++) {
         workspace->kkt_residual(s_comp_inds[i]) =
             -d_p_comp[i] * workspace->m_comp_L[i] + (1 - d_p_comp[i]) * workspace->m_comp_R[i];
     }
 
-    // Equality primal feasibility
+    // Equality primal feasibility (r_eq - inv_penalty_param * (m_eq - m_eq_est))
     workspace->kkt_residual(m_eq_inds) =
         workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
 
-    // Inequality primal feasibility
+    // Inequality primal feasibility (r_ineq - (p(s_ineq) - inv_penalty_param * (m_ineq - m_ineq_est))
     workspace->kkt_residual(m_ineq_inds) = workspace->residual_ineq -
                                            (workspace->s_ineq + p_neg_ineq) -  // p(s) - p(-s) = s
                                            inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
 
-    // Complementarity primal feasibility
+    // Complementarity primal feasibility (r_comp_L - p(s_comp) - inv_penalty_param * (m_comp_L - m_comp_L_est)
+    //                                    (r_comp_R - p(-s_comp) - inv_penalty_param * (m_comp_R - m_comp_R_est))
     Vec p_comp = retract(workspace->s_comp, relax_param);
     workspace->kkt_residual(m_comp_L_inds) = workspace->residual_comp_L - p_comp -
                                              inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
@@ -396,6 +442,8 @@ void Solver::update_KKT_ineq(const Eigen::Ref<const Vec>& s_ineq, double relax_p
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_ineq, relax_param);
 
+    // Ineq stationarity wrt s_ineq is -d_p*d_neg_p
+    //                   wrt m_ineq is -d_p
     // Use identity that retract_deriv(-s_ineq, relax_param) = 1 - d_p
     workspace->s_ineq_stationarity = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p (stored for diag updating)
     for (int i = 0; i < prob->n_ineq; i++) {

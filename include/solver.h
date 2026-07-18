@@ -86,6 +86,7 @@ public:
         ///   2 = + solver setup header
         ///   3 = + per-iteration table
         int verbosity{0};
+        int retraction_type{0}; // 0 = scaled softplus, 1 = exp
 
         Options() = default;
     };

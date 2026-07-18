@@ -36,42 +36,10 @@ module Marble
         return nothing
     end
 
-    # Check that every block has consistent dimensions, throwing DimensionMismatch
-    # on any mismatch. The compiled core's Problem constructor performs the same
-    # check, but CxxWrap does not translate C++ exceptions into Julia exceptions
-    # (they call std::terminate and abort the process), so we must validate here :(
-    function _validate_problem_dims(Q, q, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
-        n = length(q)
-        size(Q) == (n, n) || throw(DimensionMismatch(
-            "Q must have size ($n, $n) to match length(q)=$n, got $(size(Q))"))
-
-        for (Jname, J, cname, c) in (("J_eq", J_eq, "b_eq", b_eq),
-                                     ("J_ineq", J_ineq, "b_ineq", b_ineq))
-            size(J, 1) == length(c) || throw(DimensionMismatch(
-                "$Jname has $(size(J, 1)) rows but $cname has length $(length(c)); they must match"))
-            (size(J, 1) == 0 || size(J, 2) == n) || throw(DimensionMismatch(
-                "$Jname has $(size(J, 2)) columns but expected $n (= length(q))"))
-        end
-
-        nL, nR, nl, nr = size(L, 1), size(R, 1), length(l), length(r)
-        (nL == nR == nl == nr) || throw(DimensionMismatch(
-            "complementarity blocks L, l, R, r must share the same number of rows; " *
-            "got L rows=$nL, l length=$nl, R rows=$nR, r length=$nr " *
-            "(every complementarity pair needs a row in each of L, l, R and r)"))
-        if nL > 0
-            size(L, 2) == n || throw(DimensionMismatch(
-                "L has $(size(L, 2)) columns but expected $n (= length(q))"))
-            size(R, 2) == n || throw(DimensionMismatch(
-                "R has $(size(R, 2)) columns but expected $n (= length(q))"))
-        end
-        return nothing
-    end
-
-    # Build a Marble.Problem (dense or sparse, based on storage). When any block is
-    # sparse every block is converted to a SparseMatrixCSC so the solver sees
-    # consistent compressed-sparse data
+    # Extra constructor for a Marble.Problem that handles type conversion, either to sparse
+    # matrices based by their data or to dense FLoat64 matrices depending on the input. In
+    # the sparse case every block is converted to a SparseMatrixCSC
     function Problem(Q, q, c0, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
-        _validate_problem_dims(Q, q, J_eq, b_eq, J_ineq, b_ineq, L, l, R, r)
         blocks = (Q, J_eq, J_ineq, L, R)
         fvec(v) = collect(Float64, v)
         if any(b -> b isa AbstractSparseMatrix, blocks)
@@ -99,7 +67,7 @@ module Marble
         :max_iters, :max_iters_linesearch,
         :gamma_objective, :gamma_constraint, :ruiz_iterations,
         :inertia_warmstart,
-        :verbosity
+        :verbosity, :retraction_type
     ]
 
     function update_settings!(solver::Marble.Solver; kwargs...)

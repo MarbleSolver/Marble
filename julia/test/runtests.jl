@@ -4,11 +4,11 @@
 # problem written directly as matrices (from julia/examples/simple_test.jl) and
 # the same 16 test cases in the same order — nine solve tests followed by seven
 # dimension validation cases.
-
 using Test
 using LinearAlgebra
 using SparseArrays
 using Marble
+import ForwardDiff as FD
 
 # Example problem (julia/examples/simple_test.jl), written directly as matrices:
 #   min x'x
@@ -34,7 +34,26 @@ function setup_and_solve(; sparse_problem = false, opts...)
     return solver, Marble.solve!(solver)
 end
 
+retract(::Val{:Softplus}, x, κ) = 0.5*(x + sqrt.(x.^2 .+ 4*κ))
+retract(::Val{:Exp}, x, κ) = sqrt(κ)*exp.(x)
+
 @testset "Marble" begin
+    @testset "retraction maps" begin
+        solver, _ = setup_and_solve()
+        x = [0; 0.5; -0.5; -10; 10; randn(4)]
+        κ = 1e-1
+
+        tol = 1e-12
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp)])
+            Marble.update_settings!(solver, retraction_type = i-1)
+            @assert isapprox(Marble.retract(solver, x, κ), retract(retract_type, x, κ), atol = tol)
+            @assert isapprox(Marble.retract_deriv(solver, x, κ), diag(FD.jacobian(_x -> retract(retract_type, _x, κ), x)), atol=tol)
+            @assert isapprox(Marble.retract_second_deriv(solver, x, κ), 
+                    diag(FD.jacobian(_x -> diag(FD.jacobian(_x -> retract(retract_type, _x, κ), _x)), x)), atol=tol)
+            @assert isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_type, x, _κ), κ), atol=tol)
+            @assert isapprox(Marble.retract_deriv_drelax(solver, x, κ), FD.derivative(_κ -> diag(FD.jacobian(_x -> retract(retract_type, _x, _κ), x)), κ), atol=tol)
+        end
+    end
 
     @testset "problem dimensions" begin
         solver, _ = setup_and_solve()
@@ -106,23 +125,23 @@ end
         # mirror the seven cases in the Python suite (TestDimensionValidation)
         Q2 = Matrix(1.0I, 2, 2)
         # L given (1 row) but l omitted
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             L = zeros(1, 2), R = zeros(1, 2), r = zeros(1))
         # L and l given but R, r omitted
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             L = zeros(1, 2), l = zeros(1))
         # Non-square Q.
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), zeros(2, 3), zeros(2))
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), zeros(2, 3), zeros(2))
         # Q size disagrees with length(q)
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Matrix(1.0I, 3, 3), zeros(2))
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Matrix(1.0I, 3, 3), zeros(2))
         # J_eq rows disagree with b_eq length
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             J_eq = zeros(2, 2), b_eq = zeros(1))
         # J_ineq columns disagree with length(q)
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             J_ineq = zeros(1, 3), b_ineq = zeros(1))
         # Sparse blocks: L given but l omitted
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), sparse(Q2), zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), sparse(Q2), zeros(2);
             L = sparse(zeros(1, 2)), R = sparse(zeros(1, 2)), r = zeros(1))
     end
 end
