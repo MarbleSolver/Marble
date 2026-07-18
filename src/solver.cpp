@@ -101,6 +101,10 @@ Vec Solver::retract(const Eigen::Ref<const Vec>& s, double relax_param) const {
         const double sqrt_kappa = std::sqrt(relax_param);
         return sqrt_kappa * s.array().exp();
     }
+    else if (options.retraction_type == 2) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return sqrt_kappa * (s.array() / sqrt_kappa).exp();
+    }
     else {
         throw std::runtime_error("Invalid retraction type");
     }
@@ -116,6 +120,10 @@ Vec Solver::retract_deriv(const Eigen::Ref<const Vec>& s, double relax_param) co
     else if (options.retraction_type == 1) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return sqrt_kappa * s.array().exp();
+    }
+    else if (options.retraction_type == 2) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return (s.array() / sqrt_kappa).exp();
     }
     else {
         throw std::runtime_error("Invalid retraction type");
@@ -133,6 +141,10 @@ Vec Solver::retract_second_deriv(const Eigen::Ref<const Vec>& s, double relax_pa
         const double sqrt_kappa = std::sqrt(relax_param);
         return sqrt_kappa * s.array().exp();
     }
+    else if (options.retraction_type == 2) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return (s.array() / sqrt_kappa).exp() / sqrt_kappa;
+    }
     else {
         throw std::runtime_error("Invalid retraction type");
     }
@@ -149,6 +161,10 @@ Vec Solver::retract_drelax(const Eigen::Ref<const Vec>& s, double relax_param) c
         const double sqrt_kappa = std::sqrt(relax_param);
         return 0.5 / sqrt_kappa * s.array().exp();
     }
+    else if (options.retraction_type == 2) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return (0.5 / sqrt_kappa) * (1.0 - s.array() / sqrt_kappa) * (s.array() / sqrt_kappa).exp();
+    }
     else {
         throw std::runtime_error("Invalid retraction type");
     }
@@ -164,6 +180,10 @@ Vec Solver::retract_deriv_drelax(const Eigen::Ref<const Vec>& s, double relax_pa
     else if (options.retraction_type == 1) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return 0.5 / sqrt_kappa * s.array().exp();
+    }
+    else if (options.retraction_type == 2) {
+        const double sqrt_kappa = std::sqrt(relax_param);
+        return (-0.5 / (relax_param * sqrt_kappa)) * s.array() * (s.array() / sqrt_kappa).exp();
     }
     else {
         throw std::runtime_error("Invalid retraction type");

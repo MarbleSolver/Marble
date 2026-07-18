@@ -36,6 +36,7 @@ end
 
 retract(::Val{:Softplus}, x, κ) = 0.5*(x + sqrt.(x.^2 .+ 4*κ))
 retract(::Val{:Exp}, x, κ) = sqrt(κ)*exp.(x)
+retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
 
 @testset "Marble" begin
     @testset "retraction maps" begin
@@ -44,14 +45,14 @@ retract(::Val{:Exp}, x, κ) = sqrt(κ)*exp.(x)
         κ = 1e-1
 
         tol = 1e-12
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp)])
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
             Marble.update_settings!(solver, retraction_type = i-1)
-            @assert isapprox(Marble.retract(solver, x, κ), retract(retract_type, x, κ), atol = tol)
-            @assert isapprox(Marble.retract_deriv(solver, x, κ), diag(FD.jacobian(_x -> retract(retract_type, _x, κ), x)), atol=tol)
-            @assert isapprox(Marble.retract_second_deriv(solver, x, κ), 
+            @test isapprox(Marble.retract(solver, x, κ), retract(retract_type, x, κ), atol = tol)
+            @test isapprox(Marble.retract_deriv(solver, x, κ), diag(FD.jacobian(_x -> retract(retract_type, _x, κ), x)), atol=tol)
+            @test isapprox(Marble.retract_second_deriv(solver, x, κ), 
                     diag(FD.jacobian(_x -> diag(FD.jacobian(_x -> retract(retract_type, _x, κ), _x)), x)), atol=tol)
-            @assert isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_type, x, _κ), κ), atol=tol)
-            @assert isapprox(Marble.retract_deriv_drelax(solver, x, κ), FD.derivative(_κ -> diag(FD.jacobian(_x -> retract(retract_type, _x, _κ), x)), κ), atol=tol)
+            @test isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_type, x, _κ), κ), atol=tol)
+            @test isapprox(Marble.retract_deriv_drelax(solver, x, κ), FD.derivative(_κ -> diag(FD.jacobian(_x -> retract(retract_type, _x, _κ), x)), κ), atol=tol)
         end
     end
 
