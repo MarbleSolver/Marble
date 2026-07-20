@@ -106,13 +106,75 @@ module Marble
         printstyled(io, "─"^total_width * "\n", color=:light_black)
     end
 
+    ## Helper for converting Eigen::SparseMatrixCSC to Julia SparseMatrixCSC
+    function sparse_from_eigen(nrows, ncols, colptr::Vector, rowval::Vector, nzval::Vector{Float64})
+        return SparseMatrixCSC(nrows, ncols, colptr .+ 1, rowval .+ 1, nzval)
+    end
+
+    ## Accessors for solver members
     Base.getproperty(solver::Marble.Solver, sym::Symbol) = solver_property(solver, Val(sym))
     solver_property(solver::Marble.Solver, ::Val{:options}) = CxxWrap.dereference_argument(Marble.options(solver))
     solver_property(solver::Marble.Solver, ::Val{:problem}) = CxxWrap.dereference_argument(Marble.get_problem(solver))
+    solver_property(solver::Marble.Solver, ::Val{:workspace}) = CxxWrap.dereference_argument(Marble.get_workspace(solver))
+    solver_property(solver::Marble.Solver, ::Val{:z_inds}) = Marble.z_inds(solver) .+ 1
+    solver_property(solver::Marble.Solver, ::Val{:s_ineq_inds}) = Marble.s_ineq_inds(solver) .+ 1
+    solver_property(solver::Marble.Solver, ::Val{:s_comp_inds}) = Marble.s_comp_inds(solver) .+ 1
+    solver_property(solver::Marble.Solver, ::Val{:m_eq_inds}) = Marble.m_eq_inds(solver) .+ 1
+    solver_property(solver::Marble.Solver, ::Val{:m_ineq_inds}) = Marble.m_ineq_inds(solver) .+ 1
+    solver_property(solver::Marble.Solver, ::Val{:m_comp_L_inds}) = Marble.m_comp_L_inds(solver) .+ 1
+    solver_property(solver::Marble.Solver, ::Val{:m_comp_R_inds}) = Marble.m_comp_R_inds(solver) .+ 1
     solver_property(solver::Marble.Solver, ::Val{sym}) where sym = getfield(solver, sym)
 
-    Base.propertynames(solver::Marble.Solver, private::Bool=false) = (:options, :problem,fieldnames(typeof(solver))...)
+    Base.propertynames(solver::Marble.Solver, private::Bool=false) = 
+        (:options, :problem, :z_inds, :s_ineq_inds, :s_comp_inds, :m_eq_inds, :m_ineq_inds,
+         :m_comp_L_inds, :m_comp_R_inds, fieldnames(typeof(solver))...)
 
+    ## Accessors for problem members
+    Base.getproperty(problem::Marble.Problem, sym::Symbol) = problem_property(problem, Val(sym))
+    problem_property(problem::Marble.Problem, ::Val{:nz}) = Marble.nz(problem)
+    problem_property(problem::Marble.Problem, ::Val{:n_eq}) = Marble.n_eq(problem)
+    problem_property(problem::Marble.Problem, ::Val{:n_ineq}) = Marble.n_ineq(problem)
+    problem_property(problem::Marble.Problem, ::Val{:n_comp}) = Marble.n_comp(problem)
+    problem_property(problem::Marble.Problem, ::Val{:cost_hessian}) = sparse_from_eigen(Marble.cost_hessian(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:cost_gradient}) = Marble.cost_gradient(problem)
+    problem_property(problem::Marble.Problem, ::Val{:J_eq}) = sparse_from_eigen(Marble.J_eq(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:c_eq}) = Marble.c_eq(problem)
+    problem_property(problem::Marble.Problem, ::Val{:J_ineq}) = sparse_from_eigen(Marble.J_ineq(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:c_ineq}) = Marble.c_ineq(problem)
+    problem_property(problem::Marble.Problem, ::Val{:L_comp}) = sparse_from_eigen(Marble.L_comp(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:l_comp}) = Marble.l_comp(problem)
+    problem_property(problem::Marble.Problem, ::Val{:R_comp}) = sparse_from_eigen(Marble.R_comp(problem)...)
+    problem_property(problem::Marble.Problem, ::Val{:r_comp}) = Marble.r_comp(problem)
+    problem_property(problem::Marble.Problem, ::Val{sym}) where sym = getfield(problem, sym)
+
+    Base.propertynames(problem::Marble.Problem, private::Bool=false) = 
+        (:nz, :n_eq, :n_ineq, :n_comp, :cost_hessian, :cost_gradient, :J_eq, :c_eq,
+         :J_ineq, :c_ineq, :L_comp, :l_comp, :R_comp, :r_comp, fieldnames(typeof(problem))...)
+
+    ## Accessors for workspace members
+    Base.getproperty(workspace::Marble.Workspace, sym::Symbol) = workspace_property(workspace, Val(sym))
+    workspace_property(workspace::Marble.Workspace, ::Val{:solution}) = Marble.solution(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:z}) = Marble.z(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:s_ineq}) = Marble.s_ineq(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:s_comp}) = Marble.s_comp(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_eq}) = Marble.m_eq(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_ineq}) = Marble.m_ineq(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_L}) = Marble.m_comp_L(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_R}) = Marble.m_comp_R(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_eq_est}) = Marble.m_eq_est(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_ineq_est}) = Marble.m_ineq_est(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_L_est}) = Marble.m_comp_L_est(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_R_est}) = Marble.m_comp_R_est(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:kkt_residual}) = Marble.kkt_residual(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:relax_param}) = Marble.relax_param(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:penalty_param}) = Marble.penalty_param(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{sym}) where sym = getfield(workspace, sym)
+
+    Base.propertynames(workspace::Marble.Workspace, private::Bool=false) = 
+        (:kkt_residual, :solution, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R, 
+         :m_eq_est, :m_ineq_est, :m_comp_L_est, :m_comp_R_est, :relax_param, :penalty_param, fieldnames(typeof(workspace))...)
+
+    # Helper functions for evaluating objectives and residuals
     obj(solver::Marble.Solver, z::Vector{Float64}) = Marble.obj(Marble.get_problem(solver), z)
     obj(data::NamedTuple, z::Vector{Float64}) = Marble.obj(Problem(data...), z)
 

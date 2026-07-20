@@ -132,14 +132,43 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("obj",    [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return p.obj(to_eigen(z)); })
         .method("residual_eq",   [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_eq(to_eigen(z))); })
         .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_ineq(to_eigen(z))); })
-        .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); });
-        // .method("cost_hessian", [](Problem& p) { 
-        //     // Assumes cost_hessian is compressed
-        //     auto colptr = jlcxx::make_julia_array(p.cost_hessian().outerIndexPtr(), p.cost_hessian().outerSize() + 1);
-        //     auto rowval = jlcxx::make_julia_array(p.cost_hessian().innerIndexPtr(), p.cost_hessian().nonZeros());
-        //     auto nzval  = jlcxx::make_julia_array(p.cost_hessian().valuePtr(),      p.cost_hessian().nonZeros());
-        //     return std::make_tuple((int)p.cost_hessian().rows(), (int)p.cost_hessian().cols(), colptr, rowval, nzval);
-        // });
+        .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); })
+        .method("cost_hessian", [](Problem& p) { 
+            // Assumes cost_hessian is compressed
+            auto colptr = jlcxx::make_julia_array(p.cost_hessian.outerIndexPtr(), p.cost_hessian.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.cost_hessian.innerIndexPtr(), p.cost_hessian.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.cost_hessian.valuePtr(),      p.cost_hessian.nonZeros());
+            return std::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), colptr, rowval, nzval);
+        })
+        .method("cost_gradient", [](Problem& p) { return to_julia(p.cost_gradient); })
+        .method("J_eq", [](Problem& p) {
+            auto colptr = jlcxx::make_julia_array(p.J_eq.outerIndexPtr(), p.J_eq.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.J_eq.innerIndexPtr(), p.J_eq.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.J_eq.valuePtr(),      p.J_eq.nonZeros());
+            return std::make_tuple((int)p.J_eq.rows(), (int)p.J_eq.cols(), colptr, rowval, nzval);
+        })
+        .method("c_eq", [](Problem& p) { return to_julia(p.c_eq); })
+        .method("J_ineq", [](Problem& p) {
+            auto colptr = jlcxx::make_julia_array(p.J_ineq.outerIndexPtr(), p.J_ineq.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.J_ineq.innerIndexPtr(), p.J_ineq.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.J_ineq.valuePtr(),      p.J_ineq.nonZeros());
+            return std::make_tuple((int)p.J_ineq.rows(), (int)p.J_ineq.cols(), colptr, rowval, nzval);
+        })
+        .method("c_ineq", [](Problem& p) { return to_julia(p.c_ineq); })
+        .method("L_comp", [](Problem& p) {
+            auto colptr = jlcxx::make_julia_array(p.L_comp.outerIndexPtr(), p.L_comp.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.L_comp.innerIndexPtr(), p.L_comp.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.L_comp.valuePtr(),      p.L_comp.nonZeros());
+            return std::make_tuple((int)p.L_comp.rows(), (int)p.L_comp.cols(), colptr, rowval, nzval);
+        })
+        .method("l_comp", [](Problem& p) { return to_julia(p.l_comp); })
+        .method("R_comp", [](Problem& p) {
+            auto colptr = jlcxx::make_julia_array(p.R_comp.outerIndexPtr(), p.R_comp.outerSize() + 1);
+            auto rowval = jlcxx::make_julia_array(p.R_comp.innerIndexPtr(), p.R_comp.nonZeros());
+            auto nzval  = jlcxx::make_julia_array(p.R_comp.valuePtr(),      p.R_comp.nonZeros());
+            return std::make_tuple((int)p.R_comp.rows(), (int)p.R_comp.cols(), colptr, rowval, nzval);
+        })
+        .method("r_comp", [](Problem& p) { return to_julia(p.r_comp); });
 
     #define OPTION_RW(name, T) \
         .method(#name,       [](const Solver::Options& o)    { return o.name; }) \
