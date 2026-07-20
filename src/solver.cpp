@@ -382,35 +382,69 @@ void Solver::update_KKT_residual(double relax_param, double penalty_param) {
                         prob->L_comp.transpose() * workspace->m_comp_L +
                         prob->R_comp.transpose() * workspace->m_comp_R;
 
-    // Inequality slack stationarity (p'(s_ineq) * (-m_ineq - p(-s_ineq)))
-    Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
-    Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
-    workspace->kkt_residual(s_ineq_inds) = d_p_ineq.cwiseProduct(-workspace->m_ineq - p_neg_ineq);
+    if (options.retraction_type == 0) { // Main path (optimized, uses softplus properties)
+        // Inequality slack stationarity (p'(s_ineq) * (-m_ineq - p(-s_ineq)))
+        Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
+        Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
+        workspace->kkt_residual(s_ineq_inds) = d_p_ineq.cwiseProduct(-workspace->m_ineq - p_neg_ineq);
 
-    // Complementarity slack stationarity (-p'(s_comp)*m_comp_L + p'(-s_comp)*m_comp_R)
-    Vec d_p_comp = retract_deriv(workspace->s_comp, relax_param);
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->kkt_residual(s_comp_inds[i]) =
-            -d_p_comp[i] * workspace->m_comp_L[i] + (1 - d_p_comp[i]) * workspace->m_comp_R[i];
+        // Complementarity slack stationarity (-p'(s_comp)*m_comp_L + p'(-s_comp)*m_comp_R)
+        Vec d_p_comp = retract_deriv(workspace->s_comp, relax_param);
+        for (int i = 0; i < prob->n_comp; i++) {
+            workspace->kkt_residual(s_comp_inds[i]) =
+                -d_p_comp[i] * workspace->m_comp_L[i] + (1 - d_p_comp[i]) * workspace->m_comp_R[i];
+        }
+
+        // Equality primal feasibility (r_eq - inv_penalty_param * (m_eq - m_eq_est))
+        workspace->kkt_residual(m_eq_inds) =
+            workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
+
+        // Inequality primal feasibility (r_ineq - (p(s_ineq) - inv_penalty_param * (m_ineq - m_ineq_est))
+        workspace->kkt_residual(m_ineq_inds) = workspace->residual_ineq -
+                                            (workspace->s_ineq + p_neg_ineq) -  // p(s) - p(-s) = s
+                                            inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
+
+        // Complementarity primal feasibility (r_comp_L - p(s_comp) - inv_penalty_param * (m_comp_L - m_comp_L_est)
+        //                                    (r_comp_R - p(-s_comp) - inv_penalty_param * (m_comp_R - m_comp_R_est))
+        Vec p_comp = retract(workspace->s_comp, relax_param);
+        workspace->kkt_residual(m_comp_L_inds) = workspace->residual_comp_L - p_comp -
+                                                inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
+        workspace->kkt_residual(m_comp_R_inds) = workspace->residual_comp_R - 
+                                                (p_comp - workspace->s_comp) -
+                                                inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
     }
+    else { // Alternatives for testing retraction maps
+        // Inequality slack stationarity (p'(s_ineq) * (-m_ineq - p(-s_ineq)))
+        Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
+        Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
+        workspace->kkt_residual(s_ineq_inds) = d_p_ineq.cwiseProduct(-workspace->m_ineq - p_neg_ineq);
 
-    // Equality primal feasibility (r_eq - inv_penalty_param * (m_eq - m_eq_est))
-    workspace->kkt_residual(m_eq_inds) =
-        workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
+        // Complementarity slack stationarity (-p'(s_comp)*m_comp_L + p'(-s_comp)*m_comp_R)
+        Vec d_p_comp = retract_deriv(workspace->s_comp, relax_param);
+        Vec d_p_neg_comp = retract_deriv(-workspace->s_comp, relax_param);
+        for (int i = 0; i < prob->n_comp; i++) {
+            workspace->kkt_residual(s_comp_inds[i]) =
+                -d_p_comp[i] * workspace->m_comp_L[i] + d_p_neg_comp[i] * workspace->m_comp_R[i];
+        }
 
-    // Inequality primal feasibility (r_ineq - (p(s_ineq) - inv_penalty_param * (m_ineq - m_ineq_est))
-    workspace->kkt_residual(m_ineq_inds) = workspace->residual_ineq -
-                                           (workspace->s_ineq + p_neg_ineq) -  // p(s) - p(-s) = s
-                                           inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
+        // Equality primal feasibility (r_eq - inv_penalty_param * (m_eq - m_eq_est))
+        workspace->kkt_residual(m_eq_inds) =
+            workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
 
-    // Complementarity primal feasibility (r_comp_L - p(s_comp) - inv_penalty_param * (m_comp_L - m_comp_L_est)
-    //                                    (r_comp_R - p(-s_comp) - inv_penalty_param * (m_comp_R - m_comp_R_est))
-    Vec p_comp = retract(workspace->s_comp, relax_param);
-    workspace->kkt_residual(m_comp_L_inds) = workspace->residual_comp_L - p_comp -
-                                             inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
-    workspace->kkt_residual(m_comp_R_inds) = workspace->residual_comp_R - 
-                                             (p_comp - workspace->s_comp) -
-                                             inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
+        // Inequality primal feasibility (r_ineq - (p(s_ineq) - inv_penalty_param * (m_ineq - m_ineq_est))
+        Vec p_ineq = retract(workspace->s_ineq, relax_param);
+        workspace->kkt_residual(m_ineq_inds) = workspace->residual_ineq - p_ineq -  
+                                            inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
+
+        // Complementarity primal feasibility (r_comp_L - p(s_comp) - inv_penalty_param * (m_comp_L - m_comp_L_est)
+        //                                    (r_comp_R - p(-s_comp) - inv_penalty_param * (m_comp_R - m_comp_R_est))
+        Vec p_comp = retract(workspace->s_comp, relax_param);
+        Vec p_neg_comp = retract(-workspace->s_comp, relax_param);
+        workspace->kkt_residual(m_comp_L_inds) = workspace->residual_comp_L - p_comp -
+                                                inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
+        workspace->kkt_residual(m_comp_R_inds) = workspace->residual_comp_R - p_neg_comp -
+                                                inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
+    }
 }
 
 void Solver::update_dKKT_residual_drelax(double relax_param) {

@@ -4,8 +4,6 @@
 # problem written directly as matrices (from julia/examples/simple_test.jl) and
 # the same 16 test cases in the same order — nine solve tests followed by seven
 # dimension validation cases.
-# using Pkg; Pkg.activate(joinpath(@__DIR__, "../examples/"))
-# using Revise
 using Test
 using LinearAlgebra
 using SparseArrays
@@ -195,11 +193,13 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         workspace.solution .= randn(length(workspace.solution))
         ρ, κ = workspace.penalty_param, workspace.relax_param
         Marble.update_residuals!(solver)
-        Marble.update_KKT_residual!(solver, κ, ρ)
 
-        retract_type = Val(:Softplus)
         tol = 1e-12
-        res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ)
-        isapprox(workspace.kkt_residual, res, atol=tol)
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            Marble.update_settings!(solver, retraction_type = i-1)
+            Marble.update_KKT_residual!(solver, κ, ρ)
+            res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ)
+            @test isapprox(workspace.kkt_residual, res, atol=tol)
+        end
     end
 end
