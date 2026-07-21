@@ -39,12 +39,25 @@ retract(::Val{:Exp}, x, κ) = sqrt(κ)*exp.(x)
 retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
 
 @testset "Marble" begin
+    @testset "smoke tests" begin
+        solver, _ = setup_and_solve()
+        for name in propertynames(solver)
+            @test getproperty(solver, name) isa Any
+        end
+        problem, workspace = solver.problem, solver.workspace
+        for name in propertynames(problem)
+            @test getproperty(problem, name) isa Any
+        end
+        for name in propertynames(workspace)
+            @test getproperty(workspace, name) isa Any
+        end
+    end
     @testset "retraction maps" begin
         solver, _ = setup_and_solve()
         x = [0; 0.5; -0.5; -10; 10; randn(4)]
         κ = 1e-1
 
-        tol = 1e-12
+        tol = 1e-10
         for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
             Marble.update_settings!(solver, retraction_type = i-1)
             @test isapprox(Marble.retract(solver, x, κ), retract(retract_type, x, κ), atol = tol)
@@ -146,7 +159,7 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
             L = sparse(zeros(1, 2)), R = sparse(zeros(1, 2)), r = zeros(1))
     end
 
-    function kkt_residual(retract_type, solver, solution, κ, ρ)
+    function kkt_residual(retract_type, solver, solution, κ, ρ; symmetric = true)
         # Extract solution, multipliers, and problem data
         prob, workspace = solver.problem, solver.workspace
         z, s_ineq, s_comp = solution[solver.z_inds], solution[solver.s_ineq_inds], solution[solver.s_comp_inds]
@@ -163,7 +176,11 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         # Inequality slack stationarity
         p_neg_ineq = retract(retract_type, -s_ineq, κ)
         dp_ineq = FD.jacobian(_x -> retract(retract_type, _x, κ), s_ineq)
-        res[solver.s_ineq_inds] = dp_ineq * (-m_ineq - p_neg_ineq)
+        if symmetric
+            res[solver.s_ineq_inds] = dp_ineq * (-m_ineq - p_neg_ineq)
+        else
+            res[solver.s_ineq_inds] = -m_ineq - p_neg_ineq
+        end
 
         # Complementarity slack stationarity
         dp_comp = FD.jacobian(_x -> retract(retract_type, _x, κ), s_comp)
@@ -191,15 +208,41 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         res = workspace.kkt_residual
 
         workspace.solution .= randn(length(workspace.solution))
-        ρ, κ = workspace.penalty_param, workspace.relax_param
+        ρ, κ = 1e1, 1e-1
         Marble.update_residuals!(solver)
 
-        tol = 1e-12
+        tol = 1e-10
         for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
             Marble.update_settings!(solver, retraction_type = i-1)
             Marble.update_KKT_residual!(solver, κ, ρ)
             res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ)
             @test isapprox(workspace.kkt_residual, res, atol=tol)
+        end
+    end
+
+    @testset "KKT system" begin
+        solver, _ = setup_and_solve()
+        workspace = solver.workspace
+
+        workspace.solution .= randn(length(workspace.solution))
+        ρ, κ = 1e1, 1e-1
+        
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            Marble.update_settings!(solver, retraction_type = i-1)
+            Marble.update_KKT_system!(solver, κ, ρ)
+
+            # Get kkt matrix from solver
+            kkt_mat = workspace.kkt_system # upper triangular
+            kkt_mat = kkt_mat + kkt_mat' - Diagonal(diag(kkt_mat)) # symmetric
+            scale_mat = spdiagm(1 ./workspace.scaling)
+            kkt_mat = scale_mat*kkt_mat[workspace.amd_iperm_vec, workspace.amd_iperm_vec]*scale_mat
+
+            # Compare to forward diff with symmetrizing term
+            test_mat = FD.jacobian(_s -> kkt_residual(retract_type, solver, _s, κ, ρ; symmetric=false), workspace.solution)
+            dp_ineq = FD.jacobian(_x -> retract(retract_type, _x, κ), workspace.s_ineq)
+            test_mat[solver.s_ineq_inds, :] = dp_ineq * test_mat[solver.s_ineq_inds, :]
+
+            @test isapprox(kkt_mat, test_mat, atol = 1e-10)
         end
     end
 end

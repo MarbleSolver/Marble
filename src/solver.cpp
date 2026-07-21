@@ -496,13 +496,22 @@ void Solver::update_KKT_ineq(const Eigen::Ref<const Vec>& s_ineq, double relax_p
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_ineq, relax_param);
 
-    // Ineq stationarity wrt s_ineq is -d_p*d_neg_p
+    // Ineq stationarity wrt s_ineq is d_p*d_neg_p
     //                   wrt m_ineq is -d_p
     // Use identity that retract_deriv(-s_ineq, relax_param) = 1 - d_p
-    workspace->s_ineq_stationarity = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p (stored for diag updating)
-    for (int i = 0; i < prob->n_ineq; i++) {
-        nzval(s_ineq_s_ineq_inds[i]) = scaling(s_ineq_inds[i]) * workspace->s_ineq_stationarity[i] * scaling(s_ineq_inds[i]);
-        nzval(s_ineq_m_ineq_inds[i]) = scaling(s_ineq_inds[i]) * -d_p[i] * scaling(m_ineq_inds[i]);
+    if (options.retraction_type == 0) {
+        workspace->s_ineq_stationarity = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p (stored for diag updating)
+        for (int i = 0; i < prob->n_ineq; i++) {
+            nzval(s_ineq_s_ineq_inds[i]) = scaling(s_ineq_inds[i]) * workspace->s_ineq_stationarity[i] * scaling(s_ineq_inds[i]);
+            nzval(s_ineq_m_ineq_inds[i]) = scaling(s_ineq_inds[i]) * -d_p[i] * scaling(m_ineq_inds[i]);
+        }
+    }
+    else {
+        workspace->s_ineq_stationarity = d_p.cwiseProduct(retract_deriv(-s_ineq, relax_param)); // -d_p*d_neg_p (stored for diag updating)
+        for (int i = 0; i < prob->n_ineq; i++) {
+            nzval(s_ineq_s_ineq_inds[i]) = scaling(s_ineq_inds[i]) * workspace->s_ineq_stationarity[i] * scaling(s_ineq_inds[i]);
+            nzval(s_ineq_m_ineq_inds[i]) = scaling(s_ineq_inds[i]) * -d_p[i] * scaling(m_ineq_inds[i]);
+        }
     }
 }
 
@@ -513,15 +522,31 @@ void Solver::update_KKT_comp(const Eigen::Ref<const Vec>& s_comp, const Eigen::R
     Vec d_p = retract_deriv(s_comp, relax_param);
     Vec dd_p = retract_second_deriv(s_comp, relax_param);
 
-    for (int i = 0; i < prob->n_comp; i++) {
-        // Derivative of -p'(s)*m_L + p'(-s)*m_R wrt s
-        // is -(p''(s)*m_L + p''(s)*m_R) but p''(s) = p''(-s) so its -p''(s)*(m_L + m_R)
-        workspace->s_comp_stationarity[i] = -dd_p[i]*(m_comp_L[i] + m_comp_R[i]); // stored for diag updating
-        nzval(s_comp_s_comp_inds[i]) = scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
+    if (options.retraction_type == 0) {
+        for (int i = 0; i < prob->n_comp; i++) {
+            // Derivative of -p'(s)*m_L + p'(-s)*m_R wrt s
+            // is -(p''(s)*m_L + p''(s)*m_R) but p''(s) = p''(-s) so its -p''(s)*(m_L + m_R)
+            workspace->s_comp_stationarity[i] = -dd_p[i]*(m_comp_L[i] + m_comp_R[i]); // stored for diag updating
+            nzval(s_comp_s_comp_inds[i]) = scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
 
-        // Derivative wrt to m_L and m_R is just -d_p and -d_neg_p respectively
-        nzval(s_comp_m_comp_L_inds[i]) = scaling(s_comp_inds[i]) * -d_p[i] * scaling(m_comp_L_inds[i]);
-        nzval(s_comp_m_comp_R_inds[i]) = scaling(s_comp_inds[i]) * (1 - d_p[i]) * scaling(m_comp_R_inds[i]);  // d_neg_p = 1 - d_p
+            // Derivative wrt to m_L and m_R is just -d_p and -d_neg_p respectively
+            nzval(s_comp_m_comp_L_inds[i]) = scaling(s_comp_inds[i]) * -d_p[i] * scaling(m_comp_L_inds[i]);
+            nzval(s_comp_m_comp_R_inds[i]) = scaling(s_comp_inds[i]) * (1 - d_p[i]) * scaling(m_comp_R_inds[i]);  // d_neg_p = 1 - d_p
+        }
+    }
+    else {
+        Vec d_neg_p = retract_deriv(-s_comp, relax_param);
+        Vec dd_neg_p = retract_second_deriv(-s_comp, relax_param);
+        for (int i = 0; i < prob->n_comp; i++) {
+            // Derivative of -p'(s)*m_L + p'(-s)*m_R wrt s
+            // is -(p''(s)*m_L + p''(-s)*m_R)
+            workspace->s_comp_stationarity[i] = -dd_p[i]*m_comp_L[i] - dd_neg_p[i]*m_comp_R[i]; // stored for diag updating
+            nzval(s_comp_s_comp_inds[i]) = scaling(s_comp_inds[i]) * workspace->s_comp_stationarity[i] * scaling(s_comp_inds[i]);
+
+            // Derivative wrt to m_L and m_R is just -d_p and d_neg_p respectively
+            nzval(s_comp_m_comp_L_inds[i]) = scaling(s_comp_inds[i]) * -d_p[i] * scaling(m_comp_L_inds[i]);
+            nzval(s_comp_m_comp_R_inds[i]) = scaling(s_comp_inds[i]) * d_neg_p[i] * scaling(m_comp_R_inds[i]);
+        }
     }
 }
 

@@ -166,12 +166,16 @@ module Marble
     workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_L_est}) = Marble.m_comp_L_est(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_R_est}) = Marble.m_comp_R_est(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{:kkt_residual}) = Marble.kkt_residual(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:kkt_system}) = sparse_from_eigen(Marble.kkt_system(workspace)...)
+    workspace_property(workspace::Marble.Workspace, ::Val{:amd_perm_vec}) = Marble.amd_perm_vec(workspace) .+ 1
+    workspace_property(workspace::Marble.Workspace, ::Val{:amd_iperm_vec}) = Marble.amd_iperm_vec(workspace) .+ 1
+    workspace_property(workspace::Marble.Workspace, ::Val{:scaling}) = Marble.scaling(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{:relax_param}) = Marble.relax_param(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{:penalty_param}) = Marble.penalty_param(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{sym}) where sym = getfield(workspace, sym)
 
     Base.propertynames(workspace::Marble.Workspace, private::Bool=false) = 
-        (:kkt_residual, :solution, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R, 
+        (:kkt_residual, :kkt_system, :solution, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R, :amd_perm_vec, :amd_iperm_vec, :scaling,
          :m_eq_est, :m_ineq_est, :m_comp_L_est, :m_comp_R_est, :relax_param, :penalty_param, fieldnames(typeof(workspace))...)
 
     # Helper functions for evaluating objectives and residuals
