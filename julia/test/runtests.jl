@@ -1,5 +1,4 @@
 # Marble test suite
-#
 using Test
 using LinearAlgebra
 using SparseArrays
@@ -174,7 +173,7 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         m_eq_est, m_ineq_est, m_comp_L_est, m_comp_R_est = workspace.m_eq_est, workspace.m_ineq_est, workspace.m_comp_L_est, workspace.m_comp_R_est
 
         # Construct KKT residual
-        res = zeros(eltype(solution), length(solution))
+        res = zeros(promote_type(eltype(solution), typeof(κ)), length(solution))
         # z stationarity
         res[solver.z_inds] = H*z + g + J_eq'*m_eq + J_ineq'*m_ineq + L_comp'*m_comp_L + R_comp'*m_comp_R
 
@@ -248,6 +247,39 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
             test_mat[solver.s_ineq_inds, :] = dp_ineq * test_mat[solver.s_ineq_inds, :]
 
             @test isapprox(kkt_mat, test_mat, atol = 1e-10)
+        end
+    end
+
+    @testset "KKT relaxation derivative" begin
+        solver, _  = setup_and_solve()
+        workspace = solver.workspace
+        workspace.solution .= randn(length(workspace.solution))
+        κ = 1e-1
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            Marble.update_settings!(solver, retraction_type = i-1)
+            Marble.update_dKKT_residual_drelax!(solver, κ)
+            @test isapprox(workspace.dkkt_residual_drelax, FD.derivative(_κ -> kkt_residual(retract_type, solver, workspace.solution, _κ, 1e1), κ), atol=1e-10)
+        end
+    end
+
+    @testset "filter entry" begin
+        solver, _  = setup_and_solve()
+        prob, workspace = solver.problem, solver.workspace
+        workspace.solution .= randn(length(workspace.solution))
+
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            ρ, κ = 1e1, 1e-1
+            Marble.update_settings!(solver, retraction_type = i-1)
+            Marble.update_residuals!(solver)
+
+            res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ, symmetric = false)
+            viols = [res[solver.m_eq_inds]; res[solver.m_ineq_inds]; res[solver.m_comp_L_inds]; res[solver.m_comp_R_inds]]
+            viol = norm(viols, 1)/length(viols)
+            obj = 0.5*workspace.z'*prob.cost_hessian*workspace.z + prob.cost_gradient'*workspace.z + prob.cost_const - 
+                 κ*sum(log.(retract(retract_type, workspace.s_ineq, κ))) + 
+                 0.5*1/ρ*(workspace.m_eq'*workspace.m_eq + workspace.m_ineq'*workspace.m_ineq + workspace.m_comp_L'*workspace.m_comp_L + workspace.m_comp_R'*workspace.m_comp_R)
+
+            isapprox(collect(Marble.entry_from_solution(solver, κ, ρ)), [viol; obj], atol = 1e-10)
         end
     end
 end

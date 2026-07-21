@@ -137,6 +137,7 @@ module Marble
     problem_property(problem::Marble.Problem, ::Val{:n_comp}) = Marble.n_comp(problem)
     problem_property(problem::Marble.Problem, ::Val{:cost_hessian}) = sparse_from_eigen(Marble.cost_hessian(problem)...)
     problem_property(problem::Marble.Problem, ::Val{:cost_gradient}) = Marble.cost_gradient(problem)
+    problem_property(problem::Marble.Problem, ::Val{:cost_const}) = Marble.cost_const(problem)
     problem_property(problem::Marble.Problem, ::Val{:J_eq}) = sparse_from_eigen(Marble.J_eq(problem)...)
     problem_property(problem::Marble.Problem, ::Val{:c_eq}) = Marble.c_eq(problem)
     problem_property(problem::Marble.Problem, ::Val{:J_ineq}) = sparse_from_eigen(Marble.J_ineq(problem)...)
@@ -148,7 +149,7 @@ module Marble
     problem_property(problem::Marble.Problem, ::Val{sym}) where sym = getfield(problem, sym)
 
     Base.propertynames(problem::Marble.Problem, private::Bool=false) = 
-        (:nz, :n_eq, :n_ineq, :n_comp, :cost_hessian, :cost_gradient, :J_eq, :c_eq,
+        (:nz, :n_eq, :n_ineq, :n_comp, :cost_hessian, :cost_gradient, :cost_const, :J_eq, :c_eq,
          :J_ineq, :c_ineq, :L_comp, :l_comp, :R_comp, :r_comp, fieldnames(typeof(problem))...)
 
     ## Accessors for workspace members
@@ -166,6 +167,7 @@ module Marble
     workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_L_est}) = Marble.m_comp_L_est(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{:m_comp_R_est}) = Marble.m_comp_R_est(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{:kkt_residual}) = Marble.kkt_residual(workspace)
+    workspace_property(workspace::Marble.Workspace, ::Val{:dkkt_residual_drelax}) = Marble.dkkt_residual_drelax(workspace)
     workspace_property(workspace::Marble.Workspace, ::Val{:kkt_system}) = sparse_from_eigen(Marble.kkt_system(workspace)...)
     workspace_property(workspace::Marble.Workspace, ::Val{:amd_perm_vec}) = Marble.amd_perm_vec(workspace) .+ 1
     workspace_property(workspace::Marble.Workspace, ::Val{:amd_iperm_vec}) = Marble.amd_iperm_vec(workspace) .+ 1
@@ -175,7 +177,7 @@ module Marble
     workspace_property(workspace::Marble.Workspace, ::Val{sym}) where sym = getfield(workspace, sym)
 
     Base.propertynames(workspace::Marble.Workspace, private::Bool=false) = 
-        (:kkt_residual, :kkt_system, :solution, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R, :amd_perm_vec, :amd_iperm_vec, :scaling,
+        (:kkt_residual, :dkkt_residual_drelax, :kkt_system, :solution, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R, :amd_perm_vec, :amd_iperm_vec, :scaling,
          :m_eq_est, :m_ineq_est, :m_comp_L_est, :m_comp_R_est, :relax_param, :penalty_param, fieldnames(typeof(workspace))...)
 
     ## Accessors for result members

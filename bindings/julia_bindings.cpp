@@ -141,6 +141,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             return std::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), colptr, rowval, nzval);
         })
         .method("cost_gradient", [](Problem& p) { return to_julia(p.cost_gradient); })
+        .method("cost_const", [](Problem& p) { return p.cost_const; })
         .method("J_eq", [](Problem& p) {
             auto colptr = jlcxx::make_julia_array(p.J_eq.outerIndexPtr(), p.J_eq.outerSize() + 1);
             auto rowval = jlcxx::make_julia_array(p.J_eq.innerIndexPtr(), p.J_eq.nonZeros());
@@ -276,6 +277,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
             auto nzval  = jlcxx::make_julia_array(kkt.valuePtr(),      kkt.nonZeros());
             return std::make_tuple((int)kkt.rows(), (int)kkt.cols(), colptr, rowval, nzval);
         })
+        .method("dkkt_residual_drelax", [](Workspace& w) { return to_julia(w.dkkt_residual_drelax); })
         // QDLDL factorization data
         .method("D",            [](Workspace& w) { return to_julia(w.D); })
         .method("amd_perm_vec", [](Workspace& w) { return to_julia(w.amd_perm_vec); })
@@ -353,6 +355,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         })
         .method("update_KKT_penalty!",            &Solver::update_KKT_penalty)
         .method("update_KKT_primal_regularizer!", &Solver::update_KKT_primal_regularizer)
+        .method("update_dKKT_residual_drelax!", &Solver::update_dKKT_residual_drelax)
         // Factorization and backsolve
         .method("initialize_kkt_sparsity!",  &Solver::initialize_kkt_sparsity)
         .method("compute_amd_ordering!",     &Solver::compute_amd_ordering)
