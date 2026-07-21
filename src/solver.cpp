@@ -451,35 +451,60 @@ void Solver::update_dKKT_residual_drelax(double relax_param) {
     // Derivative of the KKT residual wrt the relaxation parameter kappa (= relax_param).
     workspace->dkkt_residual_drelax.setZero();
 
-    // Inequality slack stationarity: r = p'(s) * (-m_ineq - p(-s))
-    // d/dkappa = p'_kappa(s) * (-m_ineq - p(-s)) - p'(s) * p_kappa(-s)
-    // (p(-s) is even in s, so p_kappa(-s) = p_kappa(s) = retract_drelax(s))
-    Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
-    Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
-    Vec dp_ineq_dk = retract_drelax(workspace->s_ineq, relax_param);
-    Vec dd_p_ineq_dk = retract_deriv_drelax(workspace->s_ineq, relax_param);
-    workspace->dkkt_residual_drelax(s_ineq_inds) =
-        dd_p_ineq_dk.cwiseProduct(-workspace->m_ineq - p_neg_ineq) - d_p_ineq.cwiseProduct(dp_ineq_dk);
+    if (options.retraction_type == 0) { // Main path, optimized with solver properties
+        // Inequality slack stationarity: r = p'(s) * (-m_ineq - p(-s))
+        // d/dkappa = p'_kappa(s) * (-m_ineq - p(-s)) - p'(s) * p_kappa(-s)
+        // (p(-s) is even in s, so p_kappa(-s) = p_kappa(s) = retract_drelax(s))
+        Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
+        Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
+        Vec dp_ineq_dk = retract_drelax(workspace->s_ineq, relax_param);
+        Vec dd_p_ineq_dk = retract_deriv_drelax(workspace->s_ineq, relax_param);
+        workspace->dkkt_residual_drelax(s_ineq_inds) =
+            dd_p_ineq_dk.cwiseProduct(-workspace->m_ineq - p_neg_ineq) - d_p_ineq.cwiseProduct(dp_ineq_dk);
 
-    // Complementarity slack stationarity: r = -p'(s)*m0 + (1 - p'(s))*m1
-    // d/dkappa = -p'_kappa(s) * (m0 + m1)
-    Vec dp_comp_dk = retract_drelax(workspace->s_comp, relax_param);
-    Vec dd_p_comp_dk = retract_deriv_drelax(workspace->s_comp, relax_param);
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->dkkt_residual_drelax(s_comp_inds[i]) =
-            -dd_p_comp_dk[i] * (workspace->m_comp_L[i] + workspace->m_comp_R[i]);
+        // Complementarity slack stationarity: r = -p'(s)*m0 + (1 - p'(s))*m1
+        // d/dkappa = -p'_kappa(s) * (m0 + m1)
+        Vec dp_comp_dk = retract_drelax(workspace->s_comp, relax_param);
+        Vec dd_p_comp_dk = retract_deriv_drelax(workspace->s_comp, relax_param);
+        for (int i = 0; i < prob->n_comp; i++) {
+            workspace->dkkt_residual_drelax(s_comp_inds[i]) =
+                -dd_p_comp_dk[i] * (workspace->m_comp_L[i] + workspace->m_comp_R[i]);
+        }
+
+        // Inequality primal feasibility: r = ... - (s + p(-s)) - ...
+        // d/dkappa = -p_kappa(-s) = -retract_drelax(s)
+        workspace->dkkt_residual_drelax(m_ineq_inds) = -dp_ineq_dk;
+
+        // Complementarity primal feasibility:
+        //   row 2i   += -p(s)        -> d/dkappa = -p_kappa(s)
+        //   row 2i+1 += -(p(s) - s)  -> d/dkappa = -p_kappa(s)
+        for (int i = 0; i < prob->n_comp; i++) {
+            workspace->dkkt_residual_drelax(m_comp_L_inds[i]) = -dp_comp_dk[i];
+            workspace->dkkt_residual_drelax(m_comp_R_inds[i]) = -dp_comp_dk[i];
+        }
     }
+    else { // Alternative path for testing
+        // Inequality slack stationarity: r = p'(s) * (-m_ineq - p(-s))
+        // d/dkappa = p'_kappa(s) * (-m_ineq - p(-s)) - p'(s) * p_kappa(-s)
+        Vec dd_p_ineq_dk = retract_deriv_drelax(workspace->s_ineq, relax_param);
+        Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
+        Vec dp_ineq = retract_deriv(workspace->s_ineq, relax_param);
+        Vec dp_neg_ineq_dk = retract_drelax(-workspace->s_ineq, relax_param);
+        workspace->dkkt_residual_drelax(s_ineq_inds) =
+            dd_p_ineq_dk.cwiseProduct(-workspace->m_ineq - p_neg_ineq) - dp_ineq.cwiseProduct(dp_neg_ineq_dk);
 
-    // Inequality primal feasibility: r = ... - (s + p(-s)) - ...
-    // d/dkappa = -p_kappa(-s) = -retract_drelax(s)
-    workspace->dkkt_residual_drelax(m_ineq_inds) = -dp_ineq_dk;
+        // Complementarity slack stationarity: r = -p'(s)*m0 + p'(-s)*m1
+        Vec dd_p_comp_dk = retract_deriv_drelax(workspace->s_comp, relax_param);
+        Vec dd_p_neg_comp_dk = retract_deriv_drelax(-workspace->s_comp, relax_param);
+        workspace->dkkt_residual_drelax(s_comp_inds) =
+            -dd_p_comp_dk.cwiseProduct(workspace->m_comp_L) + dd_p_neg_comp_dk.cwiseProduct(workspace->m_comp_R);
 
-    // Complementarity primal feasibility:
-    //   row 2i   += -p(s)        -> d/dkappa = -p_kappa(s)
-    //   row 2i+1 += -(p(s) - s)  -> d/dkappa = -p_kappa(s)
-    for (int i = 0; i < prob->n_comp; i++) {
-        workspace->dkkt_residual_drelax(m_comp_L_inds[i]) = -dp_comp_dk[i];
-        workspace->dkkt_residual_drelax(m_comp_R_inds[i]) = -dp_comp_dk[i];
+        // Inequality primal feasibility: r = ... - p(s) - ...
+        workspace->dkkt_residual_drelax(m_ineq_inds) = -retract_drelax(workspace->s_ineq, relax_param);
+
+        // Complementarity primal feasibility
+        workspace->dkkt_residual_drelax(m_comp_L_inds) = -retract_drelax(workspace->s_comp, relax_param);
+        workspace->dkkt_residual_drelax(m_comp_R_inds) = -retract_drelax(-workspace->s_comp, relax_param);
     }
 }
 
@@ -916,18 +941,35 @@ Filter::Entry Solver::entry_from_solution(double relax_param, double penalty_par
     Vec m_eq_primal_feas = workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
 
     Vec p_ineq = retract(workspace->s_ineq, relax_param);
-    Vec m_ineq_primal_feas = workspace->residual_ineq - p_ineq -  // p(s) - p(-s) = s
+    Vec m_ineq_primal_feas = workspace->residual_ineq - p_ineq - 
                                 inv_penalty_param * (workspace->m_ineq - workspace->m_ineq_est);
+    Vec m_comp_L_primal_feas(prob->n_comp);
+    Vec m_comp_R_primal_feas(prob->n_comp);
 
-    Vec p_comp = retract(workspace->s_comp, relax_param);
-    Vec m_comp_L_primal_feas =
-        workspace->residual_comp_L - inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
-    Vec m_comp_R_primal_feas =
-        workspace->residual_comp_R - inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
+    if (options.retraction_type == 0) { // Main path, uses retraction map properties, optimized
+        Vec p_comp = retract(workspace->s_comp, relax_param);
+        m_comp_L_primal_feas =
+            workspace->residual_comp_L - inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
+        m_comp_R_primal_feas =
+            workspace->residual_comp_R - inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
 
-    for (int i = 0; i < prob->n_comp; i++) {
-        m_comp_L_primal_feas[i] += -p_comp[i];                               // p(s)
-        m_comp_R_primal_feas[i] += -(p_comp[i] - workspace->s_comp[i]);      // p(s) - p(-s) = s
+        for (int i = 0; i < prob->n_comp; i++) {
+            m_comp_L_primal_feas[i] += -p_comp[i];                               // p(s)
+            m_comp_R_primal_feas[i] += -(p_comp[i] - workspace->s_comp[i]);      // p(s) - p(-s) = s
+        }
+    }
+    else { // Alternate path for testing
+        Vec p_comp = retract(workspace->s_comp, relax_param);
+        Vec p_neg_comp = retract(-workspace->s_comp, relax_param);
+        m_comp_L_primal_feas =
+            workspace->residual_comp_L - inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
+        m_comp_R_primal_feas =
+            workspace->residual_comp_R - inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
+
+        for (int i = 0; i < prob->n_comp; i++) {
+            m_comp_L_primal_feas[i] += -p_comp[i];          // p(s)
+            m_comp_R_primal_feas[i] += -p_neg_comp[i];      // p(s) - p(-s) = s
+        }
     }
 
     double candidate_constraint_violation = n_duals == 0 ? 0.0 :

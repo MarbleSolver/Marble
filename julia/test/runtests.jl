@@ -1,9 +1,5 @@
 # Marble test suite
 #
-# Mirror of the Python suite (python/tests/test_marble.py): the same example
-# problem written directly as matrices (from julia/examples/simple_test.jl) and
-# the same 16 test cases in the same order — nine solve tests followed by seven
-# dimension validation cases.
 using Test
 using LinearAlgebra
 using SparseArrays
@@ -70,41 +66,52 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
     end
 
     @testset "problem dimensions" begin
-        solver, _ = setup_and_solve()
-        p = solver.problem
-        @test p.nz == 4 && p.n_eq == 1 && p.n_ineq == 1 && p.n_comp == 1
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            solver, _ = setup_and_solve(retraction_type = i-1)
+            p = solver.problem
+            @test p.nz == 4 && p.n_eq == 1 && p.n_ineq == 1 && p.n_comp == 1
+        end
     end
 
     @testset "solves to known optimum" begin
-        _, res = setup_and_solve()
-        @test res.converged && isapprox(res.z, ZSTAR, atol = 1e-4)
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            solver, res = setup_and_solve(retraction_type = i-1)
+            @test res.converged && isapprox(res.z, ZSTAR, atol = 1e-4)
+        end
     end
 
     @testset "equality constraint satisfied" begin
         # x1 = 1
-        _, res = setup_and_solve()
-        @test abs(res.z[1] - 1.0) < 1e-4
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            solver, res = setup_and_solve(retraction_type = i-1)
+            @test abs(res.z[1] - 1.0) < 1e-4
+        end
     end
 
     @testset "inequality constraint satisfied" begin
         # x2 >= 1
-        _, res = setup_and_solve()
-        @test res.z[2] >= 1.0 - 1e-4
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            solver, res = setup_and_solve(retraction_type = i-1)
+            @test res.z[2] >= 1.0 - 1e-4
+        end
     end
 
     @testset "complementarity satisfied" begin
         # 0 <= (x3 + 1) ⟂ (x4 - 1) >= 0
-        _, res = setup_and_solve()
-        z = res.z
-        a = z[3] + 1.0
-        b = z[4] - 1.0
-        @test a >= -1e-4 && b >= -1e-4 && abs(a * b) < 1e-4
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            solver, res = setup_and_solve(retraction_type = i-1)
+            z = res.z
+            a = z[3] + 1.0
+            b = z[4] - 1.0
+            @test a >= -1e-4 && b >= -1e-4 && abs(a * b) < 1e-4
+        end
     end
 
     @testset "objective value" begin
-        # x'x = 3 at the optimum
-        solver, res = setup_and_solve()
-        @test abs(Marble.obj(solver, res.z)) - 3.0 < 1e-3
+        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+            solver, res = setup_and_solve(retraction_type = i-1)
+            @test abs(Marble.obj(solver, res.z)) - 3.0 < 1e-3
+        end
     end
 
     @testset "dense and sparse solve agree" begin
