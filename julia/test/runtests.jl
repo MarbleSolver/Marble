@@ -72,31 +72,30 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
     @testset "problem dimensions" begin
         solver, _ = setup_and_solve()
         p = solver.problem
-        @test Marble.nz(p) == 4 && Marble.n_eq(p) == 1 && Marble.n_ineq(p) == 1 && Marble.n_comp(p) == 1
+        @test p.nz == 4 && p.n_eq == 1 && p.n_ineq == 1 && p.n_comp == 1
     end
 
     @testset "solves to known optimum" begin
         _, res = setup_and_solve()
-        z = collect(Marble.z(res))
-        @test Marble.converged(res) && isapprox(z, ZSTAR, atol = 1e-4)
+        @test res.converged && isapprox(res.z, ZSTAR, atol = 1e-4)
     end
 
     @testset "equality constraint satisfied" begin
         # x1 = 1
         _, res = setup_and_solve()
-        @test abs(collect(Marble.z(res))[1] - 1.0) < 1e-4
+        @test abs(res.z[1] - 1.0) < 1e-4
     end
 
     @testset "inequality constraint satisfied" begin
         # x2 >= 1
         _, res = setup_and_solve()
-        @test collect(Marble.z(res))[2] >= 1.0 - 1e-4
+        @test res.z[2] >= 1.0 - 1e-4
     end
 
     @testset "complementarity satisfied" begin
         # 0 <= (x3 + 1) ⟂ (x4 - 1) >= 0
         _, res = setup_and_solve()
-        z = collect(Marble.z(res))
+        z = res.z
         a = z[3] + 1.0
         b = z[4] - 1.0
         @test a >= -1e-4 && b >= -1e-4 && abs(a * b) < 1e-4
@@ -105,14 +104,14 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
     @testset "objective value" begin
         # x'x = 3 at the optimum
         solver, res = setup_and_solve()
-        @test abs(Marble.obj(solver, collect(Marble.z(res))) - 3.0) < 1e-3
+        @test abs(Marble.obj(solver, res.z)) - 3.0 < 1e-3
     end
 
     @testset "dense and sparse solve agree" begin
         _, rd = setup_and_solve(sparse_problem = false)
         _, rs = setup_and_solve(sparse_problem = true)
-        @test Marble.converged(rd) && Marble.converged(rs) &&
-              isapprox(collect(Marble.z(rd)), collect(Marble.z(rs)), atol = 1e-6)
+        @test rd.converged && rs.converged &&
+              isapprox(rd.z, rs.z, atol = 1e-6)
     end
 
     @testset "complementarity-only QPCC" begin
@@ -121,15 +120,14 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         solver = Marble.Solver()
         Marble.setup!(solver, Q, q, C0; L = L, l = EL, R = R, r = ER)
         res = Marble.solve!(solver)
-        z = collect(Marble.z(res))
-        @test Marble.converged(res) && isapprox(z, [0.0, 0.0, 0.0, 1.0], atol = 1e-4)
+        @test res.converged && isapprox(res.z, [0.0, 0.0, 0.0, 1.0], atol = 1e-4)
     end
 
     @testset "options are honored" begin
         s2, r2 = setup_and_solve(max_iters = 123, convergence_kkt_norm = 1e-8)
         @test Marble.max_iters(s2.options) == 123 &&
               isapprox(Marble.convergence_kkt_norm(s2.options), 1e-8) &&
-              Marble.converged(r2)
+              r2.converged
     end
 
     @testset "dimension validation" begin

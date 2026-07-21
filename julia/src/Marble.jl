@@ -178,6 +178,28 @@ module Marble
         (:kkt_residual, :kkt_system, :solution, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R, :amd_perm_vec, :amd_iperm_vec, :scaling,
          :m_eq_est, :m_ineq_est, :m_comp_L_est, :m_comp_R_est, :relax_param, :penalty_param, fieldnames(typeof(workspace))...)
 
+    ## Accessors for result members
+    Base.getproperty(result::Marble.SolveResult, sym::Symbol) = result_property(result, Val(sym))
+    result_property(result::Marble.SolveResult, ::Val{:converged}) = Marble.converged(result)
+    result_property(result::Marble.SolveResult, ::Val{:iterations}) = Marble.iterations(result)
+    result_property(result::Marble.SolveResult, ::Val{:iterations_outer}) = Marble.iterations_outer(result)
+    result_property(result::Marble.SolveResult, ::Val{:iterations_inner}) = Marble.iterations_inner(result)
+    result_property(result::Marble.SolveResult, ::Val{:factorizations}) = Marble.factorizations(result)
+    result_property(result::Marble.SolveResult, ::Val{:z}) = Marble.z(result)
+    result_property(result::Marble.SolveResult, ::Val{:s_ineq}) = Marble.s_ineq(result)
+    result_property(result::Marble.SolveResult, ::Val{:s_comp}) = Marble.s_comp(result)
+    result_property(result::Marble.SolveResult, ::Val{:m_eq}) = Marble.m_eq(result)
+    result_property(result::Marble.SolveResult, ::Val{:m_ineq}) = Marble.m_ineq(result)
+    result_property(result::Marble.SolveResult, ::Val{:m_comp_L}) = Marble.m_comp_L(result)
+    result_property(result::Marble.SolveResult, ::Val{:m_comp_R}) = Marble.m_comp_R(result)
+    result_property(result::Marble.SolveResult, ::Val{:setup_time_s}) = Marble.setup_time_s(result)
+    result_property(result::Marble.SolveResult, ::Val{:solve_time_s}) = Marble.solve_time_s(result)
+    result_property(result::Marble.SolveResult, ::Val{sym}) where sym = getfield(result, sym)
+
+    Base.propertynames(result::Marble.SolveResult, private::Bool=false) =
+        (:converged, :iterations, :iterations_outer, :iterations_inner, :factorizations, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R,
+         :setup_time_s, :solve_time_s, fieldnames(typeof(result))...)
+
     # Helper functions for evaluating objectives and residuals
     obj(solver::Marble.Solver, z::Vector{Float64}) = Marble.obj(Marble.get_problem(solver), z)
     obj(data::NamedTuple, z::Vector{Float64}) = Marble.obj(Problem(data...), z)
