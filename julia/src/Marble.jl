@@ -67,7 +67,7 @@ module Marble
         :max_iters, :max_iters_linesearch,
         :gamma_objective, :gamma_constraint, :ruiz_iterations,
         :inertia_warmstart,
-        :verbosity, :retraction_type
+        :verbosity, :retraction_type, :clamp_hessian
     ]
 
     function update_settings!(solver::Marble.Solver; kwargs...)
@@ -215,13 +215,22 @@ module Marble
     residual_comp(solver::Marble.Solver, z::Vector{Float64}) = Marble.residual_comp(Marble.get_problem(solver), z)
     residual_comp(data::NamedTuple, z::Vector{Float64}) = Marble.residual_comp(Problem(data...), z)
 
+    # Helper function for getting KKT system 
+    function get_kkt_system(workspace::Marble.Workspace)
+        kkt_mat = workspace.kkt_system # upper triangular
+        kkt_mat = kkt_mat + kkt_mat' - Diagonal(diag(kkt_mat)) # symmetric
+        scale_mat = spdiagm(1 ./workspace.scaling)
+        kkt_mat = scale_mat*kkt_mat[workspace.amd_iperm_vec, workspace.amd_iperm_vec]*scale_mat
+        return kkt_mat
+    end
+
     # Problem construction with JuMP: MPCC, complementarity indexing, and
     # the conversion of an MPCC into the matrix/vector data Marble consumes.
     include("jump_mpcc.jl")
 
     export MPCC, complementarity_indices
     export reformulate_sos1, var_inds
-    export mpcc_to_marble
+    export mpcc_to_marble, get_kkt_system
 
     # Build a Marble problem from an MPCC (defined here since it depends on
     # both MPCC/mpcc_to_marble above and the build_problem helper).

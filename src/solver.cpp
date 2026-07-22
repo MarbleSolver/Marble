@@ -587,14 +587,27 @@ void Solver::update_KKT_penalty(const double penalty_param) {
 void Solver::update_KKT_primal_regularizer(const double reg) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
-    for (int k = 0; k < prob->nz; k++) {
-        nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
+    if (!options.clamp_hessian) {
+        for (int k = 0; k < prob->nz; k++) {
+            nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
+        }
+        for (int k = 0; k < prob->n_ineq; k++) {
+            nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
+        }
+        for (int k = 0; k < prob->n_comp; k++) {
+            nzval(s_comp_s_comp_inds[k]) = (workspace->s_comp_stationarity[k] + reg) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
+        }
     }
-    for (int k = 0; k < prob->n_ineq; k++) {
-        nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
-    }
-    for (int k = 0; k < prob->n_comp; k++) {
-        nzval(s_comp_s_comp_inds[k]) = (workspace->s_comp_stationarity[k] + reg) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
+    else {
+        for (int k = 0; k < prob->nz; k++) {
+            nzval(z_z_inds[k]) = std::max(prob->cost_hessian_diag[k] + reg, 1e-8) * scaling(z_inds[k]) * scaling(z_inds[k]);
+        }
+        for (int k = 0; k < prob->n_ineq; k++) {
+            nzval(s_ineq_s_ineq_inds[k]) = std::max(workspace->s_ineq_stationarity[k] + reg, 1e-8)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
+        }
+        for (int k = 0; k < prob->n_comp; k++) {
+            nzval(s_comp_s_comp_inds[k]) = std::max(workspace->s_comp_stationarity[k] + reg, 1e-8) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
+        }
     }
 }
 
@@ -961,9 +974,9 @@ Filter::Entry Solver::entry_from_solution(double relax_param, double penalty_par
     else { // Alternate path for testing
         Vec p_comp = retract(workspace->s_comp, relax_param);
         Vec p_neg_comp = retract(-workspace->s_comp, relax_param);
-        m_comp_L_primal_feas =
+         m_comp_L_primal_feas =
             workspace->residual_comp_L - inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
-        m_comp_R_primal_feas =
+        Vec m_comp_R_primal_feas =
             workspace->residual_comp_R - inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
 
         for (int i = 0; i < prob->n_comp; i++) {

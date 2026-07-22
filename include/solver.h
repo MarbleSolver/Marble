@@ -87,6 +87,7 @@ public:
         ///   3 = + per-iteration table
         int verbosity{0};
         int retraction_type{0}; // 0 = scaled softplus, 1 = exp
+        bool clamp_hessian{false}; // clamp Hessian diagonal to be non-negative (for scaled softplus retraction)
 
         Options() = default;
     };
