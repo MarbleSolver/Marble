@@ -84,9 +84,9 @@ public:
         int ruiz_iterations{10};
         /// Warm-start each inner Newton step's inertia regularizer from the last successful value
         /// (false restarts the regularizer from 0 at every inner step)
-        bool inertia_warmstart{true};
+        bool inertia_warmstart{false};
         /// Initialize s_comp with small random noise (true) or zeros (false)
-        bool comp_init_random{true};
+        bool comp_init_random{false};
         /// Seed for the small random noise used to initialize s_comp
         /// (negative leaves the RNG unseeded, i.e. non-deterministic across runs)
         int comp_init_seed{-1};

@@ -27,10 +27,11 @@ mpcc = MPCC(model,
 
 solver = Marble.Solver()
 Marble.setup!(solver, mpcc;
-verbosity = 3,
-# comp_init_seed = 42
-comp_init_random=false,
-relaxation_scaling=0.1,
+    verbosity = 3,
+    comp_init_random=false,
+    relaxation_scaling=0.1,
+    retraction_type=Marble.Softplus,
+    clamp_hessian=true,
 )
 results = Marble.solve!(solver)
 z = Marble.z(results)
