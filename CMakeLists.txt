@@ -105,13 +105,25 @@ if(MARBLE_BUILD_PYTHON)
     # Python `marble` package (python/marble/) wraps it with the high-level API.
     pybind11_add_module(marble_python MODULE bindings/python_bindings.cpp)
     target_link_libraries(marble_python PRIVATE marble)
+
+    # A plain CMake build writes the extension straight into the source package,
+    # so anything with python/ on sys.path imports the module just built — no
+    # copy step to keep in sync. A wheel build (scikit-build-core sets SKBUILD)
+    # keeps its output in the build tree and installs it via install(TARGETS).
+    # Build wheels from a clean tree: scikit-build-core copies python/marble/
+    # wholesale, so an in-place _core*.so left there rides along into the wheel.
+    if(SKBUILD)
+        set(MARBLE_PYTHON_OUTPUT_DIR ${CMAKE_BINARY_DIR}/python/marble)
+    else()
+        set(MARBLE_PYTHON_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/python/marble)
+    endif()
     set_target_properties(marble_python PROPERTIES
         OUTPUT_NAME            _core
-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python/marble
+        LIBRARY_OUTPUT_DIRECTORY ${MARBLE_PYTHON_OUTPUT_DIR}
     )
 
-    # Stage the pure Python package next to the freshly built extension so that
-    # adding build/python to sys.path is enough to `import marble` from the tree.
+    # Stage the package (extension included) so that adding build/python to
+    # sys.path is enough to `import marble` from the tree — see the Dockerfile.
     add_custom_command(TARGET marble_python POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${CMAKE_SOURCE_DIR}/python/marble ${CMAKE_BINARY_DIR}/python/marble
@@ -125,7 +137,7 @@ if(MARBLE_BUILD_PYTHON)
         if(PYBIND11_STUBGEN)
             add_custom_command(TARGET marble_python POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E env
-                        PYTHONPATH=${CMAKE_BINARY_DIR}/python
+                        PYTHONPATH=${MARBLE_PYTHON_OUTPUT_DIR}/..
                         ${PYBIND11_STUBGEN} marble._core
                         --output-dir ${CMAKE_SOURCE_DIR}/python
                         --numpy-array-remove-parameters

@@ -33,6 +33,11 @@ retract(::Val{:Softplus}, x, κ) = 0.5*(x + sqrt.(x.^2 .+ 4*κ))
 retract(::Val{:Exp}, x, κ) = sqrt(κ)*exp.(x)
 retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
 
+# Each solver retraction enum paired with the reference implementation above
+const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
+                     (Marble.Exp,       Val(:Exp)),
+                     (Marble.ScaledExp, Val(:ScaledExp))]
+
 @testset "Marble" begin
     @testset "smoke tests" begin
         solver, _ = setup_and_solve()
@@ -53,8 +58,8 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         κ = 1e-1
 
         tol = 1e-10
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            Marble.update_settings!(solver, retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
             @test isapprox(Marble.retract(solver, x, κ), retract(retract_type, x, κ), atol = tol)
             @test isapprox(Marble.retract_deriv(solver, x, κ), diag(FD.jacobian(_x -> retract(retract_type, _x, κ), x)), atol=tol)
             @test isapprox(Marble.retract_second_deriv(solver, x, κ), 
@@ -65,40 +70,40 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
     end
 
     @testset "problem dimensions" begin
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            solver, _ = setup_and_solve(retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            solver, _ = setup_and_solve(retraction_type = retract_enum)
             p = solver.problem
             @test p.nz == 4 && p.n_eq == 1 && p.n_ineq == 1 && p.n_comp == 1
         end
     end
 
     @testset "solves to known optimum" begin
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            solver, res = setup_and_solve(retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            solver, res = setup_and_solve(retraction_type = retract_enum)
             @test res.converged && isapprox(res.z, ZSTAR, atol = 1e-4)
         end
     end
 
     @testset "equality constraint satisfied" begin
         # x1 = 1
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            solver, res = setup_and_solve(retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            solver, res = setup_and_solve(retraction_type = retract_enum)
             @test abs(res.z[1] - 1.0) < 1e-4
         end
     end
 
     @testset "inequality constraint satisfied" begin
         # x2 >= 1
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            solver, res = setup_and_solve(retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            solver, res = setup_and_solve(retraction_type = retract_enum)
             @test res.z[2] >= 1.0 - 1e-4
         end
     end
 
     @testset "complementarity satisfied" begin
         # 0 <= (x3 + 1) ⟂ (x4 - 1) >= 0
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            solver, res = setup_and_solve(retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            solver, res = setup_and_solve(retraction_type = retract_enum)
             z = res.z
             a = z[3] + 1.0
             b = z[4] - 1.0
@@ -107,8 +112,8 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
     end
 
     @testset "objective value" begin
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            solver, res = setup_and_solve(retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            solver, res = setup_and_solve(retraction_type = retract_enum)
             @test abs(Marble.obj(solver, res.z)) - 3.0 < 1e-3
         end
     end
@@ -216,8 +221,8 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         Marble.update_residuals!(solver)
 
         tol = 1e-10
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            Marble.update_settings!(solver, retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_KKT_residual!(solver, κ, ρ)
             res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ)
             @test isapprox(workspace.kkt_residual, res, atol=tol)
@@ -231,8 +236,8 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         workspace.solution .= randn(length(workspace.solution))
         ρ, κ = 1e1, 1e-1
         
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            Marble.update_settings!(solver, retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_KKT_system!(solver, κ, ρ)
 
             # Get kkt matrix from solver
@@ -255,8 +260,8 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         workspace = solver.workspace
         workspace.solution .= randn(length(workspace.solution))
         κ = 1e-1
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
-            Marble.update_settings!(solver, retraction_type = i-1)
+        for (retract_enum, retract_type) in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_dKKT_residual_drelax!(solver, κ)
             @test isapprox(workspace.dkkt_residual_drelax, FD.derivative(_κ -> kkt_residual(retract_type, solver, workspace.solution, _κ, 1e1), κ), atol=1e-10)
         end
@@ -267,9 +272,9 @@ retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
         prob, workspace = solver.problem, solver.workspace
         workspace.solution .= randn(length(workspace.solution))
 
-        for (i, retract_type) in enumerate([Val(:Softplus), Val(:Exp), Val(:ScaledExp)])
+        for (retract_enum, retract_type) in RETRACTIONS
             ρ, κ = 1e1, 1e-1
-            Marble.update_settings!(solver, retraction_type = i-1)
+            Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_residuals!(solver)
 
             res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ, symmetric = false)

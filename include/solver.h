@@ -13,8 +13,18 @@
 namespace spdlog { class logger; }
 
 /**
+ * Retraction map p(s) used for the inequality and complementarity slacks,
+ * with kappa = relaxation parameter.
+ */
+enum class RetractionType : int {
+    Softplus  = 0, /** p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa)) */
+    Exp       = 1, /** p(s) = sqrt(kappa) * exp(s) */
+    ScaledExp = 2, /** p(s) = sqrt(kappa) * exp(s / sqrt(kappa)) */
+};
+
+/**
  * A brief description of your class.
- * 
+ *
  * A more detailed description of what the class does.
  */
 struct SolveResult {
@@ -86,8 +96,10 @@ public:
         ///   2 = + solver setup header
         ///   3 = + per-iteration table
         int verbosity{0};
-        int retraction_type{0}; // 0 = scaled softplus, 1 = exp
-        bool clamp_hessian{false}; // clamp Hessian diagonal to be non-negative (for scaled softplus retraction)
+        /// Retraction map used for the inequality and complementarity slacks
+        RetractionType retraction_type{RetractionType::Softplus};
+        /// Clamp Hessian diagonal to be non-negative (for the softplus retraction)
+        bool clamp_hessian{false};
 
         Options() = default;
     };

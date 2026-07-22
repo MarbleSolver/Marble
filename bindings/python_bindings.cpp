@@ -149,6 +149,11 @@ PYBIND11_MODULE(_core, m) {
                  + " factorizations=" + std::to_string(r.factorizations) + ">";
         });
 
+    py::enum_<RetractionType>(m, "RetractionType")
+        .value("Softplus",  RetractionType::Softplus,  "p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa))")
+        .value("Exp",       RetractionType::Exp,       "p(s) = sqrt(kappa) * exp(s)")
+        .value("ScaledExp", RetractionType::ScaledExp, "p(s) = sqrt(kappa) * exp(s / sqrt(kappa))");
+
     py::class_<Solver::Options>(m, "SolverOptions")
         .def(py::init<>())
         .def_readwrite("convergence_kkt_norm",       &Solver::Options::convergence_kkt_norm)
@@ -171,6 +176,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("comp_init_random",           &Solver::Options::comp_init_random)
         .def_readwrite("comp_init_seed",             &Solver::Options::comp_init_seed)
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
+        .def_readwrite("retraction_type",            &Solver::Options::retraction_type)
+        .def_readwrite("clamp_hessian",              &Solver::Options::clamp_hessian)
         .def("__repr__", [](const Solver::Options& o) {
             return "<SolverOptions convergence_kkt_norm=" + std::to_string(o.convergence_kkt_norm)
                  + " max_iters=" + std::to_string(o.max_iters) + ">";

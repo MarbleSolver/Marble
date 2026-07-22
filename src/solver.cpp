@@ -93,15 +93,15 @@ namespace {
 Vec Solver::retract(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Vectorized retraction map for both inequality and complementarity slacks
     // p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa)), kappa = relax_param
-    if (options.retraction_type == 0) {
+    if (options.retraction_type == RetractionType::Softplus) {
         const double four_kappa = 4.0 * relax_param;
         return (0.5 * (s.array() + (s.array().square() + four_kappa).sqrt())).matrix();
     }
-    else if (options.retraction_type == 1) {
+    else if (options.retraction_type == RetractionType::Exp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return sqrt_kappa * s.array().exp();
     }
-    else if (options.retraction_type == 2) {
+    else if (options.retraction_type == RetractionType::ScaledExp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return sqrt_kappa * (s.array() / sqrt_kappa).exp();
     }
@@ -113,15 +113,15 @@ Vec Solver::retract(const Eigen::Ref<const Vec>& s, double relax_param) const {
 Vec Solver::retract_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Derivative of the vectorized retraction map above
     // p'(s) = 0.5 * (1 + s / sqrt(s^2 + 4*kappa))
-    if (options.retraction_type == 0) {
+    if (options.retraction_type == RetractionType::Softplus) {
         const double four_kappa = 4.0 * relax_param;
         return (0.5 * (1.0 + s.array() / (s.array().square() + four_kappa).sqrt())).matrix();
     }
-    else if (options.retraction_type == 1) {
+    else if (options.retraction_type == RetractionType::Exp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return sqrt_kappa * s.array().exp();
     }
-    else if (options.retraction_type == 2) {
+    else if (options.retraction_type == RetractionType::ScaledExp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return (s.array() / sqrt_kappa).exp();
     }
@@ -133,15 +133,15 @@ Vec Solver::retract_deriv(const Eigen::Ref<const Vec>& s, double relax_param) co
 Vec Solver::retract_second_deriv(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Second derivative of the vectorized retraction map above
     // p''(s) = 2*kappa / (s^2 + 4*kappa)^(3/2)
-    if (options.retraction_type == 0) {
+    if (options.retraction_type == RetractionType::Softplus) {
         const double kappa = relax_param;
         return (2.0 * kappa * (s.array().square() + 4.0 * kappa).pow(-1.5)).matrix();
     }
-    else if (options.retraction_type == 1) {
+    else if (options.retraction_type == RetractionType::Exp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return sqrt_kappa * s.array().exp();
     }
-    else if (options.retraction_type == 2) {
+    else if (options.retraction_type == RetractionType::ScaledExp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return (s.array() / sqrt_kappa).exp() / sqrt_kappa;
     }
@@ -153,15 +153,15 @@ Vec Solver::retract_second_deriv(const Eigen::Ref<const Vec>& s, double relax_pa
 Vec Solver::retract_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Derivative of the retraction map wrt the relaxation parameter kappa = relax_param
     // dp/dkappa = 1 / sqrt(s^2 + 4*kappa)
-    if (options.retraction_type == 0) {
+    if (options.retraction_type == RetractionType::Softplus) {
         const double four_kappa = 4.0 * relax_param;
         return (s.array().square() + four_kappa).rsqrt().matrix();
     }
-    else if (options.retraction_type == 1) {
+    else if (options.retraction_type == RetractionType::Exp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return 0.5 / sqrt_kappa * s.array().exp();
     }
-    else if (options.retraction_type == 2) {
+    else if (options.retraction_type == RetractionType::ScaledExp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return (0.5 / sqrt_kappa) * (1.0 - s.array() / sqrt_kappa) * (s.array() / sqrt_kappa).exp();
     }
@@ -173,15 +173,15 @@ Vec Solver::retract_drelax(const Eigen::Ref<const Vec>& s, double relax_param) c
 Vec Solver::retract_deriv_drelax(const Eigen::Ref<const Vec>& s, double relax_param) const {
     // Mixed derivative of the retraction map wrt s and kappa = relax_param
     // d/dkappa p'(s) = -s / (s^2 + 4*kappa)^(3/2)
-    if (options.retraction_type == 0) {
+    if (options.retraction_type == RetractionType::Softplus) {
         const double four_kappa = 4.0 * relax_param;
         return (-s.array() * (s.array().square() + four_kappa).pow(-1.5)).matrix();
     }
-    else if (options.retraction_type == 1) {
+    else if (options.retraction_type == RetractionType::Exp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return 0.5 / sqrt_kappa * s.array().exp();
     }
-    else if (options.retraction_type == 2) {
+    else if (options.retraction_type == RetractionType::ScaledExp) {
         const double sqrt_kappa = std::sqrt(relax_param);
         return (-0.5 / (relax_param * sqrt_kappa)) * s.array() * (s.array() / sqrt_kappa).exp();
     }
@@ -382,7 +382,7 @@ void Solver::update_KKT_residual(double relax_param, double penalty_param) {
                         prob->L_comp.transpose() * workspace->m_comp_L +
                         prob->R_comp.transpose() * workspace->m_comp_R;
 
-    if (options.retraction_type == 0) { // Main path (optimized, uses softplus properties)
+    if (options.retraction_type == RetractionType::Softplus) { // Main path (optimized, uses softplus properties)
         // Inequality slack stationarity (p'(s_ineq) * (-m_ineq - p(-s_ineq)))
         Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
         Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
@@ -451,7 +451,7 @@ void Solver::update_dKKT_residual_drelax(double relax_param) {
     // Derivative of the KKT residual wrt the relaxation parameter kappa (= relax_param).
     workspace->dkkt_residual_drelax.setZero();
 
-    if (options.retraction_type == 0) { // Main path, optimized with solver properties
+    if (options.retraction_type == RetractionType::Softplus) { // Main path, optimized with solver properties
         // Inequality slack stationarity: r = p'(s) * (-m_ineq - p(-s))
         // d/dkappa = p'_kappa(s) * (-m_ineq - p(-s)) - p'(s) * p_kappa(-s)
         // (p(-s) is even in s, so p_kappa(-s) = p_kappa(s) = retract_drelax(s))
@@ -524,7 +524,7 @@ void Solver::update_KKT_ineq(const Eigen::Ref<const Vec>& s_ineq, double relax_p
     // Ineq stationarity wrt s_ineq is d_p*d_neg_p
     //                   wrt m_ineq is -d_p
     // Use identity that retract_deriv(-s_ineq, relax_param) = 1 - d_p
-    if (options.retraction_type == 0) {
+    if (options.retraction_type == RetractionType::Softplus) {
         workspace->s_ineq_stationarity = -d_p.cwiseProduct(d_p) + d_p; // -d_p*d_neg_p (stored for diag updating)
         for (int i = 0; i < prob->n_ineq; i++) {
             nzval(s_ineq_s_ineq_inds[i]) = scaling(s_ineq_inds[i]) * workspace->s_ineq_stationarity[i] * scaling(s_ineq_inds[i]);
@@ -547,7 +547,7 @@ void Solver::update_KKT_comp(const Eigen::Ref<const Vec>& s_comp, const Eigen::R
     Vec d_p = retract_deriv(s_comp, relax_param);
     Vec dd_p = retract_second_deriv(s_comp, relax_param);
 
-    if (options.retraction_type == 0) {
+    if (options.retraction_type == RetractionType::Softplus) {
         for (int i = 0; i < prob->n_comp; i++) {
             // Derivative of -p'(s)*m_L + p'(-s)*m_R wrt s
             // is -(p''(s)*m_L + p''(s)*m_R) but p''(s) = p''(-s) so its -p''(s)*(m_L + m_R)
@@ -587,27 +587,20 @@ void Solver::update_KKT_penalty(const double penalty_param) {
 void Solver::update_KKT_primal_regularizer(const double reg) {
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
-    if (!options.clamp_hessian) {
-        for (int k = 0; k < prob->nz; k++) {
-            nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
-        }
-        for (int k = 0; k < prob->n_ineq; k++) {
-            nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
-        }
-        for (int k = 0; k < prob->n_comp; k++) {
-            nzval(s_comp_s_comp_inds[k]) = (workspace->s_comp_stationarity[k] + reg) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
-        }
+
+    for (int k = 0; k < prob->nz; k++) {
+        nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
     }
-    else {
-        for (int k = 0; k < prob->nz; k++) {
-            nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
-        }
-        for (int k = 0; k < prob->n_ineq; k++) {
-            nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
-        }
-        for (int k = 0; k < prob->n_comp; k++) {
+
+    for (int k = 0; k < prob->n_ineq; k++) {
+        nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
+    }
+
+    for (int k = 0; k < prob->n_comp; k++) {
+        if (!options.clamp_hessian)
+            nzval(s_comp_s_comp_inds[k]) = (workspace->s_comp_stationarity[k] + reg) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
+        else
             nzval(s_comp_s_comp_inds[k]) = std::max(workspace->s_comp_stationarity[k] + reg, 1e-8) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
-        }
     }
 }
 
@@ -926,6 +919,7 @@ void Solver::newton_step(double relax_param, double penalty_param) {
         if (!check_inertia() && increase_regularizer(regularizer_to_try)) continue;
         inertia_correction_succeeded = true;
 
+        // Keep the inertia regularizer as the minimum required for correct inertia
         inertia_regularizer = std::min(regularizer_to_try, inertia_regularizer);
 
         backsolve(-workspace->kkt_residual, workspace->newton_step);
@@ -959,7 +953,7 @@ Filter::Entry Solver::entry_from_solution(double relax_param, double penalty_par
     Vec m_comp_L_primal_feas(prob->n_comp);
     Vec m_comp_R_primal_feas(prob->n_comp);
 
-    if (options.retraction_type == 0) { // Main path, uses retraction map properties, optimized
+    if (options.retraction_type == RetractionType::Softplus) { // Main path, uses retraction map properties, optimized
         Vec p_comp = retract(workspace->s_comp, relax_param);
         m_comp_L_primal_feas =
             workspace->residual_comp_L - inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);

@@ -79,6 +79,11 @@ static SMat csc_to_smat(int rows, int cols,
 
 JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
 
+    mod.add_bits<RetractionType>("RetractionType", jlcxx::julia_type("CppEnum"));
+    mod.set_const("Softplus",  RetractionType::Softplus);
+    mod.set_const("Exp",       RetractionType::Exp);
+    mod.set_const("ScaledExp", RetractionType::ScaledExp);
+
     mod.add_type<Problem>("Problem")
         .constructor([](jlcxx::ArrayRef<double, 2> cost_hessian,
                         jlcxx::ArrayRef<double, 1> cost_gradient,
@@ -197,8 +202,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(comp_init_random,           bool)
         OPTION_RW(comp_init_seed,             int)
         OPTION_RW(verbosity,                  int)
-        OPTION_RW(retraction_type,             int)
-        OPTION_RW(clamp_hessian,               bool);
+        OPTION_RW(retraction_type,            RetractionType)
+        OPTION_RW(clamp_hessian,              bool);
 
     #undef OPTION_RW
 
