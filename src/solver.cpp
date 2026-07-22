@@ -36,40 +36,47 @@ namespace {
         }
     }
 
-    // Format the inertia-regularizer column in scientific notation, or "---" (no value / NaN) / "0" (exactly zero).
+    // Width of the banner rules and of the two-column key/value lines in the
+    // solver-details block.
+    constexpr int kBannerWidth = 80;
+    constexpr int kKeyWidth    = 28;
+
+    // Per-iteration table: the "o i ls" column counts (outer, inner, linesearch trials).
+    constexpr const char* kTableHeader =
+        "    o i ls  │   pen    rel   │ ‖kkt‖_inf   obj    │   ‖eq‖     ‖ineq‖   ‖comp‖  │   reg  ";
+    constexpr const char* kTableRule =
+        "────────────┼────────────────┼────────────────────┼─────────────────────────────┼────────";
+
+    // Inertia regularizer column: scientific notation, or "-" when the row is not the
+    // result of a regularized factorization (outer steps, the initial iterate).
     std::string fmt_reg(std::optional<double> regularizer) {
-        if (!regularizer || std::isnan(*regularizer)) return "---";
-        if (*regularizer == 0.0)                      return "0";
-        return fmt::format("{:.1e}", *regularizer);
+        if (!regularizer || std::isnan(*regularizer)) return fmt::format("{:>5}", "-");
+        return fmt::format("{:5.0e}", *regularizer);
     }
 
-    std::string table_header() {
-        return fmt::format("{:<12}  {:>7}  {:>7}  {:>9}  {:>12}  {:>12}  {:>12}  {:>12}  {:>12}",
-                           fmt::format("{:>5}  {:<5}", "iter", "type"),
-                           "lg(ρ)", "lg(κ)", "reg",
-                           "||kkt||", "||eq||", "||ineq||", "||comp||", "obj");
-    }
-
-    std::string table_row(const std::string& label,
-                          double log_penalty,
-                          double log_relaxation,
+    std::string table_row(int outer_iters,
+                          int inner_iters,
+                          int linesearch_iters,
+                          double penalty,
+                          double relaxation,
                           const std::string& regularizer,
                           double kkt,
+                          double obj,
                           double eq_vio,
                           double ineq_vio,
-                          double comp_vio,
-                          double obj) {
-        return fmt::format("{:<12}  {:>7.1f}  {:>7.1f}  {:>9}  {:>12.3e}  {:>12.3e}  {:>12.3e}  {:>12.3e}  {:>12.3e}",
-                           label, log_penalty, log_relaxation, regularizer,
-                           kkt, eq_vio, ineq_vio, comp_vio, obj);
+                          double comp_vio) {
+        return fmt::format("{:>10}  │  {:5.0e}  {:5.0e}  │  {:>7.1e}  {:>7.1e}  │  {:>7.1e}  {:>7.1e}  {:>7.1e}  │  {}",
+                           fmt::format("{} {} {}", outer_iters, inner_iters, linesearch_iters),
+                           penalty, relaxation, kkt, obj, eq_vio, ineq_vio, comp_vio, regularizer);
     }
 
-    std::string outer_label(int iter) {
-        return fmt::format("{:>5}  {:<5}", iter, "O");
-    }
-
-    std::string inner_label(int iter) {
-        return fmt::format("{:>5}  {:<5}", iter, "I");
+    constexpr const char* retraction_name(RetractionType retraction_type) {
+        switch (retraction_type) {
+            case RetractionType::Softplus:  return "softplus";
+            case RetractionType::Exp:       return "exp";
+            case RetractionType::ScaledExp: return "scaled exp";
+        }
+        return "unknown";
     }
 
     // Convergence / reporting metrics for the current workspace iterate:
@@ -694,77 +701,83 @@ void Solver::log_solver_info() {
     log = solver_logger();
     log->set_level(level_from_verbosity(options.verbosity));
 
-    // Solver info header (shown at verbosity >= 2)
+    // Solver details (shown at verbosity >= 2)
     if (options.verbosity >= 2) {
+        log->info("{:=^{}}", "", kBannerWidth);
+        log->info("{:^{}}", "MARBLE SOLVER", kBannerWidth);
+        log->info("{:=^{}}", "", kBannerWidth);
         log->info("");
-        log->info("Marble Solver");
-        log->info("  variables   : {} total  (nz={}, +{} ineq slacks, +{} comp slacks; {} duals)",
-                  n_vars, prob->nz, prob->n_ineq, prob->n_comp, n_duals);
-        log->info("  constraints : {} equality, {} inequality, {} complementarity",
-                  prob->n_eq, prob->n_ineq, prob->n_comp);
-        log->info("  penalty     : init={:.1e}  max={:.1e}  scale={:.1f}",
+        log->info("PROBLEM STATISTICS");
+        log->info("{:-^{}}", "", kBannerWidth);
+        log->info("{:<{}}: {:<12} {:<{}}: {}", "Variables (nz)", kKeyWidth, prob->nz,
+                  "Hessian nnz (H)", kKeyWidth, prob->cost_hessian.nonZeros());
+        log->info("{:<{}}: {:<12} {:<{}}: {}", "Equalities (n_eq)", kKeyWidth, prob->n_eq,
+                  "Eq Jacobian nnz (J_eq)", kKeyWidth, prob->J_eq.nonZeros());
+        log->info("{:<{}}: {:<12} {:<{}}: {}", "Inequalities (n_ineq)", kKeyWidth, prob->n_ineq,
+                  "Ineq Jacobian nnz (J_ineq)", kKeyWidth, prob->J_ineq.nonZeros());
+        log->info("{:<{}}: {:<12} {:<{}}: {}, {}", "Complementarities (n_comp)", kKeyWidth, prob->n_comp,
+                  "Comp Jacobian nnz (L, R)", kKeyWidth, prob->L_comp.nonZeros(), prob->R_comp.nonZeros());
+        log->info("{:<{}}: {:<12} {:<{}}: {}", "Slack variables", kKeyWidth, prob->n_ineq + prob->n_comp,
+                  "KKT system size (n_vars)", kKeyWidth, n_vars);
+        if (options.ruiz_iterations > 0) {
+            log->info("{:<{}}: {:1.2e} - {:1.2e}", "Scaling vector range", kKeyWidth,
+                      workspace->scaling.minCoeff(), workspace->scaling.maxCoeff());
+        }
+        log->info("");
+        log->info("SOLVER SETTINGS");
+        log->info("{:-^{}}", "", kBannerWidth);
+        log->info("{:<43}{}", "[Tolerances]", "[Iteration Limits]");
+        log->info("{:<{}}: {:<12.0e} {:<{}}: {}", "Residual", kKeyWidth, options.convergence_kkt_norm,
+                  "Solve", kKeyWidth, options.max_iters);
+        log->info("{:<{}}: {:<12.0e} {:<{}}: {}", "Equality", kKeyWidth, options.convergence_eq_violation,
+                  "Linesearch", kKeyWidth, options.max_iters_linesearch);
+        log->info("{:<{}}: {:<12.0e} {:<{}}: {}", "Inequality", kKeyWidth, options.convergence_ineq_violation,
+                  "Ruiz", kKeyWidth, options.ruiz_iterations);
+        log->info("{:<{}}: {:.0e}", "Complementarity", kKeyWidth, options.convergence_comp_violation);
+        log->info("");
+        log->info("[Algorithm Parameters]");
+        log->info("{:<{}}: {:.0e} -> {:.0e}  ({:.1f}x multiplier)", "Penalty Updating", kKeyWidth,
                   options.penalty_initial, options.penalty_max, options.penalty_scaling);
-        log->info("  relaxation  : init={:.1e}  min={:.1e}  scale={:.2f}",
+        log->info("{:<{}}: {:.0e} -> {:.0e}  ({:.1f}x multiplier)", "Relaxation Updating", kKeyWidth,
                   options.relaxation_initial, options.relaxation_min, options.relaxation_scaling);
-        log->info("  convergence : kkt<{:.1e}  eq<{:.1e}  ineq<{:.1e}  comp<{:.1e}  (max_iters={})",
-                  options.convergence_kkt_norm, options.convergence_eq_violation,
-                  options.convergence_ineq_violation, options.convergence_comp_violation, options.max_iters);
+        log->info("{:<{}}: {}", "Retraction", kKeyWidth, retraction_name(options.retraction_type));
+        log->info("{:=^{}}", "", kBannerWidth);
         log->info("");
     }
-
-    // Per-iteration table header (shown at verbosity >= 3)
-    const std::string header = table_header();
-    log->debug("{}", header);
-    log->debug("{}", std::string(header.size(), '-'));
 }
 
-void Solver::log_initial_step() {
+void Solver::log_iteration(LogRow row) {
     if (!log->should_log(spdlog::level::debug)) return;
+
+    // Repeat the header above the starting point and above every outer step, so each
+    // outer AL iteration reads as its own block
+    if (row != LogRow::Inner) {
+        log->debug("{}", kTableHeader);
+        log->debug("{}", kTableRule);
+    }
 
     auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics(*workspace, *prob);
     log->debug("{}",
-               table_row("",
-                         std::log10(workspace->penalty_param),
-                         std::log10(workspace->relax_param),
-                         fmt_reg(std::nullopt),
-                         kkt, eq_vio, ineq_vio, comp_vio, obj));
+               table_row(n_iter_outer, n_iter_inner, n_iter_linesearch,
+                         workspace->penalty_param, workspace->relax_param,
+                         // Only an inner step carries an inertia regularizer and a linesearch
+                         fmt_reg(row == LogRow::Inner ? last_regularizer : std::nullopt),
+                         kkt, obj, eq_vio, ineq_vio, comp_vio));
 }
 
-void Solver::log_newton_step(int iter) {
-    if (!log->should_log(spdlog::level::debug)) return;
-
-    auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics(*workspace, *prob);
-    log->debug("{}",
-               table_row(inner_label(iter),
-                         std::log10(workspace->penalty_param),
-                         std::log10(workspace->relax_param),
-                         fmt_reg(last_regularizer),
-                         kkt, eq_vio, ineq_vio, comp_vio, obj));
-}
-
-void Solver::log_outer_step(int iter) {
-    if (!log->should_log(spdlog::level::debug)) return;
-
-    auto [kkt, eq_vio, ineq_vio, comp_vio, obj] = compute_metrics(*workspace, *prob);
-    log->debug("{}",
-               table_row(outer_label(iter),
-                         std::log10(workspace->penalty_param),
-                         std::log10(workspace->relax_param),
-                         fmt_reg(std::nullopt),  // outer rows carry no inertia regularizer
-                         kkt, eq_vio, ineq_vio, comp_vio, obj));
-}
-
-void Solver::log_solve_summary(bool converged, int iterations_outer, int iterations_inner) {
+void Solver::log_solve_summary(bool converged) {
     if (!log->should_log(spdlog::level::info)) return;
 
-    const int iterations_total = iterations_outer + iterations_inner;
     log->info("");
-    log->info("Marble {}", converged ? "converged" : "did not converge");
-    log->info("  iterations    : {} total  ({} outer, {} inner)",
-              iterations_total, iterations_outer, iterations_inner);
-    log->info("  factorizations: {}", n_factorizations);
-    log->info("  timing        : setup={:.3e}s  solve={:.3e}s  total={:.3e}s",
+    log->info("{:=^{}}", "", kBannerWidth);
+    log->info("{:^{}}", converged ? "MARBLE CONVERGED" : "MARBLE DID NOT CONVERGE", kBannerWidth);
+    log->info("{:=^{}}", "", kBannerWidth);
+    log->info("{:<{}}: {} total  ({} outer, {} inner)", "Iterations", kKeyWidth,
+              n_iter_outer + n_iter_inner, n_iter_outer, n_iter_inner);
+    log->info("{:<{}}: {}", "Factorizations", kKeyWidth, n_factorizations);
+    log->info("{:<{}}: setup={:.3e}s  solve={:.3e}s  total={:.3e}s", "Timing", kKeyWidth,
               setup_time_s, solve_time_s, setup_time_s + solve_time_s);
+    log->info("{:=^{}}", "", kBannerWidth);
 }
 
 SolveResult Solver::solve() {
@@ -799,11 +812,12 @@ SolveResult Solver::solve() {
 
     // Initialize flags and counters
     bool converged = false;
-    int n_iter_outer = 0;
-    int n_iter_inner = 0;
+    n_iter_outer = 0;
+    n_iter_inner = 0;
+    n_iter_linesearch = 0;
 
     // Log the initial residuals (before any steps are taken)
-    log_initial_step();
+    log_iteration(LogRow::Initial);
 
     for (; n_iter_outer < options.max_iters; ++n_iter_outer) {
         // Refresh the KKT residual for the current iterate, then check for convergence
@@ -811,7 +825,7 @@ SolveResult Solver::solve() {
 
         // Perform inner AL minimization
         double stat_tol = std::max(1e-14, 1e-1 * workspace->relax_param);
-        n_iter_inner += minimize_augmented_lagrangian(stat_tol);
+        minimize_augmented_lagrangian(stat_tol);
         
         if (workspace->penalty_param >= options.penalty_max) {
             // Use the existing factorization to get an estmate of d(solution*)/d(relaxation_param) using IFT
@@ -853,11 +867,11 @@ SolveResult Solver::solve() {
         // Start each inner subproblem with a fresh filter (entries are penalty/relaxation dependent)
         // last_regularizer = std::nullopt;
         filter->clear();
-        log_outer_step(n_iter_outer);
+        log_iteration(LogRow::Outer);
     }
 
     solve_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    log_solve_summary(converged, n_iter_outer, n_iter_inner);
+    log_solve_summary(converged);
 
     return SolveResult{
         converged,
@@ -887,7 +901,8 @@ int Solver::minimize_augmented_lagrangian(double stat_tol) {
         }
 
         newton_step(workspace->relax_param, workspace->penalty_param);
-        log_newton_step(iter);
+        n_iter_inner++;
+        log_iteration(LogRow::Inner);
     }
 
     log->error("exceeded maximum iterations during inner AL minimize: {}", options.max_iters);
@@ -1010,6 +1025,7 @@ bool Solver::filter_linesearch(double relax_param, double penalty_param, int max
     
     for (int i = 0; i < max_iters; ++i) {
         const Filter::Entry candidate = entry_from_solution(relax_param, penalty_param);
+        n_iter_linesearch = i + 1;  // candidates tried, reported in the "ls" log column
 
         if (filter->acceptable(candidate)) {
             filter->update(candidate);

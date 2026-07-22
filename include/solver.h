@@ -338,13 +338,23 @@ private:
     // factorization (nullopt = no successful value yet this solve).
     std::optional<double> last_regularizer;
 
+    // Iteration counters for the "o i ls" column of the log, reset at the start of each
+    // solve(). The outer/inner counts are cumulative and also reported in SolveResult;
+    // n_iter_linesearch is the number of candidates the most recent linesearch tried.
+    int n_iter_outer{0};
+    int n_iter_inner{0};
+    int n_iter_linesearch{0};
+
+    // Which kind of iterate a log row describes: the starting point, an inner Newton
+    // step, or an outer AL step. Only Inner rows carry an inertia regularizer and a
+    // linesearch; Initial and Outer rows reprint the table header above themselves.
+    enum class LogRow { Initial, Inner, Outer };
+
     // Logging helpers; each is a no-op unless Options::verbosity enables the relevant level.
     // Kept out of solve()/minimize_augmented_lagrangian() so the loops stay readable.
-    void log_solver_info();          // header + per-iteration table header (once per solve)
-    void log_initial_step();         // initial data row before any solver iteration
-    void log_newton_step(int iter);  // one "I" (inner) table row
-    void log_outer_step(int iter);   // one "O" (outer) table row
-    void log_solve_summary(bool converged, int iterations_outer, int iterations_inner);  // final solve summary
+    void log_solver_info();                  // solver details (once per solve)
+    void log_iteration(LogRow row);          // one table row for the current iterate
+    void log_solve_summary(bool converged);  // final solve summary
 
     // KKT system regularizers to try in Newton step
     const std::vector<double> kkt_system_regularizers = {
