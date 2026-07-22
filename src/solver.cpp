@@ -600,10 +600,10 @@ void Solver::update_KKT_primal_regularizer(const double reg) {
     }
     else {
         for (int k = 0; k < prob->nz; k++) {
-            nzval(z_z_inds[k]) = std::max(prob->cost_hessian_diag[k] + reg, 1e-8) * scaling(z_inds[k]) * scaling(z_inds[k]);
+            nzval(z_z_inds[k]) = (prob->cost_hessian_diag[k] + reg) * scaling(z_inds[k]) * scaling(z_inds[k]);
         }
         for (int k = 0; k < prob->n_ineq; k++) {
-            nzval(s_ineq_s_ineq_inds[k]) = std::max(workspace->s_ineq_stationarity[k] + reg, 1e-8)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
+            nzval(s_ineq_s_ineq_inds[k]) = (workspace->s_ineq_stationarity[k] + reg)  * scaling(s_ineq_inds[k]) * scaling(s_ineq_inds[k]);
         }
         for (int k = 0; k < prob->n_comp; k++) {
             nzval(s_comp_s_comp_inds[k]) = std::max(workspace->s_comp_stationarity[k] + reg, 1e-8) * scaling(s_comp_inds[k]) * scaling(s_comp_inds[k]);
