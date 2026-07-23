@@ -983,9 +983,10 @@ Filter::Entry Solver::entry_from_solution(double relax_param, double penalty_par
     else { // Alternate path for testing
         Vec p_comp = retract(workspace->s_comp, relax_param);
         Vec p_neg_comp = retract(-workspace->s_comp, relax_param);
-         m_comp_L_primal_feas =
+        m_comp_L_primal_feas =
             workspace->residual_comp_L - inv_penalty_param * (workspace->m_comp_L - workspace->m_comp_L_est);
-        Vec m_comp_R_primal_feas =
+        
+        m_comp_R_primal_feas =
             workspace->residual_comp_R - inv_penalty_param * (workspace->m_comp_R - workspace->m_comp_R_est);
 
         for (int i = 0; i < prob->n_comp; i++) {
