@@ -466,8 +466,7 @@ void Solver::update_dKKT_residual_drelax(double relax_param) {
         Vec d_p_ineq = retract_deriv(workspace->s_ineq, relax_param);
         Vec dp_ineq_dk = retract_drelax(workspace->s_ineq, relax_param);
         Vec dd_p_ineq_dk = retract_deriv_drelax(workspace->s_ineq, relax_param);
-        workspace->dkkt_residual_drelax(s_ineq_inds) =
-            dd_p_ineq_dk.cwiseProduct(-workspace->m_ineq - p_neg_ineq) - d_p_ineq.cwiseProduct(dp_ineq_dk);
+        workspace->dkkt_residual_drelax(s_ineq_inds) = -d_p_ineq.cwiseProduct(dp_ineq_dk);
 
         // Complementarity slack stationarity: r = -p'(s)*m0 + (1 - p'(s))*m1
         // d/dkappa = -p'_kappa(s) * (m0 + m1)
@@ -497,8 +496,7 @@ void Solver::update_dKKT_residual_drelax(double relax_param) {
         Vec p_neg_ineq = retract(-workspace->s_ineq, relax_param);
         Vec dp_ineq = retract_deriv(workspace->s_ineq, relax_param);
         Vec dp_neg_ineq_dk = retract_drelax(-workspace->s_ineq, relax_param);
-        workspace->dkkt_residual_drelax(s_ineq_inds) =
-            dd_p_ineq_dk.cwiseProduct(-workspace->m_ineq - p_neg_ineq) - dp_ineq.cwiseProduct(dp_neg_ineq_dk);
+        workspace->dkkt_residual_drelax(s_ineq_inds) = -dp_ineq.cwiseProduct(dp_neg_ineq_dk);
 
         // Complementarity slack stationarity: r = -p'(s)*m0 + p'(-s)*m1
         Vec dd_p_comp_dk = retract_deriv_drelax(workspace->s_comp, relax_param);
