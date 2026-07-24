@@ -29,14 +29,25 @@ function setup_and_solve(; sparse_problem = false, opts...)
     return solver, Marble.solve!(solver)
 end
 
-retract(::Val{:Softplus}, x, κ) = 0.5*(x + sqrt.(x.^2 .+ 4*κ))
-retract(::Val{:Exp}, x, κ) = sqrt(κ)*exp.(x)
-retract(::Val{:ScaledExp}, x, κ) = sqrt(κ)*exp.(x./sqrt(κ))
+function retract(retract_enum::Marble.RetractionType, x, κ)
+    if retract_enum == Marble.Softplus
+        0.5 .* (x .+ sqrt.(x.^2 .+ 4 .* κ))
+    elseif retract_enum == Marble.Exp
+        sqrt(κ) .* exp.(x)
+    else
+        sqrt(κ) .* exp.(x ./ sqrt(κ))
+    end
+end
+
+retract_deriv_fd(retract_enum, x, κ) =
+    map(xi -> FD.derivative(t -> retract(retract_enum, [t], κ)[1], xi), x)
+retract_second_deriv_fd(retract_enum, x, κ) =
+    map(xi -> FD.derivative(a -> FD.derivative(b -> retract(retract_enum, [b], κ)[1], a), xi), x)
+retract_deriv_drelax_fd(retract_enum, x, κ) =
+    map(xi -> FD.derivative(_κ -> FD.derivative(t -> retract(retract_enum, [t], _κ)[1], xi), κ), x)
 
 # Each solver retraction enum paired with the reference implementation above
-const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
-                     (Marble.Exp,       Val(:Exp)),
-                     (Marble.ScaledExp, Val(:ScaledExp))]
+const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
 
 @testset "Marble" begin
     @testset "smoke tests" begin
@@ -58,52 +69,49 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
         κ = 1e-1
 
         tol = 1e-10
-        for (retract_enum, retract_type) in RETRACTIONS
+        for retract_enum in RETRACTIONS
             Marble.update_settings!(solver, retraction_type = retract_enum)
-            @test isapprox(Marble.retract(solver, x, κ), retract(retract_type, x, κ), atol = tol)
-            @test isapprox(Marble.retract_deriv(solver, x, κ), diag(FD.jacobian(_x -> retract(retract_type, _x, κ), x)), atol=tol)
-            @test isapprox(Marble.retract_second_deriv(solver, x, κ), 
-                    diag(FD.jacobian(_x -> diag(FD.jacobian(_x -> retract(retract_type, _x, κ), _x)), x)), atol=tol)
-            @test isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_type, x, _κ), κ), atol=tol)
-            @test isapprox(Marble.retract_deriv_drelax(solver, x, κ), FD.derivative(_κ -> diag(FD.jacobian(_x -> retract(retract_type, _x, _κ), x)), κ), atol=tol)
+            @test isapprox(Marble.retract(solver, x, κ), retract(retract_enum, x, κ), atol = tol)
+            @test isapprox(Marble.retract_deriv(solver, x, κ), retract_deriv_fd(retract_enum, x, κ), atol=tol)
+            @test isapprox(Marble.retract_second_deriv(solver, x, κ),
+                    retract_second_deriv_fd(retract_enum, x, κ), atol=tol)
+            @test isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_enum, x, _κ), κ), atol=tol)
+            @test isapprox(Marble.retract_deriv_drelax(solver, x, κ), retract_deriv_drelax_fd(retract_enum, x, κ), atol=tol)
         end
     end
 
+    solved = [setup_and_solve(retraction_type = retract_enum) for retract_enum in RETRACTIONS]
+
     @testset "problem dimensions" begin
-        for (retract_enum, retract_type) in RETRACTIONS
-            solver, _ = setup_and_solve(retraction_type = retract_enum)
+        for (solver, _) in solved
             p = solver.problem
             @test p.nz == 4 && p.n_eq == 1 && p.n_ineq == 1 && p.n_comp == 1
         end
     end
 
     @testset "solves to known optimum" begin
-        for (retract_enum, retract_type) in RETRACTIONS
-            solver, res = setup_and_solve(retraction_type = retract_enum)
+        for (_, res) in solved
             @test res.converged && isapprox(res.z, ZSTAR, atol = 1e-4)
         end
     end
 
     @testset "equality constraint satisfied" begin
         # x1 = 1
-        for (retract_enum, retract_type) in RETRACTIONS
-            solver, res = setup_and_solve(retraction_type = retract_enum)
+        for (_, res) in solved
             @test abs(res.z[1] - 1.0) < 1e-4
         end
     end
 
     @testset "inequality constraint satisfied" begin
         # x2 >= 1
-        for (retract_enum, retract_type) in RETRACTIONS
-            solver, res = setup_and_solve(retraction_type = retract_enum)
+        for (_, res) in solved
             @test res.z[2] >= 1.0 - 1e-4
         end
     end
 
     @testset "complementarity satisfied" begin
         # 0 <= (x3 + 1) ⟂ (x4 - 1) >= 0
-        for (retract_enum, retract_type) in RETRACTIONS
-            solver, res = setup_and_solve(retraction_type = retract_enum)
+        for (_, res) in solved
             z = res.z
             a = z[3] + 1.0
             b = z[4] - 1.0
@@ -112,8 +120,7 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
     end
 
     @testset "objective value" begin
-        for (retract_enum, retract_type) in RETRACTIONS
-            solver, res = setup_and_solve(retraction_type = retract_enum)
+        for (solver, res) in solved
             @test abs(Marble.obj(solver, res.z)) - 3.0 < 1e-3
         end
     end
@@ -168,14 +175,26 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
             L = sparse(zeros(1, 2)), R = sparse(zeros(1, 2)), r = zeros(1))
     end
 
-    function kkt_residual(retract_type, solver, solution, κ, ρ; symmetric = true)
+    function kkt_residual(retract_enum::Marble.RetractionType, solver, solution, κ, ρ; symmetric = true)
         # Extract solution, multipliers, and problem data
         prob, workspace = solver.problem, solver.workspace
         z, s_ineq, s_comp = solution[solver.z_inds], solution[solver.s_ineq_inds], solution[solver.s_comp_inds]
         m_eq, m_ineq, m_comp_L, m_comp_R =
             solution[solver.m_eq_inds], solution[solver.m_ineq_inds], solution[solver.m_comp_L_inds], solution[solver.m_comp_R_inds]
-        H, g, J_eq, c_eq, J_ineq, c_ineq, L_comp, l_comp, R_comp, r_comp = prob.cost_hessian, prob.cost_gradient, prob.J_eq, prob.c_eq, prob.J_ineq, prob.c_ineq, prob.L_comp, prob.l_comp, prob.R_comp, prob.r_comp
-        m_eq_est, m_ineq_est, m_comp_L_est, m_comp_R_est = workspace.m_eq_est, workspace.m_ineq_est, workspace.m_comp_L_est, workspace.m_comp_R_est
+        H = Matrix{Float64}(prob.cost_hessian)
+        g = Vector{Float64}(prob.cost_gradient)
+        J_eq = Matrix{Float64}(prob.J_eq)
+        c_eq = Vector{Float64}(prob.c_eq)
+        J_ineq = Matrix{Float64}(prob.J_ineq)
+        c_ineq = Vector{Float64}(prob.c_ineq)
+        L_comp = Matrix{Float64}(prob.L_comp)
+        l_comp = Vector{Float64}(prob.l_comp)
+        R_comp = Matrix{Float64}(prob.R_comp)
+        r_comp = Vector{Float64}(prob.r_comp)
+        m_eq_est = Vector{Float64}(workspace.m_eq_est)
+        m_ineq_est = Vector{Float64}(workspace.m_ineq_est)
+        m_comp_L_est = Vector{Float64}(workspace.m_comp_L_est)
+        m_comp_R_est = Vector{Float64}(workspace.m_comp_R_est)
 
         # Construct KKT residual
         res = zeros(promote_type(eltype(solution), typeof(κ)), length(solution))
@@ -183,29 +202,27 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
         res[solver.z_inds] = H*z + g + J_eq'*m_eq + J_ineq'*m_ineq + L_comp'*m_comp_L + R_comp'*m_comp_R
 
         # Inequality slack stationarity
-        p_neg_ineq = retract(retract_type, -s_ineq, κ)
-        dp_ineq = FD.jacobian(_x -> retract(retract_type, _x, κ), s_ineq)
+        p_neg_ineq = retract(retract_enum, -s_ineq, κ)
         if symmetric
-            res[solver.s_ineq_inds] = dp_ineq * (-m_ineq - p_neg_ineq)
+            res[solver.s_ineq_inds] = retract_deriv_fd(retract_enum, s_ineq, κ) .* (-m_ineq .- p_neg_ineq)
         else
             res[solver.s_ineq_inds] = -m_ineq - p_neg_ineq
         end
 
         # Complementarity slack stationarity
-        dp_comp = FD.jacobian(_x -> retract(retract_type, _x, κ), s_comp)
-        dp_neg_comp = FD.jacobian(_x -> retract(retract_type, _x, κ), -s_comp)
-        res[solver.s_comp_inds] = -dp_comp * m_comp_L + dp_neg_comp * m_comp_R
+        res[solver.s_comp_inds] = -retract_deriv_fd(retract_enum, s_comp, κ) .* m_comp_L .+
+                                   retract_deriv_fd(retract_enum, -s_comp, κ) .* m_comp_R
 
         # Equality primal feasibility
         res[solver.m_eq_inds] = J_eq*z + c_eq - 1/ρ*(m_eq - m_eq_est)
 
         # Inequality primal feasibility
-        p_ineq = retract(retract_type, s_ineq, κ)
+        p_ineq = retract(retract_enum, s_ineq, κ)
         res[solver.m_ineq_inds] = J_ineq*z + c_ineq - p_ineq - 1/ρ*(m_ineq - m_ineq_est)
 
         # Complementarity primal feasibility
-        p_comp_L = retract(retract_type, s_comp, κ)
-        p_comp_R = retract(retract_type, -s_comp, κ)
+        p_comp_L = retract(retract_enum, s_comp, κ)
+        p_comp_R = retract(retract_enum, -s_comp, κ)
         res[solver.m_comp_L_inds] = L_comp*z + l_comp - p_comp_L - 1/ρ*(m_comp_L - m_comp_L_est)
         res[solver.m_comp_R_inds] = R_comp*z + r_comp - p_comp_R - 1/ρ*(m_comp_R - m_comp_R_est)
         return res
@@ -221,10 +238,10 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
         Marble.update_residuals!(solver)
 
         tol = 1e-10
-        for (retract_enum, retract_type) in RETRACTIONS
+        for retract_enum in RETRACTIONS
             Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_KKT_residual!(solver, κ, ρ)
-            res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ)
+            res = kkt_residual(retract_enum, solver, workspace.solution, κ, ρ)
             @test isapprox(workspace.kkt_residual, res, atol=tol)
         end
     end
@@ -236,7 +253,7 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
         workspace.solution .= randn(length(workspace.solution))
         ρ, κ = 1e1, 1e-1
         
-        for (retract_enum, retract_type) in RETRACTIONS
+        for retract_enum in RETRACTIONS
             Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_KKT_system!(solver, κ, ρ)
 
@@ -247,9 +264,9 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
             kkt_mat = scale_mat*kkt_mat[workspace.amd_iperm_vec, workspace.amd_iperm_vec]*scale_mat
 
             # Compare to forward diff with symmetrizing term
-            test_mat = FD.jacobian(_s -> kkt_residual(retract_type, solver, _s, κ, ρ; symmetric=false), workspace.solution)
-            dp_ineq = FD.jacobian(_x -> retract(retract_type, _x, κ), workspace.s_ineq)
-            test_mat[solver.s_ineq_inds, :] = dp_ineq * test_mat[solver.s_ineq_inds, :]
+            test_mat = FD.jacobian(_s -> kkt_residual(retract_enum, solver, _s, κ, ρ; symmetric=false), workspace.solution)
+            dp_ineq = retract_deriv_fd(retract_enum, workspace.s_ineq, κ)
+            test_mat[solver.s_ineq_inds, :] = dp_ineq .* test_mat[solver.s_ineq_inds, :]
 
             @test isapprox(kkt_mat, test_mat, atol = 1e-10)
         end
@@ -260,10 +277,10 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
         workspace = solver.workspace
         workspace.solution .= randn(length(workspace.solution))
         κ = 1e-1
-        for (retract_enum, retract_type) in RETRACTIONS
+        for retract_enum in RETRACTIONS
             Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_dKKT_residual_drelax!(solver, κ)
-            @test isapprox(workspace.dkkt_residual_drelax, FD.derivative(_κ -> kkt_residual(retract_type, solver, workspace.solution, _κ, 1e1), κ), atol=1e-10)
+            @test isapprox(workspace.dkkt_residual_drelax, FD.derivative(_κ -> kkt_residual(retract_enum, solver, workspace.solution, _κ, 1e1), κ), atol=1e-10)
         end
     end
 
@@ -272,16 +289,17 @@ const RETRACTIONS = [(Marble.Softplus,  Val(:Softplus)),
         prob, workspace = solver.problem, solver.workspace
         workspace.solution .= randn(length(workspace.solution))
 
-        for (retract_enum, retract_type) in RETRACTIONS
+        for retract_enum in RETRACTIONS
             ρ, κ = 1e1, 1e-1
             Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_residuals!(solver)
 
-            res = kkt_residual(retract_type, solver, workspace.solution, κ, ρ, symmetric = false)
+
+            res = kkt_residual(retract_enum, solver, workspace.solution, κ, ρ, symmetric = false)
             viols = [res[solver.m_eq_inds]; res[solver.m_ineq_inds]; res[solver.m_comp_L_inds]; res[solver.m_comp_R_inds]]
             viol = norm(viols, 1)/length(viols)
             obj = 0.5*workspace.z'*prob.cost_hessian*workspace.z + prob.cost_gradient'*workspace.z + prob.cost_const - 
-                 κ*sum(log.(retract(retract_type, workspace.s_ineq, κ))) + 
+                 κ*sum(log.(retract(retract_enum, workspace.s_ineq, κ))) + 
                  0.5*1/ρ*(workspace.m_eq'*workspace.m_eq + workspace.m_ineq'*workspace.m_ineq + workspace.m_comp_L'*workspace.m_comp_L + workspace.m_comp_R'*workspace.m_comp_R)
 
             isapprox(collect(Marble.entry_from_solution(solver, κ, ρ)), [viol; obj], atol = 1e-10)
