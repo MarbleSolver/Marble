@@ -280,7 +280,9 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
         for retract_enum in RETRACTIONS
             Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_dKKT_residual_drelax!(solver, κ)
-            @test isapprox(workspace.dkkt_residual_drelax, FD.derivative(_κ -> kkt_residual(retract_enum, solver, workspace.solution, _κ, 1e1), κ), atol=1e-10)
+            scaling_mat = 1.0*I(length(workspace.solution))
+            scaling_mat[solver.s_ineq_inds, solver.s_ineq_inds] = FD.jacobian(_x -> retract(retract_enum, _x, κ), workspace.s_ineq)
+            @test isapprox(workspace.dkkt_residual_drelax, scaling_mat * FD.derivative(_κ -> kkt_residual(retract_enum, solver, workspace.solution, _κ, 1e1, symmetric=false), κ), atol=1e-10)
         end
     end
 
@@ -302,7 +304,7 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
                  κ*sum(log.(retract(retract_enum, workspace.s_ineq, κ))) + 
                  0.5*1/ρ*(workspace.m_eq'*workspace.m_eq + workspace.m_ineq'*workspace.m_ineq + workspace.m_comp_L'*workspace.m_comp_L + workspace.m_comp_R'*workspace.m_comp_R)
 
-            isapprox(collect(Marble.entry_from_solution(solver, κ, ρ)), [viol; obj], atol = 1e-10)
+            @test isapprox(collect(Marble.entry_from_solution(solver, κ, ρ)), [viol; obj], atol = 1e-10)
         end
     end
 end
