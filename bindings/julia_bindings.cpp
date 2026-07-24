@@ -203,7 +203,8 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(comp_init_seed,             int)
         OPTION_RW(verbosity,                  int)
         OPTION_RW(retraction_type,            RetractionType)
-        OPTION_RW(clamp_hessian,              bool);
+        OPTION_RW(clamp_hessian,              bool)
+        OPTION_RW(warmstart,                  bool);
 
     #undef OPTION_RW
 

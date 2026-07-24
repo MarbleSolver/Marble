@@ -100,6 +100,7 @@ public:
         RetractionType retraction_type{RetractionType::Softplus};
         /// Clamp Hessian diagonal to be non-negative (for the softplus retraction)
         bool clamp_hessian{false};
+        bool warmstart{false}; // currently just prevents clearing of the workspace at the start of solve
 
         Options() = default;
     };

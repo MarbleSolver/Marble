@@ -792,15 +792,17 @@ SolveResult Solver::solve() {
     last_regularizer = std::nullopt;
 
     // Initialize solution and multiplier estimates
-    workspace->solution.setZero();
-    if (options.comp_init_random) {
-        if (options.comp_init_seed >= 0) std::srand(static_cast<unsigned int>(options.comp_init_seed));
-        workspace->s_comp = 1e-3 * Vec::Random(prob->n_comp);
+    if (!options.warmstart) {
+        workspace->solution.setZero();
+        workspace->m_eq.setZero();
+        workspace->m_ineq.setZero();
+        workspace->m_comp_L.setZero();
+        workspace->m_comp_R.setZero();
+        if (options.comp_init_random) {
+            if (options.comp_init_seed >= 0) std::srand(static_cast<unsigned int>(options.comp_init_seed));
+            workspace->s_comp = 1e-3 * Vec::Random(prob->n_comp);
+        }
     }
-    workspace->m_eq_est.setZero();
-    workspace->m_ineq_est.setZero();
-    workspace->m_comp_L_est.setZero();
-    workspace->m_comp_R_est.setZero();
 
     update_residuals();
     update_KKT_residual(workspace->relax_param, workspace->penalty_param);
