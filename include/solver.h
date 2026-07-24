@@ -88,6 +88,7 @@ public:
         int verbosity{0};
         int retraction_type{0}; // 0 = scaled softplus, 1 = exp
         bool clamp_hessian{false}; // clamp Hessian diagonal to be non-negative (for scaled softplus retraction)
+        bool warmstart{false}; // currently just prevents clearing of the workspace at the start of solve
 
         Options() = default;
     };

@@ -66,8 +66,8 @@ module Marble
         :relaxation_initial, :relaxation_min, :relaxation_scaling,
         :max_iters, :max_iters_linesearch,
         :gamma_objective, :gamma_constraint, :ruiz_iterations,
-        :inertia_warmstart,
-        :verbosity, :retraction_type, :clamp_hessian
+        :inertia_warmstart, :comp_init_random, :comp_init_seed,
+        :verbosity, :retraction_type, :clamp_hessian, :warmstart
     ]
 
     function update_settings!(solver::Marble.Solver; kwargs...)
