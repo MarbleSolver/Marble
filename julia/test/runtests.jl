@@ -2,8 +2,14 @@
 using Test
 using LinearAlgebra
 using SparseArrays
+using Random
 using Marble
 import ForwardDiff as FD
+
+# The retraction and KKT checks use random inputs: seed them so a failure reproduces, and
+# compare with rtol as well as atol, since the exp retractions reach magnitudes (~1e16)
+# where an absolute 1e-10 is below floating-point rounding
+Random.seed!(20261108)
 
 # Example problem (julia/examples/simple_test.jl), written directly as matrices:
 #   min x'x
@@ -71,12 +77,12 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
         tol = 1e-10
         for retract_enum in RETRACTIONS
             Marble.update_settings!(solver, retraction_type = retract_enum)
-            @test isapprox(Marble.retract(solver, x, κ), retract(retract_enum, x, κ), atol = tol)
-            @test isapprox(Marble.retract_deriv(solver, x, κ), retract_deriv_fd(retract_enum, x, κ), atol=tol)
+            @test isapprox(Marble.retract(solver, x, κ), retract(retract_enum, x, κ), atol = tol, rtol = tol)
+            @test isapprox(Marble.retract_deriv(solver, x, κ), retract_deriv_fd(retract_enum, x, κ), atol=tol, rtol=tol)
             @test isapprox(Marble.retract_second_deriv(solver, x, κ),
-                    retract_second_deriv_fd(retract_enum, x, κ), atol=tol)
-            @test isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_enum, x, _κ), κ), atol=tol)
-            @test isapprox(Marble.retract_deriv_drelax(solver, x, κ), retract_deriv_drelax_fd(retract_enum, x, κ), atol=tol)
+                    retract_second_deriv_fd(retract_enum, x, κ), atol=tol, rtol=tol)
+            @test isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_enum, x, _κ), κ), atol=tol, rtol=tol)
+            @test isapprox(Marble.retract_deriv_drelax(solver, x, κ), retract_deriv_drelax_fd(retract_enum, x, κ), atol=tol, rtol=tol)
         end
     end
 
@@ -242,7 +248,7 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
             Marble.update_settings!(solver, retraction_type = retract_enum)
             Marble.update_KKT_residual!(solver, κ, ρ)
             res = kkt_residual(retract_enum, solver, workspace.solution, κ, ρ)
-            @test isapprox(workspace.kkt_residual, res, atol=tol)
+            @test isapprox(workspace.kkt_residual, res, atol=tol, rtol=tol)
         end
     end
 
@@ -268,7 +274,7 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
             dp_ineq = retract_deriv_fd(retract_enum, workspace.s_ineq, κ)
             test_mat[solver.s_ineq_inds, :] = dp_ineq .* test_mat[solver.s_ineq_inds, :]
 
-            @test isapprox(kkt_mat, test_mat, atol = 1e-10)
+            @test isapprox(kkt_mat, test_mat, atol = 1e-10, rtol = 1e-10)
         end
     end
 
@@ -282,7 +288,7 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
             Marble.update_dKKT_residual_drelax!(solver, κ)
             scaling_mat = 1.0*I(length(workspace.solution))
             scaling_mat[solver.s_ineq_inds, solver.s_ineq_inds] = FD.jacobian(_x -> retract(retract_enum, _x, κ), workspace.s_ineq)
-            @test isapprox(workspace.dkkt_residual_drelax, scaling_mat * FD.derivative(_κ -> kkt_residual(retract_enum, solver, workspace.solution, _κ, 1e1, symmetric=false), κ), atol=1e-10)
+            @test isapprox(workspace.dkkt_residual_drelax, scaling_mat * FD.derivative(_κ -> kkt_residual(retract_enum, solver, workspace.solution, _κ, 1e1, symmetric=false), κ), atol=1e-10, rtol=1e-10)
         end
     end
 
@@ -304,7 +310,7 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
                  κ*sum(log.(retract(retract_enum, workspace.s_ineq, κ))) + 
                  0.5*1/ρ*(workspace.m_eq'*workspace.m_eq + workspace.m_ineq'*workspace.m_ineq + workspace.m_comp_L'*workspace.m_comp_L + workspace.m_comp_R'*workspace.m_comp_R)
 
-            @test isapprox(collect(Marble.entry_from_solution(solver, κ, ρ)), [viol; obj], atol = 1e-10)
+            @test isapprox(collect(Marble.entry_from_solution(solver, κ, ρ)), [viol; obj], atol = 1e-10, rtol = 1e-10)
         end
     end
 end
