@@ -41,9 +41,6 @@ static Vec arr_to_vec(py::array_t<double> arr) {
 PYBIND11_MODULE(_core, m) {
     m.doc() = "Marble compiled core: constrained optimization solver with complementarity constraints";
 
-    // -------------------------------------------------------------------------
-    // Problem
-    // -------------------------------------------------------------------------
     py::class_<Problem>(m, "Problem")
         // Dense numpy-array constructor (mirrors Julia wrapper)
         .def(py::init([](const Mat& cost_hessian, const Vec& cost_gradient, double cost_const,
@@ -103,15 +100,24 @@ PYBIND11_MODULE(_core, m) {
             return py::make_tuple((int)p.J_ineq.rows(), (int)p.J_ineq.cols(), cp, rv, nz);
         })
         .def_property_readonly("c_ineq", [](const Problem& p) { return p.c_ineq; })
-        .def_property_readonly("J_comp", [](Problem& p) {
-            p.J_comp.makeCompressed();
-            Eigen::VectorXi cp(p.J_comp.outerSize() + 1), rv(p.J_comp.nonZeros()); Vec nz(p.J_comp.nonZeros());
-            std::copy(p.J_comp.outerIndexPtr(), p.J_comp.outerIndexPtr() + p.J_comp.outerSize() + 1, cp.data());
-            std::copy(p.J_comp.innerIndexPtr(), p.J_comp.innerIndexPtr() + p.J_comp.nonZeros(),      rv.data());
-            std::copy(p.J_comp.valuePtr(),      p.J_comp.valuePtr()      + p.J_comp.nonZeros(),      nz.data());
-            return py::make_tuple((int)p.J_comp.rows(), (int)p.J_comp.cols(), cp, rv, nz);
+        .def_property_readonly("L_comp", [](Problem& p) {
+            p.L_comp.makeCompressed();
+            Eigen::VectorXi cp(p.L_comp.outerSize() + 1), rv(p.L_comp.nonZeros()); Vec nz(p.L_comp.nonZeros());
+            std::copy(p.L_comp.outerIndexPtr(), p.L_comp.outerIndexPtr() + p.L_comp.outerSize() + 1, cp.data());
+            std::copy(p.L_comp.innerIndexPtr(), p.L_comp.innerIndexPtr() + p.L_comp.nonZeros(),      rv.data());
+            std::copy(p.L_comp.valuePtr(),      p.L_comp.valuePtr()      + p.L_comp.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.L_comp.rows(), (int)p.L_comp.cols(), cp, rv, nz);
         })
-        .def_property_readonly("c_comp", [](const Problem& p) { return p.c_comp; })
+        .def_property_readonly("l_comp", [](const Problem& p) { return p.l_comp; })
+        .def_property_readonly("R_comp", [](Problem& p) {
+            p.R_comp.makeCompressed();
+            Eigen::VectorXi cp(p.R_comp.outerSize() + 1), rv(p.R_comp.nonZeros()); Vec nz(p.R_comp.nonZeros());
+            std::copy(p.R_comp.outerIndexPtr(), p.R_comp.outerIndexPtr() + p.R_comp.outerSize() + 1, cp.data());
+            std::copy(p.R_comp.innerIndexPtr(), p.R_comp.innerIndexPtr() + p.R_comp.nonZeros(),      rv.data());
+            std::copy(p.R_comp.valuePtr(),      p.R_comp.valuePtr()      + p.R_comp.nonZeros(),      nz.data());
+            return py::make_tuple((int)p.R_comp.rows(), (int)p.R_comp.cols(), cp, rv, nz);
+        })
+        .def_property_readonly("r_comp", [](const Problem& p) { return p.r_comp; })
         // Cost hessian (same CSC tuple format)
         .def_property_readonly("cost_hessian", [](Problem& p) {
             p.cost_hessian.makeCompressed();
@@ -122,9 +128,6 @@ PYBIND11_MODULE(_core, m) {
             return py::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), cp, rv, nz);
         });
 
-    // -------------------------------------------------------------------------
-    // SolveResult
-    // -------------------------------------------------------------------------
     py::class_<SolveResult>(m, "SolveResult")
         .def_readonly("converged",         &SolveResult::converged)
         .def_readonly("iterations",        &SolveResult::iterations)
@@ -138,16 +141,19 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("s_comp",   [](const SolveResult& r) { return r.s_comp; })
         .def_property_readonly("m_eq",     [](const SolveResult& r) { return r.m_eq; })
         .def_property_readonly("m_ineq",   [](const SolveResult& r) { return r.m_ineq; })
-        .def_property_readonly("m_comp",   [](const SolveResult& r) { return r.m_comp; })
+        .def_property_readonly("m_comp_L", [](const SolveResult& r) { return r.m_comp_L; })
+        .def_property_readonly("m_comp_R", [](const SolveResult& r) { return r.m_comp_R; })
         .def("__repr__", [](const SolveResult& r) {
             return "<SolveResult converged=" + std::string(r.converged ? "True" : "False")
                  + " iterations=" + std::to_string(r.iterations)
                  + " factorizations=" + std::to_string(r.factorizations) + ">";
         });
 
-    // -------------------------------------------------------------------------
-    // Solver::Options
-    // -------------------------------------------------------------------------
+    py::enum_<RetractionType>(m, "RetractionType")
+        .value("Softplus",  RetractionType::Softplus,  "p(s) = 0.5 * (s + sqrt(s^2 + 4*kappa))")
+        .value("Exp",       RetractionType::Exp,       "p(s) = sqrt(kappa) * exp(s)")
+        .value("ScaledExp", RetractionType::ScaledExp, "p(s) = sqrt(kappa) * exp(s / sqrt(kappa))");
+
     py::class_<Solver::Options>(m, "SolverOptions")
         .def(py::init<>())
         .def_readwrite("convergence_kkt_norm",       &Solver::Options::convergence_kkt_norm)
@@ -166,22 +172,17 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("gamma_objective",            &Solver::Options::gamma_objective)
         .def_readwrite("gamma_constraint",           &Solver::Options::gamma_constraint)
         .def_readwrite("ruiz_iterations",            &Solver::Options::ruiz_iterations)
+        .def_readwrite("inertia_warmstart",          &Solver::Options::inertia_warmstart)
+        .def_readwrite("comp_init_random",           &Solver::Options::comp_init_random)
+        .def_readwrite("comp_init_seed",             &Solver::Options::comp_init_seed)
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
-        .def_readwrite("print_every",                &Solver::Options::print_every)
-        .def_readwrite("debug",                      &Solver::Options::debug)
-        .def_readwrite("debug_output_path",          &Solver::Options::debug_output_path)
-        .def_readwrite("debug_log_every",            &Solver::Options::debug_log_every)
-        .def_property("output_dir",
-            [](const Solver::Options& o) { return o.output_dir.string(); },
-            [](Solver::Options& o, const std::string& v) { o.output_dir = v; })
+        .def_readwrite("retraction_type",            &Solver::Options::retraction_type)
+        .def_readwrite("clamp_hessian",              &Solver::Options::clamp_hessian)
         .def("__repr__", [](const Solver::Options& o) {
             return "<SolverOptions convergence_kkt_norm=" + std::to_string(o.convergence_kkt_norm)
                  + " max_iters=" + std::to_string(o.max_iters) + ">";
         });
 
-    // -------------------------------------------------------------------------
-    // Filter::Entry
-    // -------------------------------------------------------------------------
     py::class_<Filter::Entry>(m, "FilterEntry")
         .def(py::init<>())
         .def_readwrite("feas",  &Filter::Entry::feas)
@@ -191,9 +192,6 @@ PYBIND11_MODULE(_core, m) {
                  + " merit=" + std::to_string(e.merit) + ">";
         });
 
-    // -------------------------------------------------------------------------
-    // Filter
-    // -------------------------------------------------------------------------
     py::class_<Filter>(m, "Filter")
         .def(py::init<>())
         .def(py::init<double, double>(),
@@ -218,9 +216,6 @@ PYBIND11_MODULE(_core, m) {
         .def("acceptable", &Filter::acceptable, py::arg("candidate"))
         .def("update", &Filter::update, py::arg("new_entry"));
 
-    // -------------------------------------------------------------------------
-    // Workspace  (read-only view into solver internals)
-    // -------------------------------------------------------------------------
     py::class_<Workspace>(m, "Workspace")
         // Solution components – copy Maps to plain Vec so numpy owns the data
         .def_property_readonly("solution",
@@ -235,15 +230,19 @@ PYBIND11_MODULE(_core, m) {
             [](const Workspace& w) { return copy_map(w.m_eq); })
         .def_property_readonly("m_ineq",
             [](const Workspace& w) { return copy_map(w.m_ineq); })
-        .def_property_readonly("m_comp",
-            [](const Workspace& w) { return copy_map(w.m_comp); })
+        .def_property_readonly("m_comp_L",
+            [](const Workspace& w) { return copy_map(w.m_comp_L); })
+        .def_property_readonly("m_comp_R",
+            [](const Workspace& w) { return copy_map(w.m_comp_R); })
         // Multiplier estimates
         .def_property_readonly("m_eq_est",
             [](const Workspace& w) { return w.m_eq_est; })
         .def_property_readonly("m_ineq_est",
             [](const Workspace& w) { return w.m_ineq_est; })
-        .def_property_readonly("m_comp_est",
-            [](const Workspace& w) { return w.m_comp_est; })
+        .def_property_readonly("m_comp_L_est",
+            [](const Workspace& w) { return w.m_comp_L_est; })
+        .def_property_readonly("m_comp_R_est",
+            [](const Workspace& w) { return w.m_comp_R_est; })
         // Residuals
         .def_property_readonly("kkt_residual",
             [](const Workspace& w) { return w.kkt_residual; })
@@ -251,8 +250,10 @@ PYBIND11_MODULE(_core, m) {
             [](const Workspace& w) { return w.residual_eq; })
         .def_property_readonly("residual_ineq",
             [](const Workspace& w) { return w.residual_ineq; })
-        .def_property_readonly("residual_comp",
-            [](const Workspace& w) { return w.residual_comp; })
+        .def_property_readonly("residual_comp_L",
+            [](const Workspace& w) { return w.residual_comp_L; })
+        .def_property_readonly("residual_comp_R",
+            [](const Workspace& w) { return w.residual_comp_R; })
         // Scalar parameters
         .def_property_readonly("relax_param",
             [](const Workspace& w) { return w.relax_param; })
@@ -284,9 +285,6 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("scaling",
             [](const Workspace& w) { return w.scaling; });
 
-    // -------------------------------------------------------------------------
-    // Solver
-    // -------------------------------------------------------------------------
     py::class_<Solver>(m, "Solver")
         .def(py::init<>())
         // Problem setup: takes a Problem (built from dense numpy arrays or scipy
@@ -306,7 +304,7 @@ PYBIND11_MODULE(_core, m) {
              py::return_value_policy::reference_internal)
         // Main solve
         .def("solve", [](Solver& s) { return s.solve(); })
-        .def("convergence", &Solver::convergence, py::arg("options"))
+        .def("convergence", &Solver::convergence)
         // Workspace / filter access
         .def("get_workspace", &Solver::get_workspace,
              py::return_value_policy::reference_internal)
@@ -314,26 +312,27 @@ PYBIND11_MODULE(_core, m) {
              py::return_value_policy::reference_internal)
         // Retraction maps
         .def("retract", &Solver::retract,
-             py::arg("s"), py::arg("sqrt_relax_param"))
+             py::arg("s"), py::arg("relax_param"))
         .def("retract_deriv", &Solver::retract_deriv,
-             py::arg("s"), py::arg("sqrt_relax_param"))
+             py::arg("s"), py::arg("relax_param"))
         .def("retract_second_deriv", &Solver::retract_second_deriv,
-             py::arg("s"), py::arg("sqrt_relax_param"))
+             py::arg("s"), py::arg("relax_param"))
         // KKT updates
+        .def("update_residuals", &Solver::update_residuals)
         .def("update_KKT_residual", &Solver::update_KKT_residual,
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"))
+             py::arg("relax_param"), py::arg("penalty_param"))
         .def("update_KKT_system", &Solver::update_KKT_system,
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"))
-        .def("update_KKT_ineq", [](Solver& s, const Vec& s_ineq, double sqrt_relax_param) {
-                 s.update_KKT_ineq(s_ineq, sqrt_relax_param);
+             py::arg("relax_param"), py::arg("penalty_param"))
+        .def("update_KKT_ineq", [](Solver& s, const Vec& s_ineq, double relax_param) {
+                 s.update_KKT_ineq(s_ineq, relax_param);
              },
-             py::arg("s_ineq"), py::arg("sqrt_relax_param"))
-        .def("update_KKT_comp", [](Solver& s, const Vec& s_comp, const Vec& m_comp, double sqrt_relax_param) {
-                 s.update_KKT_comp(s_comp, m_comp, sqrt_relax_param);
+             py::arg("s_ineq"), py::arg("relax_param"))
+        .def("update_KKT_comp", [](Solver& s, const Vec& s_comp, const Vec& m_comp_L, const Vec& m_comp_R, double relax_param) {
+                 s.update_KKT_comp(s_comp, m_comp_L, m_comp_R, relax_param);
              },
-             py::arg("s_comp"), py::arg("m_comp"), py::arg("sqrt_relax_param"))
+             py::arg("s_comp"), py::arg("m_comp_L"), py::arg("m_comp_R"), py::arg("relax_param"))
         .def("update_KKT_penalty", &Solver::update_KKT_penalty,
-             py::arg("inv_penalty_param"))
+             py::arg("penalty_param"))
         .def("update_KKT_primal_regularizer", &Solver::update_KKT_primal_regularizer,
              py::arg("reg"))
         // Factorization and solve
@@ -342,15 +341,19 @@ PYBIND11_MODULE(_core, m) {
         .def("analytical_factorization",&Solver::analytical_factorization)
         .def("numerical_factorization", &Solver::numerical_factorization)
         .def("check_inertia",           &Solver::check_inertia)
-        .def("backsolve",               &Solver::backsolve)
+        .def("backsolve", [](Solver& s, const Vec& b) {
+                 Vec x;
+                 s.backsolve(b, x);
+                 return x;
+             }, py::arg("b"))
         // Linesearch
         .def("filter_linesearch", &Solver::filter_linesearch,
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"), py::arg("max_iters"))
-        .def("entry_from_solution", [](const Solver& s, double sqrt_relax_param, double inv_penalty_param) {
-                 Filter::Entry e = s.entry_from_solution(sqrt_relax_param, inv_penalty_param);
+             py::arg("relax_param"), py::arg("penalty_param"), py::arg("max_iters"))
+        .def("entry_from_solution", [](const Solver& s, double relax_param, double penalty_param) {
+                 Filter::Entry e = s.entry_from_solution(relax_param, penalty_param);
                  return py::make_tuple(e.feas, e.merit);
              },
-             py::arg("sqrt_relax_param"), py::arg("inv_penalty_param"))
+             py::arg("relax_param"), py::arg("penalty_param"))
         // Dimension info
         .def_readonly("n_primals", &Solver::n_primals)
         .def_readonly("n_duals",   &Solver::n_duals)
@@ -366,12 +369,10 @@ PYBIND11_MODULE(_core, m) {
             [](const Solver& s) { return s.m_eq_inds; })
         .def_property_readonly("m_ineq_inds",
             [](const Solver& s) { return s.m_ineq_inds; })
-        .def_property_readonly("m_comp_inds",
-            [](const Solver& s) { return s.m_comp_inds; })
-        .def_property_readonly("comp_L_inds",
-            [](const Solver& s) { return s.comp_L_inds; })
-        .def_property_readonly("comp_R_inds",
-            [](const Solver& s) { return s.comp_R_inds; })
+        .def_property_readonly("m_comp_L_inds",
+            [](const Solver& s) { return s.m_comp_L_inds; })
+        .def_property_readonly("m_comp_R_inds",
+            [](const Solver& s) { return s.m_comp_R_inds; })
         .def_property_readonly("z_z_inds",
             [](const Solver& s) { return s.z_z_inds; })
         .def_property_readonly("s_ineq_s_ineq_inds",
@@ -380,6 +381,8 @@ PYBIND11_MODULE(_core, m) {
             [](const Solver& s) { return s.s_ineq_m_ineq_inds; })
         .def_property_readonly("s_comp_s_comp_inds",
             [](const Solver& s) { return s.s_comp_s_comp_inds; })
-        .def_property_readonly("s_comp_m_comp_inds",
-            [](const Solver& s) { return s.s_comp_m_comp_inds; });
+        .def_property_readonly("s_comp_m_comp_L_inds",
+            [](const Solver& s) { return s.s_comp_m_comp_L_inds; })
+        .def_property_readonly("s_comp_m_comp_R_inds",
+            [](const Solver& s) { return s.s_comp_m_comp_R_inds; });
 }

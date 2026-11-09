@@ -29,7 +29,17 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 include(FetchContent)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-find_package(nlohmann_json CONFIG REQUIRED)
+
+# Fetch a specific version of spdlog to avoid fmt/spdlog compatibility issues
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.12.0 # Or whatever version you prefer
+)
+# Make sure spdlog builds its bundled fmt instead of looking for the system one
+set(SPDLOG_FMT_EXTERNAL OFF CACHE BOOL "Use bundled fmt" FORCE)
+FetchContent_MakeAvailable(spdlog)
+add_definitions(-DSPDLOG_COMPILED_LIB)
 
 # QDLDL – prefer a system install, otherwise fetch as static-only.
 # EXCLUDE_FROM_ALL suppresses QDLDL's cmake --install rules so they don't
@@ -73,7 +83,7 @@ add_library(marble STATIC
     src/filter.cpp
 )
 target_include_directories(marble PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(marble PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json marble_qdldl)
+target_link_libraries(marble PUBLIC Eigen3::Eigen spdlog::spdlog marble_qdldl)
 
 # ---------------------------------------------------------------------------
 # Python bindings  (cmake -DMARBLE_BUILD_PYTHON=ON  — default ON)
@@ -95,13 +105,25 @@ if(MARBLE_BUILD_PYTHON)
     # Python `marble` package (python/marble/) wraps it with the high-level API.
     pybind11_add_module(marble_python MODULE bindings/python_bindings.cpp)
     target_link_libraries(marble_python PRIVATE marble)
+
+    # A plain CMake build writes the extension straight into the source package,
+    # so anything with python/ on sys.path imports the module just built — no
+    # copy step to keep in sync. A wheel build (scikit-build-core sets SKBUILD)
+    # keeps its output in the build tree and installs it via install(TARGETS).
+    # Build wheels from a clean tree: scikit-build-core copies python/marble/
+    # wholesale, so an in-place _core*.so left there rides along into the wheel.
+    if(SKBUILD)
+        set(MARBLE_PYTHON_OUTPUT_DIR ${CMAKE_BINARY_DIR}/python/marble)
+    else()
+        set(MARBLE_PYTHON_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/python/marble)
+    endif()
     set_target_properties(marble_python PROPERTIES
         OUTPUT_NAME            _core
-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python/marble
+        LIBRARY_OUTPUT_DIRECTORY ${MARBLE_PYTHON_OUTPUT_DIR}
     )
 
-    # Stage the pure Python package next to the freshly built extension so that
-    # adding build/python to sys.path is enough to `import marble` from the tree.
+    # Stage the package (extension included) so that adding build/python to
+    # sys.path is enough to `import marble` from the tree — see the Dockerfile.
     add_custom_command(TARGET marble_python POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${CMAKE_SOURCE_DIR}/python/marble ${CMAKE_BINARY_DIR}/python/marble
@@ -115,7 +137,7 @@ if(MARBLE_BUILD_PYTHON)
         if(PYBIND11_STUBGEN)
             add_custom_command(TARGET marble_python POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E env
-                        PYTHONPATH=${CMAKE_BINARY_DIR}/python
+                        PYTHONPATH=${MARBLE_PYTHON_OUTPUT_DIR}/..
                         ${PYBIND11_STUBGEN} marble._core
                         --output-dir ${CMAKE_SOURCE_DIR}/python
                         --numpy-array-remove-parameters

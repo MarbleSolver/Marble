@@ -1,0 +1,220 @@
+\documentclass[11pt]{article}
+
+% --- Margins ---
+\usepackage[margin=1in]{geometry}
+
+% --- Math ---
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+\usepackage{bm}            % bold math symbols (\bm)
+
+% --- Quality of life ---
+\usepackage{enumitem}      % list customization
+\usepackage{microtype}     % better justification
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{cleveref}      % \cref / \Cref smart references
+
+% --- Theorem environments ---
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{assumption}{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+% --- Macros ---
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\T}{^{\mathsf{T}}}                       % transpose
+\newcommand{\inv}{^{-1}}
+\newcommand{\grad}{\nabla}
+\newcommand{\half}{\tfrac{1}{2}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\rank}{\operatorname{rank}}
+\newcommand{\st}{\;\text{s.t.}\;}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\minimize}{minimize}
+\DeclareMathOperator{\inertia}{In}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\inner}[2]{\left\langle #1, #2 \right\rangle}
+\newcommand{\set}[1]{\left\{ #1 \right\}}
+\newcommand{\pd}[2]{\frac{\partial #1}{\partial #2}}  % partial derivative
+% Complementarity shorthand: a \perp b
+\newcommand{\perpcomp}{\;\perp\;}
+
+\title{Marble Solver Derivation}
+\author{Robotic Exploration Lab}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Problem Setup}
+
+We seek to solve the following Quadratic Program with Complementarity Constraints (QPCC):
+
+\begin{equation}\label{qpcc}
+\begin{aligned}
+\minimize_{x \in \R^n} \quad & \frac12 x^\top Q x + g^\top x + c \\
+\st \quad & Ax + b = 0 \\
+          & Gx + h \geq 0 \\
+          & 0 \leq Lx + l \perp Rx + r \geq 0
+\end{aligned}
+\end{equation}
+for $Q \succeq 0$, $A \in \R^{m \times n}$, $G \in \R^{p \times n}$, $L, R \in \R^{c \times n}$, $b \in \R^m$, $h \in \R^p$, and $l, r \in \R^c$.
+
+\section{KKT System Derivation}
+
+We introduce the $\textit{retraction map}$ $b_\kappa(x)$ which satisfies:
+\begin{equation}\label{eq:retraction_map}
+    b_\kappa(x) \cdot b_\kappa(-x) = \kappa
+\end{equation}
+Using \eqref{eq:retraction_map}, we can relax the complementarity constraints in \eqref{qpcc} as:
+\begin{equation}\label{eq:qpcc_relax}
+\begin{aligned}
+\minimize_{x \in \R^n, \sigma\in \R^c, d \in \R^p} \quad & \frac12 x^\top Q x + g^\top x + c - \kappa\bm{1}^T \log(d) \\
+\st \quad & Ax + b = 0 \\
+          & Gx + h = d \\
+          & Lx + l = b_\kappa(\sigma) \\
+          & Rx + r = b_\kappa(-\sigma)
+\end{aligned}
+\end{equation}
+We then introduce the Augmented Lagrangian for \eqref{eq:qpcc_relax} as:
+\begin{equation}\label{eq:aug_lag}
+\begin{aligned}
+\mathcal{L}_\rho(x, \sigma, d; \alpha, \beta, \gamma_L, \gamma_R) = & \frac12 x^\top Q x + g^\top x + c - \kappa\bm{1}^T \log(d) \\
+& + \alpha^\top (Ax + b) + \frac\rho2 \norm{Ax + b}^2 \\
+& + \beta^\top (Gx + h - d) + \frac\rho2 \norm{Gx+h-d}^2 \\
+& + \gamma_L^\top (Lx + l - b_\kappa(\sigma)) + \frac\rho2 \norm{Lx + l - b_\kappa(\sigma)}^2 \\
+& + \gamma_R^\top (Rx + r - b_\kappa(-\sigma)) + \frac\rho2 \norm{Rx + r - b_\kappa(-\sigma)}^2
+\end{aligned}
+\end{equation}
+Using an Augmented-Lagrangian approach, we can solve \eqref{eq:qpcc_relax} by iteratively minimizing \eqref{eq:aug_lag}
+over primal variables $x, \sigma, d$.
+
+We first derive stationarity with respect to the original primal variable $x$. Define the following 
+shorthands:
+\begin{align}
+    r_A &:= Ax + b \\
+    r_G &:= Gx + h - d \\
+    r_L &:= Lx + l - b_\kappa(\sigma) \\
+    r_R &:= Rx + r - b_\kappa(-\sigma)
+\end{align}
+We therefore have the following stationarity condition:
+\begin{align}
+\pd{\mathcal{L}_\rho}{x} &= Qx + g + A^\top \alpha + \rho A^\top r_A + G^\top \beta + \rho G^\top r_G + L^\top \gamma_L + \rho L^\top r_L + R^\top \gamma_R + \rho R^\top r_R = 0 \\
+&= Qx + g + A^\top \lambda + G^\top \mu + L^\top \tau_L + R^\top \tau_R = 0
+\end{align}
+We introduce the primal-dual shifted multiplier variables:
+\begin{align}
+    \lambda &= \alpha + \rho r_A = \alpha + \rho (Ax + b) \\
+    \mu &= \beta + \rho r_G = \beta + \rho (Gx + h - d) \\
+    \tau_L &= \gamma_L + \rho r_L = \gamma_L + \rho (Lx + l - b_\kappa(\sigma)) \\
+    \tau_R &= \gamma_R + \rho r_R = \gamma_R + \rho (Rx + r - b_\kappa(-\sigma))
+\end{align}
+For variable $d$, we have the following stationarity condition:
+\begin{align}
+\pd{\mathcal{L}_\rho}{d} &= -\mu - \kappa d^{-1} = 0 \\
+&\Longleftrightarrow \mu \odot d = -\kappa \bm{1}
+\end{align}
+
+We can satisfy this relaxed complementarity condition by again using \eqref{eq:retraction_map} as:
+\begin{equation}
+    d = b_\kappa(v), \quad \mu = -b_\kappa(-v), \quad v \in \R^p
+\end{equation}
+
+And finally for variable $\sigma$, we have the following stationarity condition:
+\begin{align}
+\pd{\mathcal{L}_\rho}{\sigma} &= -b'_\kappa(\sigma) (\gamma_L + \rho r_L) + b'_\kappa(-\sigma) (\gamma_R + \rho r_R) = 0 \\
+&= -b'_\kappa(\sigma) \tau_L + b'_\kappa(-\sigma) \tau_R = 0
+\end{align}
+
+In all, we have the following KKT conditions for \eqref{eq:qpcc_relax}:
+\begin{align}
+    r_x &:= Qx + g + A^\top \lambda + G^\top \mu + L^\top \tau_L + R^\top \tau_R &&= 0 \\
+    r_v &:= -\mu - b_\kappa(-v) &&= 0 \\
+    r_\sigma &:= -b'_\kappa(\sigma) \tau_L + b'_\kappa(-\sigma) \tau_R &&= 0 \\
+    r_\lambda &:= Ax + b - \rho^{-1} (\lambda - \alpha) &&= 0 \\
+    r_\mu &:= Gx + h - b_\kappa(v) - \rho^{-1} (\mu - \beta) &&= 0 \\
+    r_{\tau_L} &:= Lx + l - b_\kappa(\sigma) - \rho^{-1} (\tau_L - \gamma_L) &&= 0 \\
+    r_{\tau_R} &:= Rx + r - b_\kappa(-\sigma) - \rho^{-1} (\tau_R - \gamma_R) &&= 0
+\end{align}
+We now write the asymmetric Newton system for the KKT conditions described above.
+\begin{equation}
+\begin{bmatrix}
+    Q & 0 & 0 & A^\top & G^\top & L^\top & R^\top \\
+    0 & B_v^- & 0 & 0 & -I & 0 & 0 \\
+    0 & 0 & \diag{(-b''_\kappa(\sigma) \odot \tau_L - b''_\kappa(-\sigma) \odot \tau_R)} & 0 & 0 & -B_\sigma^+ & B_\sigma^- \\
+    A & 0 & 0 & -\rho^{-1} I & 0 & 0 & 0 \\
+    G & -B_v^+ & 0 & 0 & -\rho^{-1} I & 0 & 0 \\
+    L & 0 & -B_\sigma^+ & 0 & 0 & -\rho^{-1} I & 0 \\
+    R & 0 & B_\sigma^- & 0 & 0 & 0 & -\rho^{-1} I
+\end{bmatrix}
+\begin{bmatrix}
+    \Delta x \\ \Delta v \\ \Delta \sigma \\ \Delta \lambda \\ \Delta \mu \\ \Delta \tau_L \\ \Delta \tau_R
+\end{bmatrix}
+=
+-\begin{bmatrix}
+    r_x \\ r_v \\ r_\sigma \\ r_\lambda \\ r_\mu \\ r_{\tau_L} \\ r_{\tau_R}
+\end{bmatrix}
+\end{equation}
+with the following Jacobian blocks:
+\begin{subequations}
+\begin{align}
+    B_v^+ &:= b'_\kappa(v) \\
+    B_v^- &:= b'_\kappa(-v) \\
+    B_\sigma^+ &:= b'_\kappa(\sigma) \\
+    B_\sigma^- &:= b'_\kappa(-\sigma)
+\end{align}
+\end{subequations}
+
+\subsection{Symmetrization 1}
+We simply scale the second row of the Newton system by $B_v^+$ to obtain the following symmetric Newton system:
+\begin{equation}
+\begin{bmatrix}
+    Q & 0 & 0 & A^\top & G^\top & L^\top & R^\top \\
+    0 & B_v^+ B_v^- & 0 & 0 & -B_v^+ & 0 & 0 \\
+    0 & 0 & \diag{(-b''_\kappa(\sigma) \odot \tau_L - b''_\kappa(-\sigma) \odot \tau_R)} & 0 & 0 & -B_\sigma^+ & B_\sigma^- \\
+    A & 0 & 0 & -\rho^{-1} I & 0 & 0 & 0 \\
+    G & -B_v^+ & 0 & 0 & -\rho^{-1} I & 0 & 0 \\
+    L & 0 & -B_\sigma^+ & 0 & 0 & -\rho^{-1} I & 0 \\
+    R & 0 & B_\sigma^- & 0 & 0 & 0 & -\rho^{-1} I
+\end{bmatrix}
+\begin{bmatrix}
+    \Delta x \\ \Delta v \\ \Delta \sigma \\ \Delta \lambda \\ \Delta \mu \\ \Delta \tau_L \\ \Delta \tau_R
+\end{bmatrix}
+=
+-\begin{bmatrix}
+    r_x \\ B_v^+ r_v \\ r_\sigma \\ r_\lambda \\ r_\mu \\ r_{\tau_L} \\ r_{\tau_R}
+\end{bmatrix}
+\end{equation}
+
+\subsection{Symmetrization 2}
+We symmetrize the Newton system by introducing the diagonal matrix $W := (B_v^+)^{1/2}$
+and introducing auxiliary variable $\Delta v = W^{-1}\Delta \tilde{v}$.
+\begin{equation}
+\begin{bmatrix}
+    Q & 0 & 0 & A^\top & G^\top & L^\top & R^\top \\
+    0 & B_v^- & 0 & 0 & -W & 0 & 0 \\
+    0 & 0 & \diag{(-b''_\kappa(\sigma) \odot \tau_L - b''_\kappa(-\sigma) \odot \tau_R)} & 0 & 0 & -B_\sigma^+ & B_\sigma^- \\
+    A & 0 & 0 & -\rho^{-1} I & 0 & 0 & 0 \\
+    G & -W & 0 & 0 & -\rho^{-1} I & 0 & 0 \\
+    L & 0 & -B_\sigma^+ & 0 & 0 & -\rho^{-1} I & 0 \\
+    R & 0 & B_\sigma^- & 0 & 0 & 0 & -\rho^{-1} I
+\end{bmatrix}
+\begin{bmatrix}
+    \Delta x \\ \Delta \tilde{v} \\ \Delta \sigma \\ \Delta \lambda \\ \Delta \mu \\ \Delta \tau_L \\ \Delta \tau_R
+\end{bmatrix}
+=
+-\begin{bmatrix}
+    r_x \\ -Wr_v \\ r_\sigma \\ r_\lambda \\ r_\mu \\ r_{\tau_L} \\ r_{\tau_R}
+\end{bmatrix}
+\end{equation}
+and we recover $\Delta v = W^{-1}\Delta \tilde{v}$ after solving the system.
+
+\end{document}

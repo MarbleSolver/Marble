@@ -1,14 +1,15 @@
 # Marble test suite
-#
-# Mirror of the Python suite (python/tests/test_marble.py): the same example
-# problem written directly as matrices (from julia/examples/simple_test.jl) and
-# the same 16 test cases in the same order — nine solve tests followed by seven
-# dimension validation cases.
-
 using Test
 using LinearAlgebra
 using SparseArrays
+using Random
 using Marble
+import ForwardDiff as FD
+
+# The retraction and KKT checks use random inputs: seed them so a failure reproduces, and
+# compare with rtol as well as atol, since the exp retractions reach magnitudes (~1e16)
+# where an absolute 1e-10 is below floating-point rounding
+Random.seed!(20261108)
 
 # Example problem (julia/examples/simple_test.jl), written directly as matrices:
 #   min x'x
@@ -34,52 +35,107 @@ function setup_and_solve(; sparse_problem = false, opts...)
     return solver, Marble.solve!(solver)
 end
 
+function retract(retract_enum::Marble.RetractionType, x, κ)
+    if retract_enum == Marble.Softplus
+        0.5 .* (x .+ sqrt.(x.^2 .+ 4 .* κ))
+    elseif retract_enum == Marble.Exp
+        sqrt(κ) .* exp.(x)
+    else
+        sqrt(κ) .* exp.(x ./ sqrt(κ))
+    end
+end
+
+retract_deriv_fd(retract_enum, x, κ) =
+    map(xi -> FD.derivative(t -> retract(retract_enum, [t], κ)[1], xi), x)
+retract_second_deriv_fd(retract_enum, x, κ) =
+    map(xi -> FD.derivative(a -> FD.derivative(b -> retract(retract_enum, [b], κ)[1], a), xi), x)
+retract_deriv_drelax_fd(retract_enum, x, κ) =
+    map(xi -> FD.derivative(_κ -> FD.derivative(t -> retract(retract_enum, [t], _κ)[1], xi), κ), x)
+
+# Each solver retraction enum paired with the reference implementation above
+const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
+
 @testset "Marble" begin
+    @testset "smoke tests" begin
+        solver, _ = setup_and_solve()
+        for name in propertynames(solver)
+            @test getproperty(solver, name) isa Any
+        end
+        problem, workspace = solver.problem, solver.workspace
+        for name in propertynames(problem)
+            @test getproperty(problem, name) isa Any
+        end
+        for name in propertynames(workspace)
+            @test getproperty(workspace, name) isa Any
+        end
+    end
+    @testset "retraction maps" begin
+        solver, _ = setup_and_solve()
+        x = [0; 0.5; -0.5; -10; 10; randn(4)]
+        κ = 1e-1
+
+        tol = 1e-10
+        for retract_enum in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
+            @test isapprox(Marble.retract(solver, x, κ), retract(retract_enum, x, κ), atol = tol, rtol = tol)
+            @test isapprox(Marble.retract_deriv(solver, x, κ), retract_deriv_fd(retract_enum, x, κ), atol=tol, rtol=tol)
+            @test isapprox(Marble.retract_second_deriv(solver, x, κ),
+                    retract_second_deriv_fd(retract_enum, x, κ), atol=tol, rtol=tol)
+            @test isapprox(Marble.retract_drelax(solver, x, κ), FD.derivative(_κ -> retract(retract_enum, x, _κ), κ), atol=tol, rtol=tol)
+            @test isapprox(Marble.retract_deriv_drelax(solver, x, κ), retract_deriv_drelax_fd(retract_enum, x, κ), atol=tol, rtol=tol)
+        end
+    end
+
+    solved = [setup_and_solve(retraction_type = retract_enum) for retract_enum in RETRACTIONS]
 
     @testset "problem dimensions" begin
-        solver, _ = setup_and_solve()
-        p = solver.problem
-        @test Marble.nz(p) == 4 && Marble.n_eq(p) == 1 && Marble.n_ineq(p) == 1 && Marble.n_comp(p) == 1
+        for (solver, _) in solved
+            p = solver.problem
+            @test p.nz == 4 && p.n_eq == 1 && p.n_ineq == 1 && p.n_comp == 1
+        end
     end
 
     @testset "solves to known optimum" begin
-        _, res = setup_and_solve()
-        z = collect(Marble.z(res))
-        @test Marble.converged(res) && isapprox(z, ZSTAR, atol = 1e-4)
+        for (_, res) in solved
+            @test res.converged && isapprox(res.z, ZSTAR, atol = 1e-4)
+        end
     end
 
     @testset "equality constraint satisfied" begin
         # x1 = 1
-        _, res = setup_and_solve()
-        @test abs(collect(Marble.z(res))[1] - 1.0) < 1e-4
+        for (_, res) in solved
+            @test abs(res.z[1] - 1.0) < 1e-4
+        end
     end
 
     @testset "inequality constraint satisfied" begin
         # x2 >= 1
-        _, res = setup_and_solve()
-        @test collect(Marble.z(res))[2] >= 1.0 - 1e-4
+        for (_, res) in solved
+            @test res.z[2] >= 1.0 - 1e-4
+        end
     end
 
     @testset "complementarity satisfied" begin
         # 0 <= (x3 + 1) ⟂ (x4 - 1) >= 0
-        _, res = setup_and_solve()
-        z = collect(Marble.z(res))
-        a = z[3] + 1.0
-        b = z[4] - 1.0
-        @test a >= -1e-4 && b >= -1e-4 && abs(a * b) < 1e-4
+        for (_, res) in solved
+            z = res.z
+            a = z[3] + 1.0
+            b = z[4] - 1.0
+            @test a >= -1e-4 && b >= -1e-4 && abs(a * b) < 1e-4
+        end
     end
 
     @testset "objective value" begin
-        # x'x = 3 at the optimum
-        solver, res = setup_and_solve()
-        @test abs(Marble.obj(solver, collect(Marble.z(res))) - 3.0) < 1e-3
+        for (solver, res) in solved
+            @test abs(Marble.obj(solver, res.z)) - 3.0 < 1e-3
+        end
     end
 
     @testset "dense and sparse solve agree" begin
         _, rd = setup_and_solve(sparse_problem = false)
         _, rs = setup_and_solve(sparse_problem = true)
-        @test Marble.converged(rd) && Marble.converged(rs) &&
-              isapprox(collect(Marble.z(rd)), collect(Marble.z(rs)), atol = 1e-6)
+        @test rd.converged && rs.converged &&
+              isapprox(rd.z, rs.z, atol = 1e-6)
     end
 
     @testset "complementarity-only QPCC" begin
@@ -88,15 +144,14 @@ end
         solver = Marble.Solver()
         Marble.setup!(solver, Q, q, C0; L = L, l = EL, R = R, r = ER)
         res = Marble.solve!(solver)
-        z = collect(Marble.z(res))
-        @test Marble.converged(res) && isapprox(z, [0.0, 0.0, 0.0, 1.0], atol = 1e-4)
+        @test res.converged && isapprox(res.z, [0.0, 0.0, 0.0, 1.0], atol = 1e-4)
     end
 
     @testset "options are honored" begin
         s2, r2 = setup_and_solve(max_iters = 123, convergence_kkt_norm = 1e-8)
         @test Marble.max_iters(s2.options) == 123 &&
               isapprox(Marble.convergence_kkt_norm(s2.options), 1e-8) &&
-              Marble.converged(r2)
+              r2.converged
     end
 
     @testset "dimension validation" begin
@@ -106,23 +161,156 @@ end
         # mirror the seven cases in the Python suite (TestDimensionValidation)
         Q2 = Matrix(1.0I, 2, 2)
         # L given (1 row) but l omitted
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             L = zeros(1, 2), R = zeros(1, 2), r = zeros(1))
         # L and l given but R, r omitted
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             L = zeros(1, 2), l = zeros(1))
         # Non-square Q.
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), zeros(2, 3), zeros(2))
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), zeros(2, 3), zeros(2))
         # Q size disagrees with length(q)
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Matrix(1.0I, 3, 3), zeros(2))
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Matrix(1.0I, 3, 3), zeros(2))
         # J_eq rows disagree with b_eq length
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             J_eq = zeros(2, 2), b_eq = zeros(1))
         # J_ineq columns disagree with length(q)
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), Q2, zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
             J_ineq = zeros(1, 3), b_ineq = zeros(1))
         # Sparse blocks: L given but l omitted
-        @test_throws DimensionMismatch Marble.setup!(Marble.Solver(), sparse(Q2), zeros(2);
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), sparse(Q2), zeros(2);
             L = sparse(zeros(1, 2)), R = sparse(zeros(1, 2)), r = zeros(1))
+    end
+
+    function kkt_residual(retract_enum::Marble.RetractionType, solver, solution, κ, ρ; symmetric = true)
+        # Extract solution, multipliers, and problem data
+        prob, workspace = solver.problem, solver.workspace
+        z, s_ineq, s_comp = solution[solver.z_inds], solution[solver.s_ineq_inds], solution[solver.s_comp_inds]
+        m_eq, m_ineq, m_comp_L, m_comp_R =
+            solution[solver.m_eq_inds], solution[solver.m_ineq_inds], solution[solver.m_comp_L_inds], solution[solver.m_comp_R_inds]
+        H = Matrix{Float64}(prob.cost_hessian)
+        g = Vector{Float64}(prob.cost_gradient)
+        J_eq = Matrix{Float64}(prob.J_eq)
+        c_eq = Vector{Float64}(prob.c_eq)
+        J_ineq = Matrix{Float64}(prob.J_ineq)
+        c_ineq = Vector{Float64}(prob.c_ineq)
+        L_comp = Matrix{Float64}(prob.L_comp)
+        l_comp = Vector{Float64}(prob.l_comp)
+        R_comp = Matrix{Float64}(prob.R_comp)
+        r_comp = Vector{Float64}(prob.r_comp)
+        m_eq_est = Vector{Float64}(workspace.m_eq_est)
+        m_ineq_est = Vector{Float64}(workspace.m_ineq_est)
+        m_comp_L_est = Vector{Float64}(workspace.m_comp_L_est)
+        m_comp_R_est = Vector{Float64}(workspace.m_comp_R_est)
+
+        # Construct KKT residual
+        res = zeros(promote_type(eltype(solution), typeof(κ)), length(solution))
+        # z stationarity
+        res[solver.z_inds] = H*z + g + J_eq'*m_eq + J_ineq'*m_ineq + L_comp'*m_comp_L + R_comp'*m_comp_R
+
+        # Inequality slack stationarity
+        p_neg_ineq = retract(retract_enum, -s_ineq, κ)
+        if symmetric
+            res[solver.s_ineq_inds] = retract_deriv_fd(retract_enum, s_ineq, κ) .* (-m_ineq .- p_neg_ineq)
+        else
+            res[solver.s_ineq_inds] = -m_ineq - p_neg_ineq
+        end
+
+        # Complementarity slack stationarity
+        res[solver.s_comp_inds] = -retract_deriv_fd(retract_enum, s_comp, κ) .* m_comp_L .+
+                                   retract_deriv_fd(retract_enum, -s_comp, κ) .* m_comp_R
+
+        # Equality primal feasibility
+        res[solver.m_eq_inds] = J_eq*z + c_eq - 1/ρ*(m_eq - m_eq_est)
+
+        # Inequality primal feasibility
+        p_ineq = retract(retract_enum, s_ineq, κ)
+        res[solver.m_ineq_inds] = J_ineq*z + c_ineq - p_ineq - 1/ρ*(m_ineq - m_ineq_est)
+
+        # Complementarity primal feasibility
+        p_comp_L = retract(retract_enum, s_comp, κ)
+        p_comp_R = retract(retract_enum, -s_comp, κ)
+        res[solver.m_comp_L_inds] = L_comp*z + l_comp - p_comp_L - 1/ρ*(m_comp_L - m_comp_L_est)
+        res[solver.m_comp_R_inds] = R_comp*z + r_comp - p_comp_R - 1/ρ*(m_comp_R - m_comp_R_est)
+        return res
+    end
+
+    @testset "KKT residual" begin
+        solver, _ = setup_and_solve()
+        prob, workspace = solver.problem, solver.workspace
+        res = workspace.kkt_residual
+
+        workspace.solution .= randn(length(workspace.solution))
+        ρ, κ = 1e1, 1e-1
+        Marble.update_residuals!(solver)
+
+        tol = 1e-10
+        for retract_enum in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
+            Marble.update_KKT_residual!(solver, κ, ρ)
+            res = kkt_residual(retract_enum, solver, workspace.solution, κ, ρ)
+            @test isapprox(workspace.kkt_residual, res, atol=tol, rtol=tol)
+        end
+    end
+
+    @testset "KKT system" begin
+        solver, _ = setup_and_solve()
+        workspace = solver.workspace
+
+        workspace.solution .= randn(length(workspace.solution))
+        ρ, κ = 1e1, 1e-1
+        
+        for retract_enum in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
+            Marble.update_KKT_system!(solver, κ, ρ)
+
+            # Get kkt matrix from solver
+            kkt_mat = workspace.kkt_system # upper triangular
+            kkt_mat = kkt_mat + kkt_mat' - Diagonal(diag(kkt_mat)) # symmetric
+            scale_mat = spdiagm(1 ./workspace.scaling)
+            kkt_mat = scale_mat*kkt_mat[workspace.amd_iperm_vec, workspace.amd_iperm_vec]*scale_mat
+
+            # Compare to forward diff with symmetrizing term
+            test_mat = FD.jacobian(_s -> kkt_residual(retract_enum, solver, _s, κ, ρ; symmetric=false), workspace.solution)
+            dp_ineq = retract_deriv_fd(retract_enum, workspace.s_ineq, κ)
+            test_mat[solver.s_ineq_inds, :] = dp_ineq .* test_mat[solver.s_ineq_inds, :]
+
+            @test isapprox(kkt_mat, test_mat, atol = 1e-10, rtol = 1e-10)
+        end
+    end
+
+    @testset "KKT relaxation derivative" begin
+        solver, _  = setup_and_solve()
+        workspace = solver.workspace
+        workspace.solution .= randn(length(workspace.solution))
+        κ = 1e-1
+        for retract_enum in RETRACTIONS
+            Marble.update_settings!(solver, retraction_type = retract_enum)
+            Marble.update_dKKT_residual_drelax!(solver, κ)
+            scaling_mat = 1.0*I(length(workspace.solution))
+            scaling_mat[solver.s_ineq_inds, solver.s_ineq_inds] = FD.jacobian(_x -> retract(retract_enum, _x, κ), workspace.s_ineq)
+            @test isapprox(workspace.dkkt_residual_drelax, scaling_mat * FD.derivative(_κ -> kkt_residual(retract_enum, solver, workspace.solution, _κ, 1e1, symmetric=false), κ), atol=1e-10, rtol=1e-10)
+        end
+    end
+
+    @testset "filter entry" begin
+        solver, _  = setup_and_solve()
+        prob, workspace = solver.problem, solver.workspace
+        workspace.solution .= randn(length(workspace.solution))
+
+        for retract_enum in RETRACTIONS
+            ρ, κ = 1e1, 1e-1
+            Marble.update_settings!(solver, retraction_type = retract_enum)
+            Marble.update_residuals!(solver)
+
+
+            res = kkt_residual(retract_enum, solver, workspace.solution, κ, ρ, symmetric = false)
+            viols = [res[solver.m_eq_inds]; res[solver.m_ineq_inds]; res[solver.m_comp_L_inds]; res[solver.m_comp_R_inds]]
+            viol = norm(viols, 1)/length(viols)
+            obj = 0.5*workspace.z'*prob.cost_hessian*workspace.z + prob.cost_gradient'*workspace.z + prob.cost_const - 
+                 κ*sum(log.(retract(retract_enum, workspace.s_ineq, κ))) + 
+                 0.5*1/ρ*(workspace.m_eq'*workspace.m_eq + workspace.m_ineq'*workspace.m_ineq + workspace.m_comp_L'*workspace.m_comp_L + workspace.m_comp_R'*workspace.m_comp_R)
+
+            @test isapprox(collect(Marble.entry_from_solution(solver, κ, ρ)), [viol; obj], atol = 1e-10, rtol = 1e-10)
+        end
     end
 end

@@ -34,12 +34,11 @@ public:
     Vec c_eq;
     SMat J_ineq;
     Vec c_ineq;
-    SMat J_comp;
-    Vec c_comp;
-
-    // Complementarity indices
-    Eigen::VectorXi comp_L_inds;
-    Eigen::VectorXi comp_R_inds;
+    // Complementarity blocks 0 <= L_comp x + l_comp  \perp  R_comp x + r_comp >= 0
+    SMat L_comp;
+    Vec l_comp;
+    SMat R_comp;
+    Vec r_comp;
 
     //Constructors
     Problem(SMat cost_hessian, Vec cost_gradient, double cost_const,
@@ -49,9 +48,6 @@ public:
     Problem(Mat cost_hessian, Vec cost_gradient, double cost_const,
             Mat J_eq, Vec c_eq, Mat J_ineq, Vec c_ineq,
             Mat L, Vec l, Mat R, Vec r);
-
-    // Utilities to stack J_comp and c_comp from L, R, l, and r
-    void build_c_comp(const Vec& l, const Vec& r);
 
     /* Returns the objective given primal variables z*/
     double obj(const Vec& z) const;

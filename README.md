@@ -22,13 +22,15 @@ Please see the [installation instructions](https://roboticexplorationlab.org/Mar
 If you use this work in your research, please cite it as follows:
 
 ```bibtex
-@article{bishop2026complementarityconstructionliegroupapproach,
-      title={Complementarity by Construction: A Lie-Group Approach to Solving Quadratic Programs with Linear Complementarity Constraints}, 
-      author={Arun L. Bishop and Micah I. Reich and Zachary Manchester},
-      year={2026},
-      eprint={2604.11991},
-      archivePrefix={arXiv},
-      primaryClass={cs.RO},
-      url={https://arxiv.org/abs/2604.11991}, 
+@ARTICLE{complementarityconstructionliegroupapproach2026,
+  author={Bishop, Arun L. and Reich, Micah I. and Manchester, Zachary},
+  journal={IEEE Robotics and Automation Letters}, 
+  title={Complementarity by Construction: A Lie-Group Approach to Solving Quadratic Programs With Linear Complementarity Constraints}, 
+  year={2026},
+  volume={11},
+  number={11},
+  pages={12799-12806},
+  keywords={Optimization;Modeling;Timing;Lie groups;Quadratic programming;Contacts;Algorithms;Construction;Mathematical programming;Newton method;Optimization and optimal control;constrained motion planning},
+  doi={10.1109/LRA.2026.3734878}
 }
 ```

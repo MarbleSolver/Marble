@@ -22,14 +22,16 @@ public:
     Eigen::Map<Vec> s_comp;     /** Complementarity slacks (in the retraction domain) */
     Eigen::Map<Vec> m_eq;       /** Equality multipliers */
     Eigen::Map<Vec> m_ineq;     /** Inequality multipliers */
-    Eigen::Map<Vec> m_comp;     /** Complementarity multipliers */
+    Eigen::Map<Vec> m_comp_L;   /** Complementarity multipliers (left / L_comp side) */
+    Eigen::Map<Vec> m_comp_R;   /** Complementarity multipliers (right / R_comp side) */
 
     // Current multiplier estimates for AL
     Vec m_eq_est;               /** Equality multiplier estimates for AL */
     Vec m_ineq_est;             /** Inequality multiplier estimates for AL */
-    Vec m_comp_est;             /** Complementarity multiplier estimates for AL */
+    Vec m_comp_L_est;           /** Complementarity (left) multiplier estimates for AL */
+    Vec m_comp_R_est;           /** Complementarity (right) multiplier estimates for AL */
 
-    
+    Vec dkkt_residual_drelax;
     Vec kkt_residual; /** KKT residual, driven to 0 in each subproblem solve */
 
     // Diagonal terms for s_ineq and s_comp stationarity, stored
@@ -38,9 +40,15 @@ public:
     Vec s_comp_stationarity; /** Complementarity stationarity terms */
 
     // Constraint evaluations
-    Vec residual_eq;        /** Equality constraint residuals */
-    Vec residual_ineq;      /** Inequality constraint residuals */
-    Vec residual_comp;      /** Complementarity constraint residuals */
+    Vec residual_eq;        /** Ax + b */
+    Vec residual_ineq;      /** Gx + h */
+    Vec residual_comp_L;    /** Lx + l */
+    Vec residual_comp_R;    /** Rx + r */
+
+    Vec subproblem_residual_eq;     /** Ax + b */
+    Vec subproblem_residual_ineq;   /** Gx + h - p(v) */
+    Vec subproblem_residual_comp_L; /** Lx + l - p(sigma)*/
+    Vec subproblem_residual_comp_R; /** Rx + r - p(-sigma) */
 
     // Relaxation and penalty parameters
     double relax_param;    /** Relaxation parameter for the retraction map */
@@ -60,7 +68,9 @@ public:
 
     // KKT step
     Vec newton_step; /** Newton step for the KKT system (possibly computed with regularization) */
-
+    Vec dsolution_drelax; /** Derivative of the solution with respect to the relaxation parameter, computed using IFT */
+    Vec backsolve_scratch; /** Reused buffer for the unpermute/scale step in backsolve, keeps it allocation-free */
+    
     // Work arrays for QDLDL
     // Workspace arrays required by QDLDL
     Eigen::Matrix<QDLDL_int, Eigen::Dynamic, 1> etree;

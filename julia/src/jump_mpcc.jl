@@ -1,89 +1,76 @@
 using JuMP
 
+# NLP index maps following the ordering of `MathOptNLPModel(model)`, so an NLP
+# column/row index can be recovered from a JuMP reference.
+
+"""1-based NLP column index for each variable in `model`."""
+nlp_var_col_map(model::JuMP.Model) =
+    Dict(vi => i for (i, vi) in enumerate(MOI.get(JuMP.backend(model), MOI.ListOfVariableIndices())))
 
 """
-    nlp_con_row_map(model) -> Dict{MOI.ConstraintIndex, Int}
-
-Maps each non-variable-bound constraint in `model` to its row index in the
-NLPModel produced by `MathOptNLPModel(model)`. Iterates constraint types in the
-same order MOI/NLPModelsJuMP does, skipping `VariableIndex` constraints (those
-become variable bounds, not NLP rows).
+1-based NLP row index for each scalar constraint in `model`, skipping
+`MOI.VariableIndex` constraints (which become variable bounds, not NLP rows).
 """
 function nlp_con_row_map(model::JuMP.Model)
-    moi_model = JuMP.backend(model)
-    row = 0
-    map = Dict{MOI.ConstraintIndex, Int}()
-    for (F, S) in MOI.get(moi_model, MOI.ListOfConstraintTypesPresent())
+    moi = JuMP.backend(model)
+    rows = Dict{MOI.ConstraintIndex, Int}()
+    for (F, S) in MOI.get(moi, MOI.ListOfConstraintTypesPresent())
         F == MOI.VariableIndex && continue
-        for ci in MOI.get(moi_model, MOI.ListOfConstraintIndices{F,S}())
-            row += 1
-            map[ci] = row
+        for ci in MOI.get(moi, MOI.ListOfConstraintIndices{F,S}())
+            rows[ci] = length(rows) + 1
         end
     end
-    return map
+    return rows
+end
+
+# Complementarity indexing
+
+_as_vec(x::AbstractArray) = vec(x)
+_as_vec(x) = [x]
+
+# Infer the side kind (`:var`/`:con`) from a JuMP reference or array of them.
+_cc_kind(::JuMP.VariableRef) = :var
+_cc_kind(::JuMP.ConstraintRef) = :con
+_cc_kind(x::AbstractArray) = _cc_kind(first(x))
+_cc_kind(x) = error("Complementarity terms must be JuMP variable/constraint references, got $(typeof(x))")
+
+"""
+    complementarity_indices(model, blocks...) -> (ind_cc1, ind_cc2, cc_types)
+
+Resolve one or more complementarity blocks into NLP indices. Each block is a
+`(lhs, rhs)` pair, where each side is a single JuMP variable/constraint reference
+or an equally sized array of them; the two sides must have the same length. Each
+side's kind (`:var`/`:con`) is inferred from the references' type.
+
+```julia
+ind_cc1, ind_cc2, cc_types = complementarity_indices(model,
+    (model[:μ], model[:gate_violation]),   # var ⊥ con
+    (model[:a], model[:b]),                # single references are fine
+)
+```
+"""
+function complementarity_indices(model::JuMP.Model, blocks...)
+    col, row = nlp_var_col_map(model), nlp_con_row_map(model)
+    resolve(x) = _cc_kind(x) === :var ? [col[JuMP.index(v)] for v in _as_vec(x)] :
+                                        [row[JuMP.index(c)] for c in _as_vec(x)]
+
+    ind_cc1, ind_cc2 = Int[], Int[]
+    cc_types = Tuple{Symbol,Symbol}[]
+    for (lhs, rhs) in blocks
+        i1, i2 = resolve(lhs), resolve(rhs)
+        @assert length(i1) == length(i2) "Complementarity sides must have equal length"
+        append!(ind_cc1, i1)
+        append!(ind_cc2, i2)
+        append!(cc_types, fill((_cc_kind(lhs), _cc_kind(rhs)), length(i1)))
+    end
+    return ind_cc1, ind_cc2, cc_types
 end
 
 """
-    nlp_var_col_map(model) -> Dict{MOI.VariableIndex, Int}
+Return MOI variable-index values for named variable arrays in `model`.
 
-Maps each variable to its column index in the NLPModel produced by
-`MathOptNLPModel(model)`.
-"""
-function nlp_var_col_map(model::JuMP.Model)
-    vars = MOI.get(JuMP.backend(model), MOI.ListOfVariableIndices())
-    return Dict(vi => i for (i, vi) in enumerate(vars))
-end
-
-"""
-    var_con_complementarities(model, vars, cons) -> Vector{Tuple{Int,Int}}
-
-Given parallel arrays `vars` (VariableRef) and `cons` (ConstraintRef) with the
-same shape, return `(col_idx, row_idx)` pairs suitable as complementarity indices
-in an NLPModel.
-"""
-function var_con_complementarities(model::JuMP.Model, vars::AbstractArray, cons::AbstractArray)
-    @assert size(vars) == size(cons) "vars and cons must have the same shape"
-    col_map = nlp_var_col_map(model)
-    row_map = nlp_con_row_map(model)
-    return [(col_map[JuMP.index(v)], row_map[JuMP.index(c)]) for (v, c) in zip(vec(vars), vec(cons))]
-end
-
-"""
-    con_con_complementarities(model, cons1, cons2) -> Vector{Tuple{Int,Int}}
-
-Given parallel arrays `cons1` and `cons2` (ConstraintRef) with the same shape,
-return `(row_idx1, row_idx2)` pairs suitable as complementarity indices in an
-NLPModel.
-"""
-function con_con_complementarities(model::JuMP.Model, cons1::AbstractArray, cons2::AbstractArray)
-    @assert size(cons1) == size(cons2) "cons1 and cons2 must have the same shape"
-    row_map = nlp_con_row_map(model)
-    return [(row_map[JuMP.index(c1)], row_map[JuMP.index(c2)]) for (c1, c2) in zip(vec(cons1), vec(cons2))]
-end
-
-"""
-    var_var_complementarities(model, vars1, vars2) -> Vector{Tuple{Int,Int}}
-
-Given parallel arrays `vars1` and `vars2` (VariableRef) with the same shape,
-return `(col_idx1, col_idx2)` pairs suitable as complementarity indices in an
-NLPModel. Both variables must be bounded below by zero.
-"""
-function var_var_complementarities(model::JuMP.Model, vars1::AbstractArray, vars2::AbstractArray)
-    @assert size(vars1) == size(vars2) "vars1 and vars2 must have the same shape"
-    col_map = nlp_var_col_map(model)
-    return [(col_map[JuMP.index(v1)], col_map[JuMP.index(v2)]) for (v1, v2) in zip(vec(vars1), vec(vars2))]
-end
-
-"""
-    var_inds(model) -> Dict{Symbol, Array{Int}}
-
-Returns a mapping from each named variable array in `model` (registered via
-`@variable`) to an array of the corresponding MOI column indices (1-based).
-Only entries whose value is an `AbstractArray{VariableRef}` are included;
-scalar variables and non-variable objects are skipped.
-
-Useful for building index lookups before constructing an NLPModel, without
-having to call `nlp_var_col_map` and then scatter indices by hand.
+Only `AbstractArray{VariableRef}` entries of `object_dictionary(model)` are
+included; scalar variables and non-variable objects are skipped.
 """
 var_inds(model::JuMP.Model) = Dict(
     k => map(v -> JuMP.index(v).value, v)
@@ -91,121 +78,191 @@ var_inds(model::JuMP.Model) = Dict(
     if v isa AbstractArray{VariableRef}
 )
 
-function _reformulation_helpers(model)
-    inv_var_map = Dict(col => vi for (vi, col) in nlp_var_col_map(model))
-    inv_con_map = Dict(row => ci for (ci, row) in nlp_con_row_map(model))
-
-    get_reference(i, t) = if t == :var
-        JuMP.VariableRef(model, inv_var_map[i])
-    elseif t == :con
-        JuMP.ConstraintRef(model, inv_con_map[i], JuMP.ScalarShape())
-    else
-        error("Unsupported complementarity type: $t")
-    end
-
-    get_cons_expr(con::JuMP.ConstraintRef) = begin
-        obj = constraint_object(con)
-        expr = obj.func - MOI.constant(obj.set)
-        return expr
-    end
-
-    # Maps constraint row index -> slack variable, so repeated occurrences of
-    # the same constraint reuse the existing slack (the original constraint is
-    # deleted on first encounter and can't be referenced again).
-    con_slack_cache = Dict{Int, JuMP.VariableRef}()
-
-    get_or_create_con_slack!(row_idx) = get!(con_slack_cache, row_idx) do
-        con = get_reference(row_idx, :con)
-        slack = @variable(model, lower_bound=0)
-        @constraint(model, slack == get_cons_expr(con))
-        delete(model, con)
-        slack
-    end
-
-    return get_reference, get_or_create_con_slack!, con_slack_cache
-end
+# MPCC — an NLP bundled with its resolved complementarity data
 
 """
-    reformulate_sos1(model, ind_cc1, ind_cc2, types)::JuMP.Model
+    MPCC(model::JuMP.Model, blocks...)
+    MPCC(nlp::AbstractNLPModel, ind_cc1, ind_cc2, cc_types; inds=Dict())
 
-Reformulate complementarity constraints as SOS1 sets in-place.
+A mathematical program with complementarity constraints: an `nlp` paired with the
+complementarity data Marble consumes. `ind_cc1`/`ind_cc2` index the two endpoints
+of each pair as NLP variable/constraint rows, `cc_types` records each endpoint's
+kind (`:var`/`:con`), and `inds` is an optional name → column map (see
+[`var_inds`](@ref)). Because the indices address `nlp` rows/columns, they only
+mean anything alongside the `nlp` they were resolved against.
 
-Each triplet `(i1, i2, (t1, t2))` drawn from `zip(ind_cc1, ind_cc2, types)`
-encodes one complementarity condition `x1 ⟂ x2`, where:
+The first form builds the `nlp` as `MathOptNLPModel(model)` and resolves each
+`block` via [`complementarity_indices`](@ref); the second takes pre-resolved
+indices directly.
 
-- `t1`, `t2` ∈ `{:var, :con}` indicate whether the index refers to a variable
-  column or a constraint row (as returned by `nlp_var_col_map` /
-  `nlp_con_row_map`).
-- `i1`, `i2` are the corresponding 1-based column/row indices.
-
-Behaviour by case:
-
-| `(t1, t2)`    | Action |
-|---------------|--------|
-| `(:var, :var)` | Add `[x1, x2] ∈ SOS1` directly. |
-| `(:var, :con)` | Introduce a non-negative slack `s = expr(con)`, delete the original constraint, add `[x1, s] ∈ SOS1`. |
-| `(:con, :var)` | Symmetric to `(:var, :con)`. |
-| `(:con, :con)` | Introduce two non-negative slacks, delete both original constraints, add `[s1, s2] ∈ SOS1`. |
-
-The constraint expression used for `:con` entries is `func - constant(set)`,
-i.e. the left-hand side when the constraint is written as `expr ∈ set`.
+```julia
+MPCC(model, (model[:μ], model[:gate_violation]))
+MPCC(MathOptNLPModel(model), ind_cc1, ind_cc2, cc_types)
+```
 """
-function reformulate_sos1(model::JuMP.Model, ind_cc1, ind_cc2, types)::JuMP.Model
-    new_model = copy(model) # Work on a copy to avoid modifying the original model's indices
-    get_reference, get_or_create_con_slack!, _ = _reformulation_helpers(new_model)
-
-    add_cc_pair!(i1, i2, t1, t2) = begin
-        if (t1, t2) == (:var, :var)
-            ref1 = get_reference(i1, t1)
-            ref2 = get_reference(i2, t2)
-            @constraint(new_model, [ref1, ref2] in JuMP.SOS1())
-        elseif (t1, t2) == (:var, :con)
-            ref1 = get_reference(i1, :var)
-            slack = get_or_create_con_slack!(i2)
-            @constraint(new_model, [ref1, slack] in JuMP.SOS1())
-        elseif (t1, t2) == (:con, :var)
-            add_cc_pair!(i2, i1, :var, :con)
-        elseif (t1, t2) == (:con, :con)
-            slack1 = get_or_create_con_slack!(i1)
-            slack2 = get_or_create_con_slack!(i2)
-            @constraint(new_model, [slack1, slack2] in JuMP.SOS1())
-        else
-            error("Unsupported complementarity type: ($t1, $t2)")
-        end
-    end
-
-    foreach(((i1, i2, (t1, t2)),) -> add_cc_pair!(i1, i2, t1, t2), zip(ind_cc1, ind_cc2, types))
-
-    return new_model
+struct MPCC
+    nlp::AbstractNLPModel
+    ind_cc1::Vector{Int}
+    ind_cc2::Vector{Int}
+    cc_types::Vector{Tuple{Symbol,Symbol}}
+    inds::Dict
 end
 
-function reformulate_lie(model::JuMP.Model, ind_cc1, ind_cc2, types; κ, form=:eq)::JuMP.Model
-    new_model = copy(model)
-    get_reference, _, _ = _reformulation_helpers(new_model)
+function MPCC(nlp::AbstractNLPModel, ind_cc1, ind_cc2, cc_types; inds::Dict=Dict())
+    return MPCC(nlp, collect(Int, ind_cc1), collect(Int, ind_cc2),
+                collect(Tuple{Symbol,Symbol}, cc_types), inds)
+end
+
+function MPCC(model::JuMP.Model, blocks...)
+    ind_cc1, ind_cc2, cc_types = complementarity_indices(model, blocks...)
+    return MPCC(MathOptNLPModel(model), ind_cc1, ind_cc2, cc_types; inds=var_inds(model))
+end
+
+# Conversion to Marble problem data
+
+"""
+    mpcc_to_marble(mpcc::MPCC) -> NamedTuple
+
+Convert an [`MPCC`](@ref) — an NLP with linear constraints and resolved
+complementarity pairs — into the matrix/vector data Marble consumes.
+
+`mpcc.ind_cc1[j]` and `mpcc.ind_cc2[j]` are the two endpoints of complementarity
+pair `j`, each addressed as a variable (`:var`) or constraint (`:con`) row of
+`mpcc.nlp` via `mpcc.cc_types`.
+
+Returns a `NamedTuple` describing
+
+    minimize    1/2 xᵀ Q x + qᵀ x + c0
+    subject to  J_eq   x + b_eq   == 0
+                J_ineq x + b_ineq >= 0
+                0 <= (L x + l) ⊥ (R x + r) >= 0
+
+where the last line is the elementwise complementarity condition
+`(L x + l)_j ≥ 0`, `(R x + r)_j ≥ 0`, `(L x + l)_j (R x + r)_j = 0` for `j = 1..ncc`.
+"""
+function mpcc_to_marble(mpcc::MPCC)
+    nlp = mpcc.nlp
+
+    ind_cc1 = Int.(collect(mpcc.ind_cc1))
+    ind_cc2 = Int.(collect(mpcc.ind_cc2))
+    cc_type = mpcc.cc_types
 
     ncc = length(ind_cc1)
-    retraction(x) = 1/2 * (x + sqrt(x^2 + 4))
-    con_expr(ref)  = (o = constraint_object(ref); o.func - MOI.constant(o.set))
 
-    @variable(new_model, s1[1:ncc])
-    if form == :ineq
-        @variable(new_model, s2[1:ncc])
-        @constraint(new_model, s1 + s2 .<= 0)
+    nvar = nlp.meta.nvar
+    ncon = nlp.meta.ncon
+
+    @assert nlp.meta.nnln == 0 "Expected only linear constraints in `mpcc.nlp`"
+    @assert length(ind_cc2) == ncc "Expected equal number of complementarity endpoints"
+    @assert length(cc_type) == ncc "Expected one complementarity type per pair"
+    @assert all(t -> all(in((:var, :con)), t), cc_type) """
+    Expected cc_type entries of form (:var, :var), (:var, :con), (:con, :var), or (:con, :con)
+    """
+
+    kind1 = first.(cc_type)
+    kind2 = last.(cc_type)
+
+    valid(k, i) = 1 <= i <= (k === :var ? nvar : ncon)
+    row(k, i) = k === :var ? ncon + i : i
+
+    @assert all(valid.(kind1, ind_cc1)) "Invalid index in ind_cc1"
+    @assert all(valid.(kind2, ind_cc2)) "Invalid index in ind_cc2"
+
+    rows1 = row.(kind1, ind_cc1)
+    rows2 = row.(kind2, ind_cc2)
+
+    x0 = zeros(nvar)
+
+    obj_sign = nlp.meta.minimize ? 1.0 : -1.0
+
+    J0 = Matrix(NLPModels.jac(nlp, x0))
+    H0 = Matrix(obj_sign * NLPModels.hess(nlp, x0))
+    q  = collect(obj_sign * NLPModels.grad(nlp, x0))
+    c0 = obj_sign * NLPModels.obj(nlp, x0)
+    b0 = collect(NLPModels.cons(nlp, x0))
+
+    T = promote_type(eltype(J0), eltype(H0), eltype(q), eltype(b0))
+
+    J0 = T.(J0)
+    Q  = T.(H0)
+    q  = T.(q)
+    b0 = T.(b0)
+    c0 = T(c0)
+
+    # Stack the constraint rows on top of an identity block so a single row index
+    # addresses either a constraint (rows 1:ncon) or a variable (rows ncon+1:end)
+    J_all = vcat(J0, Matrix{T}(I, nvar, nvar))
+    b_all = vcat(b0, zeros(T, nvar))
+
+    l_all = T.(vcat(collect(nlp.meta.lcon), collect(nlp.meta.lvar)))
+    u_all = T.(vcat(collect(nlp.meta.ucon), collect(nlp.meta.uvar)))
+
+    has_lb = isfinite.(l_all)
+    has_ub = isfinite.(u_all)
+
+    mask_cc = falses(ncon + nvar)
+    mask_cc[unique(vcat(rows1, rows2))] .= true
+
+    # Each endpoint becomes a slack 0 <= A x + b, so it must be bounded on at
+    # least one side, report the offending pair so the input is easy to fix
+    for j in 1:ncc
+        @assert has_lb[rows1[j]] || has_ub[rows1[j]] "Left endpoint of complementarity pair $j (ind_cc1[$j]=$(ind_cc1[j]), $(kind1[j])) has no finite bound"
+        @assert has_lb[rows2[j]] || has_ub[rows2[j]] "Right endpoint of complementarity pair $j (ind_cc2[$j]=$(ind_cc2[j]), $(kind2[j])) has no finite bound"
     end
 
-    for (j, (i1, i2, (t1, t2))) in enumerate(zip(ind_cc1, ind_cc2, types))
-        cc1 = get_reference(i1, t1)
-        cc2 = get_reference(i2, t2)
+    rowscale(A, s) = A .* reshape(s, :, 1)
 
-        expr1 = t1 == :var ? cc1 : con_expr(cc1)
-        expr2 = t2 == :var ? cc2 : con_expr(cc2)
+    # Map a bounded row g(x) = A x + b to its nonnegative complementarity slack,
+    # preferring the lower bound (slack g - lb) and flipping sign for an
+    # upper-bound-only row (slack ub - g)
+    function residual(rows)
+        use_lb = has_lb[rows]
+        sgn = ifelse.(use_lb, one(T), -one(T))
 
-        t1 == :var ? delete_lower_bound(cc1) : delete(new_model, cc1)
-        t2 == :var ? delete_lower_bound(cc2) : delete(new_model, cc2)
+        A = rowscale(J_all[rows, :], sgn)
+        b = ifelse.(
+            use_lb,
+            b_all[rows] .- l_all[rows],
+            u_all[rows] .- b_all[rows],
+        )
 
-        @constraint(new_model, expr1 == √κ * retraction(s1[j]))
-        @constraint(new_model, expr2 == √κ * retraction(form == :eq ? -s1[j] : s2[j]))
+        return A, b
     end
 
-    return new_model
+    L, l = residual(rows1)
+    R, r = residual(rows2)
+
+    # A two-sided bound with lb == ub is an equality, everything else bounded and
+    # not part of a complementarity pair becomes a one-sided inequality
+    is_eq = has_lb .& has_ub .& (l_all .== u_all) .& .!mask_cc
+
+    ineq_lb = has_lb .& .!is_eq .& .!mask_cc
+    ineq_ub = has_ub .& .!is_eq .& .!mask_cc
+
+    # A two-sided complementarity endpoint has its lower bound consumed by the
+    # slack above, so emit the leftover upper bound ub - g >= 0 as an inequality
+    cc_extra_ub = mask_cc .& has_lb .& has_ub
+
+    J_eq = J_all[is_eq, :]
+    b_eq = b_all[is_eq] .- l_all[is_eq]
+
+    J_ineq = [
+        J_all[ineq_lb, :];
+        -J_all[ineq_ub, :];
+        -J_all[cc_extra_ub, :];
+    ]
+
+    b_ineq = [
+        b_all[ineq_lb] .- l_all[ineq_lb];
+        u_all[ineq_ub] .- b_all[ineq_ub];
+        u_all[cc_extra_ub] .- b_all[cc_extra_ub];
+    ]
+
+    return (
+        Q=Q, q=q, c0=c0,
+        J_eq=J_eq, b_eq=b_eq,
+        J_ineq=J_ineq, b_ineq=b_ineq,
+        L=L, l=l,
+        R=R, r=r,
+    )
 end

@@ -30,3 +30,10 @@ LocalPreferences.toml
 *.jl.cov
 *.jl.*.cov
 *.jl.mem
+
+# Testing
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.gz
+proglogs/
