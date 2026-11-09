@@ -61,7 +61,7 @@ module Marble
 
     const OPTIONS = [
         :convergence_kkt_norm, :convergence_eq_violation, :convergence_ineq_violation,
-        :convergence_comp_violation, :outer_step_kkt_norm,
+        :convergence_comp_violation,
         :penalty_initial, :penalty_max, :penalty_scaling,
         :relaxation_initial, :relaxation_min, :relaxation_scaling,
         :max_iters, :max_iters_linesearch,

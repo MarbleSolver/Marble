@@ -118,7 +118,6 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("convergence_eq_violation",   &Solver::Options::convergence_eq_violation)
         .def_readwrite("convergence_ineq_violation", &Solver::Options::convergence_ineq_violation)
         .def_readwrite("convergence_comp_violation", &Solver::Options::convergence_comp_violation)
-        .def_readwrite("outer_step_kkt_norm",        &Solver::Options::outer_step_kkt_norm)
         .def_readwrite("penalty_initial",            &Solver::Options::penalty_initial)
         .def_readwrite("penalty_max",                &Solver::Options::penalty_max)
         .def_readwrite("penalty_scaling",            &Solver::Options::penalty_scaling)

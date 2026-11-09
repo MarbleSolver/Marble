@@ -260,7 +260,6 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         OPTION_RW(convergence_eq_violation,   double)
         OPTION_RW(convergence_ineq_violation, double)
         OPTION_RW(convergence_comp_violation, double)
-        OPTION_RW(outer_step_kkt_norm,        double)
         OPTION_RW(penalty_initial,            double)
         OPTION_RW(penalty_max,                double)
         OPTION_RW(penalty_scaling,            double)
