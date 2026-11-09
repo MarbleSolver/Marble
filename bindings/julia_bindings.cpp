@@ -1,6 +1,7 @@
 #include <jlcxx/jlcxx.hpp>
 #include "solver.h"
 #include <cmath>
+#include <string>
 
 // Plain structs: tell CxxWrap not to treat them as mirrored types
 // so we can register them with add_type and attach methods.
@@ -8,6 +9,64 @@ namespace jlcxx {
     template<> struct IsMirroredType<Filter::Entry> : std::false_type {};
     template<> struct IsMirroredType<SolveResult>  : std::false_type {};
 }
+
+// CxxWrap turns a C++ exception into a Julia error only if it can be caught as
+// std::exception; anything else aborts the Julia process. Inside Julia, std::invalid_argument,
+// std::out_of_range and the other std types below resolve to the RTTI of Julia's bundled
+// libstdc++, so they don't match std::exception. Catching them by exact type still works, so
+// they (and anything unknown) are rethrown as std::runtime_error.
+[[noreturn]] static void rethrow_for_julia() {
+    try { throw; }
+    catch (const std::invalid_argument& e) { throw std::runtime_error(e.what()); }
+    catch (const std::domain_error& e)     { throw std::runtime_error(e.what()); }
+    catch (const std::length_error& e)     { throw std::runtime_error(e.what()); }
+    catch (const std::out_of_range& e)     { throw std::runtime_error(e.what()); }
+    catch (const std::range_error& e)      { throw std::runtime_error(e.what()); }
+    catch (const std::overflow_error& e)   { throw std::runtime_error(e.what()); }
+    catch (const std::underflow_error& e)  { throw std::runtime_error(e.what()); }
+    catch (const std::exception&)          { throw; }
+    catch (...) { throw std::runtime_error("Marble: unknown C++ exception"); }
+}
+
+// Wrap a lambda or member function so every exception leaving it is one CxxWrap can catch.
+// The result has a concrete (non-template) call operator, as CxxWrap needs to deduce types.
+template <typename F, typename R, typename... Args>
+static auto guard_call(F f, R (F::*)(Args...) const) {
+    return [f](Args... args) -> R {
+        try { return f(std::forward<Args>(args)...); }
+        catch (...) { rethrow_for_julia(); }
+    };
+}
+
+template <typename F>
+static auto guard(F f) { return guard_call(std::move(f), &F::operator()); }
+
+template <typename R, typename C, typename... Args>
+static auto guard(R (C::*f)(Args...)) {
+    return guard([f](C& obj, Args... args) -> R { return (obj.*f)(std::forward<Args>(args)...); });
+}
+
+template <typename R, typename C, typename... Args>
+static auto guard(R (C::*f)(Args...) const) {
+    return guard([f](const C& obj, Args... args) -> R { return (obj.*f)(std::forward<Args>(args)...); });
+}
+
+// Registers every constructor and method of a wrapped type through guard()
+template <typename T>
+struct GuardedType {
+    jlcxx::TypeWrapper<T> type;
+
+    GuardedType& constructor() { type.template constructor<>(); return *this; }
+
+    template <typename F>
+    GuardedType& constructor(F f) { type.constructor(guard(std::move(f))); return *this; }
+
+    template <typename F>
+    GuardedType& method(const std::string& name, F f) { type.method(name, guard(std::move(f))); return *this; }
+};
+
+template <typename T>
+static GuardedType<T> guarded(jlcxx::TypeWrapper<T> type) { return {type}; }
 
 // Map a Julia matrix to an Eigen matrix using its *true* dimensions (Julia is
 // column-major, matching Eigen's default). Reading the real shape — rather than
@@ -32,6 +91,8 @@ to_eigen(jlcxx::ArrayRef<T, 1>& arr) {
     return Eigen::Matrix<T, Eigen::Dynamic, 1>::Map(arr.data(), arr.size());
 }
 
+// Views into solver-owned memory (the workspace): valid until the solver is freed or set
+// up with a new problem
 template <typename T>
 jlcxx::ArrayRef<T, 1> to_julia(Eigen::Matrix<T, Eigen::Dynamic, 1>& vec) {
     return jlcxx::make_julia_array(vec.data(), vec.size());
@@ -42,10 +103,11 @@ jlcxx::ArrayRef<T, 1> to_julia(Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>>& 
     return jlcxx::make_julia_array(vec.data(), vec.size());
 }
 
+// Julia-owned copies, for data whose C++ owner may be freed while Julia still holds the array
 template <typename T>
-jlcxx::Array<T> make_julia_owned(Eigen::Matrix<T, Eigen::Dynamic, 1> vec) {
-    jlcxx::Array<T> arr(vec.size());
-    
+jlcxx::Array<T> make_julia_owned(const T* data, std::size_t n) {
+    jlcxx::Array<T> arr(n);
+
 #if JULIA_VERSION_MAJOR > 1 || (JULIA_VERSION_MAJOR == 1 && JULIA_VERSION_MINOR >= 11)
     // Julia 1.11 and newer: macro takes 2 arguments
     T* dest_ptr = jl_array_data(arr.wrapped(), T);
@@ -54,22 +116,50 @@ jlcxx::Array<T> make_julia_owned(Eigen::Matrix<T, Eigen::Dynamic, 1> vec) {
     T* dest_ptr = reinterpret_cast<T*>(jl_array_data(arr.wrapped()));
 #endif
 
-    std::copy(vec.data(), vec.data() + vec.size(), dest_ptr);
+    std::copy(data, data + n, dest_ptr);
     return arr;
 }
 
-// Build an Eigen sparse matrix from Julia SparseMatrixCSC components.
-// Julia uses 1-based indices; Eigen uses 0-based.
-// Accepts Int64 colptr/rowval (Julia's default index type) and casts to QDLDL_int internally.
-static SMat csc_to_smat(int rows, int cols,
+template <typename T>
+jlcxx::Array<T> make_julia_owned(const Eigen::Matrix<T, Eigen::Dynamic, 1>& vec) {
+    return make_julia_owned(vec.data(), static_cast<std::size_t>(vec.size()));
+}
+
+// (rows, cols, colptr, rowval, nzval) copies of a compressed sparse matrix, 0-based indices
+static auto sparse_to_julia(const SMat& m) {
+    return std::make_tuple((int)m.rows(), (int)m.cols(),
+                           make_julia_owned(m.outerIndexPtr(), m.outerSize() + 1),
+                           make_julia_owned(m.innerIndexPtr(), m.nonZeros()),
+                           make_julia_owned(m.valuePtr(), m.nonZeros()));
+}
+
+// Build an Eigen sparse matrix from Julia SparseMatrixCSC components (1-based Int64 indices).
+// The column count comes from colptr, so a block of the wrong width reaches the Problem
+// constructor's validation; malformed CSC arrays are rejected before anything is indexed.
+static SMat csc_to_smat(int rows,
                         jlcxx::ArrayRef<int64_t, 1> colptr,
                         jlcxx::ArrayRef<int64_t, 1> rowval,
                         jlcxx::ArrayRef<double, 1>  nzval) {
-    int nnz = (int)nzval.size();
+    auto malformed = [](const std::string& why) {
+        return InvalidInputError("Marble problem: malformed sparse matrix (" + why + ")");
+    };
+    if (rows < 0) throw malformed("negative row count");
+    if (colptr.size() == 0) throw malformed("empty colptr");
+    const std::size_t cols = colptr.size() - 1;
+    const std::size_t nnz = nzval.size();
+    if (rowval.size() != nnz) throw malformed("rowval and nzval lengths differ");
+    if (colptr[0] != 1 || colptr[cols] != (int64_t)nnz + 1) throw malformed("colptr does not span nzval");
+
     std::vector<QDLDL_int> cp(cols + 1), ri(nnz);
-    for (int i = 0; i <= cols; i++) cp[i] = (QDLDL_int)(colptr[i] - 1);
-    for (int i = 0; i < nnz;  i++) ri[i] = (QDLDL_int)(rowval[i] - 1);
-    Eigen::Map<SMat> mapped(rows, cols, nnz,
+    for (std::size_t j = 0; j <= cols; j++) {
+        cp[j] = (QDLDL_int)(colptr[j] - 1);
+        if (j > 0 && cp[j] < cp[j - 1]) throw malformed("colptr is not nondecreasing");
+    }
+    for (std::size_t k = 0; k < nnz; k++) {
+        if (rowval[k] < 1 || rowval[k] > rows) throw malformed("row index out of range");
+        ri[k] = (QDLDL_int)(rowval[k] - 1);
+    }
+    Eigen::Map<SMat> mapped(rows, (Eigen::Index)cols, (Eigen::Index)nnz,
                             cp.data(), ri.data(),
                             const_cast<double*>(nzval.data()));
     SMat result = mapped;
@@ -84,7 +174,14 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
     mod.set_const("Exp",       RetractionType::Exp);
     mod.set_const("ScaledExp", RetractionType::ScaledExp);
 
-    mod.add_type<Problem>("Problem")
+    mod.add_bits<SolveStatus>("SolveStatus", jlcxx::julia_type("CppEnum"));
+    mod.set_const("Converged",               SolveStatus::Converged);
+    mod.set_const("MaxIterations",           SolveStatus::MaxIterations);
+    mod.set_const("FactorizationFailed",     SolveStatus::FactorizationFailed);
+    mod.set_const("InertiaCorrectionFailed", SolveStatus::InertiaCorrectionFailed);
+    mod.set_const("LinesearchFailed",        SolveStatus::LinesearchFailed);
+
+    guarded(mod.add_type<Problem>("Problem"))
         .constructor([](jlcxx::ArrayRef<double, 2> cost_hessian,
                         jlcxx::ArrayRef<double, 1> cost_gradient,
                         double cost_const,
@@ -100,16 +197,17 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
                 to_eigen(R),      to_eigen(r));
         })
         // Sparse constructor: accepts SparseMatrixCSC components from Julia.
-        // For each sparse matrix pass (colptr, rowval, nzval) from the Julia struct.
-        // Julia's colptr/rowval are Int64 (1-based); conversion to 0-based happens internally.
+        // For each sparse matrix pass (colptr, rowval, nzval) from the Julia struct; its column
+        // count is taken from colptr. Julia's colptr/rowval are Int64 (1-based); conversion to
+        // 0-based happens internally.
         // Usage from Julia:
-        //   Problem(nz,
+        //   Problem(size(H, 1),
         //           H.colptr, H.rowval, H.nzval, q, cost_const,
         //           n_eq,   J_eq.colptr,   J_eq.rowval,   J_eq.nzval,   c_eq,
         //           n_ineq, J_ineq.colptr, J_ineq.rowval, J_ineq.nzval, c_ineq,
         //           n_comp, L.colptr, L.rowval, L.nzval, l,
         //                   R.colptr, R.rowval, R.nzval, r)
-        .constructor([](int nz,
+        .constructor([](int n_rows_Q,
                         jlcxx::ArrayRef<int64_t,1> Hcp,  jlcxx::ArrayRef<int64_t,1> Hrv,  jlcxx::ArrayRef<double,1> Hnz,
                         jlcxx::ArrayRef<double,1> grad, double cost_const,
                         int n_eq,
@@ -124,11 +222,11 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
                         jlcxx::ArrayRef<int64_t,1> Rcp,  jlcxx::ArrayRef<int64_t,1> Rrv,  jlcxx::ArrayRef<double,1> Rnz,
                         jlcxx::ArrayRef<double,1> r) {
             return new Problem(
-                csc_to_smat(nz,     nz, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
-                csc_to_smat(n_eq,   nz, Ecp, Erv, Enz), to_eigen(c_eq),
-                csc_to_smat(n_ineq, nz, Icp, Irv, Inz), to_eigen(c_ineq),
-                csc_to_smat(n_comp, nz, Lcp, Lrv, Lnz), to_eigen(l),
-                csc_to_smat(n_comp, nz, Rcp, Rrv, Rnz), to_eigen(r));
+                csc_to_smat(n_rows_Q, Hcp, Hrv, Hnz), to_eigen(grad), cost_const,
+                csc_to_smat(n_eq,     Ecp, Erv, Enz), to_eigen(c_eq),
+                csc_to_smat(n_ineq,   Icp, Irv, Inz), to_eigen(c_ineq),
+                csc_to_smat(n_comp,   Lcp, Lrv, Lnz), to_eigen(l),
+                csc_to_smat(n_comp,   Rcp, Rrv, Rnz), to_eigen(r));
         })
         .method("nz",     [](const Problem& p) { return p.nz; })
         .method("n_eq",   [](const Problem& p) { return p.n_eq; })
@@ -138,49 +236,25 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("residual_eq",   [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_eq(to_eigen(z))); })
         .method("residual_ineq", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_ineq(to_eigen(z))); })
         .method("residual_comp", [](const Problem& p, jlcxx::ArrayRef<double, 1> z) { return make_julia_owned(p.residual_comp(to_eigen(z))); })
-        .method("cost_hessian", [](Problem& p) { 
-            // Assumes cost_hessian is compressed
-            auto colptr = jlcxx::make_julia_array(p.cost_hessian.outerIndexPtr(), p.cost_hessian.outerSize() + 1);
-            auto rowval = jlcxx::make_julia_array(p.cost_hessian.innerIndexPtr(), p.cost_hessian.nonZeros());
-            auto nzval  = jlcxx::make_julia_array(p.cost_hessian.valuePtr(),      p.cost_hessian.nonZeros());
-            return std::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), colptr, rowval, nzval);
-        })
-        .method("cost_gradient", [](Problem& p) { return to_julia(p.cost_gradient); })
-        .method("cost_const", [](Problem& p) { return p.cost_const; })
-        .method("J_eq", [](Problem& p) {
-            auto colptr = jlcxx::make_julia_array(p.J_eq.outerIndexPtr(), p.J_eq.outerSize() + 1);
-            auto rowval = jlcxx::make_julia_array(p.J_eq.innerIndexPtr(), p.J_eq.nonZeros());
-            auto nzval  = jlcxx::make_julia_array(p.J_eq.valuePtr(),      p.J_eq.nonZeros());
-            return std::make_tuple((int)p.J_eq.rows(), (int)p.J_eq.cols(), colptr, rowval, nzval);
-        })
-        .method("c_eq", [](Problem& p) { return to_julia(p.c_eq); })
-        .method("J_ineq", [](Problem& p) {
-            auto colptr = jlcxx::make_julia_array(p.J_ineq.outerIndexPtr(), p.J_ineq.outerSize() + 1);
-            auto rowval = jlcxx::make_julia_array(p.J_ineq.innerIndexPtr(), p.J_ineq.nonZeros());
-            auto nzval  = jlcxx::make_julia_array(p.J_ineq.valuePtr(),      p.J_ineq.nonZeros());
-            return std::make_tuple((int)p.J_ineq.rows(), (int)p.J_ineq.cols(), colptr, rowval, nzval);
-        })
-        .method("c_ineq", [](Problem& p) { return to_julia(p.c_ineq); })
-        .method("L_comp", [](Problem& p) {
-            auto colptr = jlcxx::make_julia_array(p.L_comp.outerIndexPtr(), p.L_comp.outerSize() + 1);
-            auto rowval = jlcxx::make_julia_array(p.L_comp.innerIndexPtr(), p.L_comp.nonZeros());
-            auto nzval  = jlcxx::make_julia_array(p.L_comp.valuePtr(),      p.L_comp.nonZeros());
-            return std::make_tuple((int)p.L_comp.rows(), (int)p.L_comp.cols(), colptr, rowval, nzval);
-        })
-        .method("l_comp", [](Problem& p) { return to_julia(p.l_comp); })
-        .method("R_comp", [](Problem& p) {
-            auto colptr = jlcxx::make_julia_array(p.R_comp.outerIndexPtr(), p.R_comp.outerSize() + 1);
-            auto rowval = jlcxx::make_julia_array(p.R_comp.innerIndexPtr(), p.R_comp.nonZeros());
-            auto nzval  = jlcxx::make_julia_array(p.R_comp.valuePtr(),      p.R_comp.nonZeros());
-            return std::make_tuple((int)p.R_comp.rows(), (int)p.R_comp.cols(), colptr, rowval, nzval);
-        })
-        .method("r_comp", [](Problem& p) { return to_julia(p.r_comp); });
+        // Copies, not views: a Problem can be freed (or replaced by a new setup) while Julia
+        // still holds the arrays
+        .method("cost_hessian",  [](const Problem& p) { return sparse_to_julia(p.cost_hessian); })
+        .method("cost_gradient", [](const Problem& p) { return make_julia_owned(p.cost_gradient); })
+        .method("cost_const",    [](const Problem& p) { return p.cost_const; })
+        .method("J_eq",          [](const Problem& p) { return sparse_to_julia(p.J_eq); })
+        .method("c_eq",          [](const Problem& p) { return make_julia_owned(p.c_eq); })
+        .method("J_ineq",        [](const Problem& p) { return sparse_to_julia(p.J_ineq); })
+        .method("c_ineq",        [](const Problem& p) { return make_julia_owned(p.c_ineq); })
+        .method("L_comp",        [](const Problem& p) { return sparse_to_julia(p.L_comp); })
+        .method("l_comp",        [](const Problem& p) { return make_julia_owned(p.l_comp); })
+        .method("R_comp",        [](const Problem& p) { return sparse_to_julia(p.R_comp); })
+        .method("r_comp",        [](const Problem& p) { return make_julia_owned(p.r_comp); });
 
     #define OPTION_RW(name, T) \
         .method(#name,       [](const Solver::Options& o)    { return o.name; }) \
         .method(#name "!",   [](Solver::Options& o, T v)     { o.name = v; })
 
-    mod.add_type<Solver::Options>("SolverOptions")
+    guarded(mod.add_type<Solver::Options>("SolverOptions"))
         .constructor()
         OPTION_RW(convergence_kkt_norm,       double)
         OPTION_RW(convergence_eq_violation,   double)
@@ -208,7 +282,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
 
     #undef OPTION_RW
 
-    mod.add_type<Filter::Entry>("FilterEntry")
+    guarded(mod.add_type<Filter::Entry>("FilterEntry"))
         .constructor()
         .constructor([](double feas, double merit) {
             Filter::Entry* e = new Filter::Entry(); e->feas = feas; e->merit = merit; return e;
@@ -218,7 +292,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("merit",  [](const Filter::Entry& e) { return e.merit; })
         .method("merit!", [](Filter::Entry& e, double v) { e.merit = v; });
 
-    mod.add_type<Filter>("Filter")
+    guarded(mod.add_type<Filter>("Filter"))
         .constructor()
         .constructor([](double gamma_objective, double gamma_constraint) {
             return new Filter(gamma_objective, gamma_constraint);
@@ -249,7 +323,7 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("acceptable",           &Filter::acceptable)
         .method("update",               &Filter::update);
 
-    mod.add_type<Workspace>("Workspace")
+    guarded(mod.add_type<Workspace>("Workspace"))
         // Full solution and decomposed views
         .method("solution", [](Workspace& w) { return to_julia(w.solution); })
         .method("z",        [](Workspace& w) { return to_julia(w.z); })
@@ -291,23 +365,26 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("amd_iperm_vec", [](Workspace& w) { return to_julia(w.amd_iperm_vec); })
         .method("scaling", [](Workspace& w) { return to_julia(w.scaling); });
 
-    mod.add_type<SolveResult>("SolveResult")
+    // Vectors are copied out: a SolveResult returned by value is freed by its Julia
+    // finalizer, so a view into it would dangle once the result is collected
+    guarded(mod.add_type<SolveResult>("SolveResult"))
         .method("converged",        [](const SolveResult& r) { return r.converged; })
+        .method("status",           [](const SolveResult& r) { return r.status; })
         .method("iterations",       [](const SolveResult& r) { return r.iterations; })
         .method("iterations_outer", [](const SolveResult& r) { return r.iterations_outer; })
         .method("iterations_inner", [](const SolveResult& r) { return r.iterations_inner; })
         .method("factorizations",   [](const SolveResult& r) { return r.factorizations; })
-        .method("z",      [](SolveResult& r) { return to_julia(r.z); })
-        .method("s_ineq", [](SolveResult& r) { return to_julia(r.s_ineq); })
-        .method("s_comp", [](SolveResult& r) { return to_julia(r.s_comp); })
-        .method("m_eq",         [](SolveResult& r) { return to_julia(r.m_eq); })
-        .method("m_ineq",       [](SolveResult& r) { return to_julia(r.m_ineq); })
-        .method("m_comp_L",     [](SolveResult& r) { return to_julia(r.m_comp_L); })
-        .method("m_comp_R",     [](SolveResult& r) { return to_julia(r.m_comp_R); })
+        .method("z",            [](const SolveResult& r) { return make_julia_owned(r.z); })
+        .method("s_ineq",       [](const SolveResult& r) { return make_julia_owned(r.s_ineq); })
+        .method("s_comp",       [](const SolveResult& r) { return make_julia_owned(r.s_comp); })
+        .method("m_eq",         [](const SolveResult& r) { return make_julia_owned(r.m_eq); })
+        .method("m_ineq",       [](const SolveResult& r) { return make_julia_owned(r.m_ineq); })
+        .method("m_comp_L",     [](const SolveResult& r) { return make_julia_owned(r.m_comp_L); })
+        .method("m_comp_R",     [](const SolveResult& r) { return make_julia_owned(r.m_comp_R); })
         .method("setup_time_s", [](const SolveResult& r) { return r.setup_time_s; })
         .method("solve_time_s", [](const SolveResult& r) { return r.solve_time_s; });
 
-    mod.add_type<Solver>("Solver")
+    guarded(mod.add_type<Solver>("Solver"))
         .constructor()
         // Problem setup
         .method("ruiz_equilibration!", [](Solver& solver, int niter) {
@@ -372,6 +449,9 @@ JLCXX_MODULE define_julia_module(jlcxx::Module& mod) {
         .method("backsolve!", [](Solver& s, jlcxx::ArrayRef<double, 1> b, jlcxx::ArrayRef<double, 1> x) {
             Vec xv;
             s.backsolve(to_eigen(b), xv);
+            if ((long)x.size() != xv.size())
+                throw InvalidInputError("backsolve!: x has length " + std::to_string(x.size()) +
+                                        ", expected " + std::to_string(xv.size()));
             for (int i = 0; i < xv.size(); i++) x[i] = xv[i];
         })
         // Linesearch

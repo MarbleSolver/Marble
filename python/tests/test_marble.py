@@ -1,9 +1,9 @@
 """Marble Python test suite.
 
 Mirror of the Julia suite (julia/test/runtests.jl): the same example problem
-written directly as matrices (from julia/examples/simple_test.jl) and the same
-16 test cases in the same order — nine solve tests followed by seven dimension
-validation cases. Each test sets up and runs the solver fresh.
+written directly as matrices (from julia/examples/simple_test.jl), the same
+solve tests and dimension validation cases, and the same error handling cases.
+Each test sets up and runs the solver fresh.
 Run with ``python -m unittest`` or ``python tests/test_marble.py``.
 """
 import unittest
@@ -28,14 +28,19 @@ R, ER          = [[0.0, 0.0, 0.0, 1.0]], [-1.0]
 ZSTAR = np.array([1.0, 1.0, 0.0, 1.0])
 
 
-# Build the solver, set up the example problem (dense or sparse), and solve.
+# Build the solver and set up the example problem (dense or sparse).
 # Option settings are forwarded to setup as keyword arguments.
-def setup_and_solve(sparse_problem=False, **options):
+def setup(sparse_problem=False, **options):
     conv = (lambda M: sp.csc_matrix(M)) if sparse_problem else (lambda M: M)
     m = marble.Solver()
     m.setup(conv(Q), q, C0,
             J_eq=conv(J_EQ), b_eq=B_EQ, J_ineq=conv(J_INEQ), b_ineq=B_INEQ,
             L=conv(L), l=EL, R=conv(R), r=ER, **options)
+    return m
+
+
+def setup_and_solve(sparse_problem=False, **options):
+    m = setup(sparse_problem, **options)
     return m, m.solve()
 
 
@@ -49,7 +54,8 @@ class TestMarble(unittest.TestCase):
     def test_solves_to_known_optimum(self):
         _, res = setup_and_solve()
         z = np.asarray(res.z)
-        self.assertTrue(res.converged and np.allclose(z, ZSTAR, atol=1e-4))
+        self.assertTrue(res.converged and res.status == marble.SolveStatus.Converged
+                        and np.allclose(z, ZSTAR, atol=1e-4))
 
     def test_equality_constraint_satisfied(self):
         # x1 = 1
@@ -144,6 +150,59 @@ class TestDimensionValidation(unittest.TestCase):
             marble.Solver().setup(Q=sp.csc_matrix(np.eye(2)), q=np.zeros(2),
                                   L=sp.csc_matrix(np.zeros((1, 2))),
                                   R=sp.csc_matrix(np.zeros((1, 2))), r=np.zeros(1))
+
+
+
+class TestErrorHandling(unittest.TestCase):
+    """Misuse and numerical failure must come back as Python errors or a status, never crash.
+
+    Mirror of the Julia suite's "error handling" testset.
+    """
+
+    def test_no_problem_set_raises(self):
+        m = marble.Solver()
+        for call in (m.solve, m.get_workspace, m.get_problem, m.update_residuals,
+                     lambda: m.backsolve(np.zeros(1))):
+            with self.assertRaises(marble.MarbleError):
+                call()
+
+    def test_invalid_problem_data_raises(self):
+        with self.assertRaises(ValueError):
+            marble.Solver().setup(np.zeros((0, 0)), np.zeros(0))
+        with self.assertRaises(ValueError):
+            marble.Solver().setup(Q, [np.nan, 0.0, 0.0, 0.0])
+
+    def test_wrong_argument_lengths_raise(self):
+        m, _ = setup_and_solve()
+        with self.assertRaises(ValueError):
+            m.problem.obj(np.zeros(3))
+        with self.assertRaises(ValueError):
+            m.update_KKT_ineq(np.zeros(5), 0.1)
+        with self.assertRaises(ValueError):
+            m.update_KKT_comp(np.zeros(1), np.zeros(2), np.zeros(1), 0.1)
+        with self.assertRaises(ValueError):
+            m.backsolve(np.zeros(2))
+
+    def test_backsolve_needs_factorization(self):
+        m = setup()
+        with self.assertRaises(marble.MarbleError):
+            m.backsolve(np.zeros(m.n_vars))
+
+    def test_invalid_options_raise(self):
+        for options in ({"relaxation_initial": -1.0}, {"penalty_initial": float("nan")},
+                        {"retraction_type": marble.RetractionType(7)}):
+            with self.assertRaises(ValueError):
+                setup_and_solve(**options)
+
+    def test_iteration_limit_returns_status(self):
+        _, res = setup_and_solve(max_iters=3)
+        self.assertTrue(not res.converged and res.status == marble.SolveStatus.MaxIterations)
+
+    def test_references_survive_new_setup(self):
+        m, res = setup_and_solve()
+        ws, prob = m.get_workspace(), m.problem
+        m.setup(np.eye(2), np.zeros(2))
+        self.assertTrue(np.allclose(ws.z, res.z) and prob.nz == 4)
 
 
 if __name__ == "__main__":

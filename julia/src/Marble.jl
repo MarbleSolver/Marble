@@ -44,7 +44,7 @@ module Marble
         fvec(v) = collect(Float64, v)
         if any(b -> b isa AbstractSparseMatrix, blocks)
             Qs, Es, Is, Ls, Rs = sparse(Q), sparse(J_eq), sparse(J_ineq), sparse(L), sparse(R)
-            return Marble.Problem(size(Qs, 2),
+            return Marble.Problem(size(Qs, 1),
                 Qs.colptr, Qs.rowval, Qs.nzval, fvec(q), Float64(c0),
                 size(Es, 1), Es.colptr, Es.rowval, Es.nzval, fvec(b_eq),
                 size(Is, 1), Is.colptr, Is.rowval, Is.nzval, fvec(b_ineq),
@@ -115,6 +115,9 @@ module Marble
     Base.getproperty(solver::Marble.Solver, sym::Symbol) = solver_property(solver, Val(sym))
     solver_property(solver::Marble.Solver, ::Val{:options}) = CxxWrap.dereference_argument(Marble.options(solver))
     solver_property(solver::Marble.Solver, ::Val{:problem}) = CxxWrap.dereference_argument(Marble.get_problem(solver))
+    solver_property(solver::Marble.Solver, ::Val{:n_primals}) = Marble.n_primals(solver)
+    solver_property(solver::Marble.Solver, ::Val{:n_duals}) = Marble.n_duals(solver)
+    solver_property(solver::Marble.Solver, ::Val{:n_vars}) = Marble.n_vars(solver)
     solver_property(solver::Marble.Solver, ::Val{:workspace}) = CxxWrap.dereference_argument(Marble.get_workspace(solver))
     solver_property(solver::Marble.Solver, ::Val{:z_inds}) = Marble.z_inds(solver) .+ 1
     solver_property(solver::Marble.Solver, ::Val{:s_ineq_inds}) = Marble.s_ineq_inds(solver) .+ 1
@@ -126,7 +129,7 @@ module Marble
     solver_property(solver::Marble.Solver, ::Val{sym}) where sym = getfield(solver, sym)
 
     Base.propertynames(solver::Marble.Solver, private::Bool=false) = 
-        (:options, :problem, :z_inds, :s_ineq_inds, :s_comp_inds, :m_eq_inds, :m_ineq_inds,
+        (:options, :problem, :n_primals, :n_duals, :n_vars, :z_inds, :s_ineq_inds, :s_comp_inds, :m_eq_inds, :m_ineq_inds,
          :m_comp_L_inds, :m_comp_R_inds, fieldnames(typeof(solver))...)
 
     ## Accessors for problem members
@@ -180,9 +183,19 @@ module Marble
         (:kkt_residual, :dkkt_residual_drelax, :kkt_system, :solution, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R, :amd_perm_vec, :amd_iperm_vec, :scaling,
          :m_eq_est, :m_ineq_est, :m_comp_L_est, :m_comp_R_est, :relax_param, :penalty_param, fieldnames(typeof(workspace))...)
 
+    const STATUS_NAMES = (Converged => :Converged, MaxIterations => :MaxIterations,
+                          FactorizationFailed => :FactorizationFailed,
+                          InertiaCorrectionFailed => :InertiaCorrectionFailed,
+                          LinesearchFailed => :LinesearchFailed)
+    function Base.show(io::IO, status::SolveStatus)
+        i = findfirst(p -> p.first == status, STATUS_NAMES)
+        print(io, "Marble.", isnothing(i) ? "SolveStatus($(reinterpret(Int32, status)))" : STATUS_NAMES[i].second)
+    end
+
     ## Accessors for result members
     Base.getproperty(result::Marble.SolveResult, sym::Symbol) = result_property(result, Val(sym))
     result_property(result::Marble.SolveResult, ::Val{:converged}) = Marble.converged(result)
+    result_property(result::Marble.SolveResult, ::Val{:status}) = Marble.status(result)
     result_property(result::Marble.SolveResult, ::Val{:iterations}) = Marble.iterations(result)
     result_property(result::Marble.SolveResult, ::Val{:iterations_outer}) = Marble.iterations_outer(result)
     result_property(result::Marble.SolveResult, ::Val{:iterations_inner}) = Marble.iterations_inner(result)
@@ -199,7 +212,7 @@ module Marble
     result_property(result::Marble.SolveResult, ::Val{sym}) where sym = getfield(result, sym)
 
     Base.propertynames(result::Marble.SolveResult, private::Bool=false) =
-        (:converged, :iterations, :iterations_outer, :iterations_inner, :factorizations, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R,
+        (:converged, :status, :iterations, :iterations_outer, :iterations_inner, :factorizations, :z, :s_ineq, :s_comp, :m_eq, :m_ineq, :m_comp_L, :m_comp_R,
          :setup_time_s, :solve_time_s, fieldnames(typeof(result))...)
 
     # Helper functions for evaluating objectives and residuals

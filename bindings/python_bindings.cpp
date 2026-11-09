@@ -8,40 +8,31 @@ namespace py = pybind11;
 // Helper: copy Eigen::Map<Vec> → Vec so pybind11/eigen can convert to numpy
 static Vec copy_map(const Eigen::Map<Vec>& m) { return Vec(m); }
 
-// Helper: build Eigen sparse matrix from CSC components (0-based indices).
-// colptr has length cols+1, rowval/nzval have length nnz.
-// Accepts numpy arrays of QDLDL_int (long long) for colptr/rowval and double for nzval.
-static SMat csc_to_smat(int rows, int cols,
-                        py::array_t<QDLDL_int> colptr_arr,
-                        py::array_t<QDLDL_int> rowval_arr,
-                        py::array_t<double>    nzval_arr) {
-    int nnz = static_cast<int>(nzval_arr.size());
-    if (nnz == 0) {
-        SMat m(rows, cols);
-        m.makeCompressed();
-        return m;
-    }
-    // Copy index arrays through std::vector to guarantee QDLDL_int storage
-    // independent of the numpy array lifetime.
-    std::vector<QDLDL_int> cp(colptr_arr.data(), colptr_arr.data() + cols + 1);
-    std::vector<QDLDL_int> ri(rowval_arr.data(), rowval_arr.data() + nnz);
-    Eigen::Map<SMat> mapped(rows, cols, nnz, cp.data(), ri.data(),
-                            const_cast<double*>(nzval_arr.data()));
-    SMat result = mapped;
-    result.makeCompressed();
-    return result;
-}
-
-// Helper: convert 1-D numpy float64 array → Eigen VectorXd (copy)
-static Vec arr_to_vec(py::array_t<double> arr) {
-    if (arr.size() == 0) return Vec(0);
-    return Eigen::Map<const Vec>(arr.data(), arr.size());
+// (rows, cols, colptr, rowval, nzval) copies of a compressed sparse matrix, 0-based indices
+static py::tuple sparse_to_tuple(const SMat& m) {
+    Eigen::VectorXi cp(m.outerSize() + 1), rv(m.nonZeros());
+    std::copy(m.outerIndexPtr(), m.outerIndexPtr() + m.outerSize() + 1, cp.data());
+    std::copy(m.innerIndexPtr(), m.innerIndexPtr() + m.nonZeros(),     rv.data());
+    Vec nz = Eigen::Map<const Vec>(m.valuePtr(), m.nonZeros());
+    return py::make_tuple((int)m.rows(), (int)m.cols(), cp, rv, nz);
 }
 
 PYBIND11_MODULE(_core, m) {
     m.doc() = "Marble compiled core: constrained optimization solver with complementarity constraints";
 
-    py::class_<Problem>(m, "Problem")
+    // Registered base first: pybind11 tries the most recently registered translator first
+    auto& marble_error = py::register_exception<MarbleError>(m, "MarbleError", PyExc_RuntimeError);
+    py::register_exception<InvalidInputError>(m, "InvalidInputError",
+        py::make_tuple(marble_error, py::handle(PyExc_ValueError)));
+
+    py::enum_<SolveStatus>(m, "SolveStatus")
+        .value("Converged",               SolveStatus::Converged)
+        .value("MaxIterations",           SolveStatus::MaxIterations,           "Outer or inner iteration limit reached")
+        .value("FactorizationFailed",     SolveStatus::FactorizationFailed,     "KKT factorization failed for every regularizer")
+        .value("InertiaCorrectionFailed", SolveStatus::InertiaCorrectionFailed, "KKT inertia could not be corrected for any regularizer")
+        .value("LinesearchFailed",        SolveStatus::LinesearchFailed,        "Filter linesearch failed for every regularizer");
+
+    py::class_<Problem, std::shared_ptr<Problem>>(m, "Problem")
         // Dense numpy-array constructor (mirrors Julia wrapper)
         .def(py::init([](const Mat& cost_hessian, const Vec& cost_gradient, double cost_const,
                          const Mat& J_eq,   const Vec& c_eq,
@@ -82,54 +73,20 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("cost_gradient", [](const Problem& p) { return p.cost_gradient; })
         .def_readonly("cost_const", &Problem::cost_const)
         // Constraint matrices (returned as scipy-compatible CSC tuple: rows, cols, colptr, rowval, nzval)
-        .def_property_readonly("J_eq",   [](Problem& p) {
-            p.J_eq.makeCompressed();
-            Eigen::VectorXi cp(p.J_eq.outerSize() + 1), rv(p.J_eq.nonZeros()); Vec nz(p.J_eq.nonZeros());
-            std::copy(p.J_eq.outerIndexPtr(), p.J_eq.outerIndexPtr() + p.J_eq.outerSize() + 1, cp.data());
-            std::copy(p.J_eq.innerIndexPtr(), p.J_eq.innerIndexPtr() + p.J_eq.nonZeros(),      rv.data());
-            std::copy(p.J_eq.valuePtr(),      p.J_eq.valuePtr()      + p.J_eq.nonZeros(),      nz.data());
-            return py::make_tuple((int)p.J_eq.rows(), (int)p.J_eq.cols(), cp, rv, nz);
-        })
+        .def_property_readonly("J_eq", [](const Problem& p) { return sparse_to_tuple(p.J_eq); })
         .def_property_readonly("c_eq",   [](const Problem& p) { return p.c_eq; })
-        .def_property_readonly("J_ineq", [](Problem& p) {
-            p.J_ineq.makeCompressed();
-            Eigen::VectorXi cp(p.J_ineq.outerSize() + 1), rv(p.J_ineq.nonZeros()); Vec nz(p.J_ineq.nonZeros());
-            std::copy(p.J_ineq.outerIndexPtr(), p.J_ineq.outerIndexPtr() + p.J_ineq.outerSize() + 1, cp.data());
-            std::copy(p.J_ineq.innerIndexPtr(), p.J_ineq.innerIndexPtr() + p.J_ineq.nonZeros(),      rv.data());
-            std::copy(p.J_ineq.valuePtr(),      p.J_ineq.valuePtr()      + p.J_ineq.nonZeros(),      nz.data());
-            return py::make_tuple((int)p.J_ineq.rows(), (int)p.J_ineq.cols(), cp, rv, nz);
-        })
+        .def_property_readonly("J_ineq", [](const Problem& p) { return sparse_to_tuple(p.J_ineq); })
         .def_property_readonly("c_ineq", [](const Problem& p) { return p.c_ineq; })
-        .def_property_readonly("L_comp", [](Problem& p) {
-            p.L_comp.makeCompressed();
-            Eigen::VectorXi cp(p.L_comp.outerSize() + 1), rv(p.L_comp.nonZeros()); Vec nz(p.L_comp.nonZeros());
-            std::copy(p.L_comp.outerIndexPtr(), p.L_comp.outerIndexPtr() + p.L_comp.outerSize() + 1, cp.data());
-            std::copy(p.L_comp.innerIndexPtr(), p.L_comp.innerIndexPtr() + p.L_comp.nonZeros(),      rv.data());
-            std::copy(p.L_comp.valuePtr(),      p.L_comp.valuePtr()      + p.L_comp.nonZeros(),      nz.data());
-            return py::make_tuple((int)p.L_comp.rows(), (int)p.L_comp.cols(), cp, rv, nz);
-        })
+        .def_property_readonly("L_comp", [](const Problem& p) { return sparse_to_tuple(p.L_comp); })
         .def_property_readonly("l_comp", [](const Problem& p) { return p.l_comp; })
-        .def_property_readonly("R_comp", [](Problem& p) {
-            p.R_comp.makeCompressed();
-            Eigen::VectorXi cp(p.R_comp.outerSize() + 1), rv(p.R_comp.nonZeros()); Vec nz(p.R_comp.nonZeros());
-            std::copy(p.R_comp.outerIndexPtr(), p.R_comp.outerIndexPtr() + p.R_comp.outerSize() + 1, cp.data());
-            std::copy(p.R_comp.innerIndexPtr(), p.R_comp.innerIndexPtr() + p.R_comp.nonZeros(),      rv.data());
-            std::copy(p.R_comp.valuePtr(),      p.R_comp.valuePtr()      + p.R_comp.nonZeros(),      nz.data());
-            return py::make_tuple((int)p.R_comp.rows(), (int)p.R_comp.cols(), cp, rv, nz);
-        })
+        .def_property_readonly("R_comp", [](const Problem& p) { return sparse_to_tuple(p.R_comp); })
         .def_property_readonly("r_comp", [](const Problem& p) { return p.r_comp; })
         // Cost hessian (same CSC tuple format)
-        .def_property_readonly("cost_hessian", [](Problem& p) {
-            p.cost_hessian.makeCompressed();
-            Eigen::VectorXi cp(p.cost_hessian.outerSize() + 1), rv(p.cost_hessian.nonZeros()); Vec nz(p.cost_hessian.nonZeros());
-            std::copy(p.cost_hessian.outerIndexPtr(), p.cost_hessian.outerIndexPtr() + p.cost_hessian.outerSize() + 1, cp.data());
-            std::copy(p.cost_hessian.innerIndexPtr(), p.cost_hessian.innerIndexPtr() + p.cost_hessian.nonZeros(),      rv.data());
-            std::copy(p.cost_hessian.valuePtr(),      p.cost_hessian.valuePtr()      + p.cost_hessian.nonZeros(),      nz.data());
-            return py::make_tuple((int)p.cost_hessian.rows(), (int)p.cost_hessian.cols(), cp, rv, nz);
-        });
+        .def_property_readonly("cost_hessian", [](const Problem& p) { return sparse_to_tuple(p.cost_hessian); });
 
     py::class_<SolveResult>(m, "SolveResult")
         .def_readonly("converged",         &SolveResult::converged)
+        .def_readonly("status",            &SolveResult::status)
         .def_readonly("iterations",        &SolveResult::iterations)
         .def_readonly("iterations_outer",  &SolveResult::iterations_outer)
         .def_readonly("iterations_inner",  &SolveResult::iterations_inner)
@@ -145,6 +102,7 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("m_comp_R", [](const SolveResult& r) { return r.m_comp_R; })
         .def("__repr__", [](const SolveResult& r) {
             return "<SolveResult converged=" + std::string(r.converged ? "True" : "False")
+                 + " status=" + py::str(py::cast(r.status)).cast<std::string>()
                  + " iterations=" + std::to_string(r.iterations)
                  + " factorizations=" + std::to_string(r.factorizations) + ">";
         });
@@ -178,6 +136,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("verbosity",                  &Solver::Options::verbosity)
         .def_readwrite("retraction_type",            &Solver::Options::retraction_type)
         .def_readwrite("clamp_hessian",              &Solver::Options::clamp_hessian)
+        .def_readwrite("warmstart",                  &Solver::Options::warmstart)
         .def("__repr__", [](const Solver::Options& o) {
             return "<SolverOptions convergence_kkt_norm=" + std::to_string(o.convergence_kkt_norm)
                  + " max_iters=" + std::to_string(o.max_iters) + ">";
@@ -192,7 +151,7 @@ PYBIND11_MODULE(_core, m) {
                  + " merit=" + std::to_string(e.merit) + ">";
         });
 
-    py::class_<Filter>(m, "Filter")
+    py::class_<Filter, std::shared_ptr<Filter>>(m, "Filter")
         .def(py::init<>())
         .def(py::init<double, double>(),
              py::arg("gamma_objective"), py::arg("gamma_constraint"))
@@ -216,7 +175,7 @@ PYBIND11_MODULE(_core, m) {
         .def("acceptable", &Filter::acceptable, py::arg("candidate"))
         .def("update", &Filter::update, py::arg("new_entry"));
 
-    py::class_<Workspace>(m, "Workspace")
+    py::class_<Workspace, std::shared_ptr<Workspace>>(m, "Workspace")
         // Solution components – copy Maps to plain Vec so numpy owns the data
         .def_property_readonly("solution",
             [](const Workspace& w) { return w.solution; })
@@ -246,6 +205,8 @@ PYBIND11_MODULE(_core, m) {
         // Residuals
         .def_property_readonly("kkt_residual",
             [](const Workspace& w) { return w.kkt_residual; })
+        .def_property_readonly("dkkt_residual_drelax",
+            [](const Workspace& w) { return w.dkkt_residual_drelax; })
         .def_property_readonly("residual_eq",
             [](const Workspace& w) { return w.residual_eq; })
         .def_property_readonly("residual_ineq",
@@ -298,24 +259,31 @@ PYBIND11_MODULE(_core, m) {
                  return s.get_workspace().scaling;
              },
              py::arg("niter"))
-        .def("get_problem", &Solver::get_problem,
-             py::return_value_policy::reference_internal)
+        .def("get_problem", [](Solver& s) {
+                 s.get_problem();  // raises if no problem is set
+                 return std::const_pointer_cast<Problem>(s.prob);
+             })
         .def("get_options", [](Solver& s) -> Solver::Options& { return s.options; },
              py::return_value_policy::reference_internal)
         // Main solve
         .def("solve", [](Solver& s) { return s.solve(); })
         .def("convergence", &Solver::convergence)
         // Workspace / filter access
-        .def("get_workspace", &Solver::get_workspace,
-             py::return_value_policy::reference_internal)
-        .def("get_filter", &Solver::get_filter,
-             py::return_value_policy::reference_internal)
+        .def("get_workspace", [](Solver& s) {
+                 s.get_workspace();  // raises if no problem is set
+                 return s.workspace;
+             })
+        .def("get_filter", [](Solver& s) { return s.filter; })
         // Retraction maps
         .def("retract", &Solver::retract,
              py::arg("s"), py::arg("relax_param"))
         .def("retract_deriv", &Solver::retract_deriv,
              py::arg("s"), py::arg("relax_param"))
         .def("retract_second_deriv", &Solver::retract_second_deriv,
+             py::arg("s"), py::arg("relax_param"))
+        .def("retract_drelax", &Solver::retract_drelax,
+             py::arg("s"), py::arg("relax_param"))
+        .def("retract_deriv_drelax", &Solver::retract_deriv_drelax,
              py::arg("s"), py::arg("relax_param"))
         // KKT updates
         .def("update_residuals", &Solver::update_residuals)
@@ -335,6 +303,8 @@ PYBIND11_MODULE(_core, m) {
              py::arg("penalty_param"))
         .def("update_KKT_primal_regularizer", &Solver::update_KKT_primal_regularizer,
              py::arg("reg"))
+        .def("update_dKKT_residual_drelax", &Solver::update_dKKT_residual_drelax,
+             py::arg("relax_param"))
         // Factorization and solve
         .def("initialize_kkt_sparsity", &Solver::initialize_kkt_sparsity)
         .def("compute_amd_ordering",    &Solver::compute_amd_ordering)

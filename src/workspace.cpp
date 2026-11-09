@@ -18,12 +18,13 @@ Workspace::Workspace(const Problem& prob)
     m_comp_R_est.resize(prob.n_comp);
 
     int n_vars = prob.nz + prob.n_ineq + prob.n_comp + prob.n_eq + prob.n_ineq + 2 * prob.n_comp;
-    kkt_residual.resize(n_vars);
-    dkkt_residual_drelax.resize(n_vars);
-    s_comp_stationarity.resize(prob.n_comp);
-    s_ineq_stationarity.resize(prob.n_ineq);
-    newton_step.resize(n_vars);
-    dsolution_drelax.resize(n_vars);
+    // Zeroed rather than just sized: the bindings can read these before the solver writes them
+    kkt_residual.setZero(n_vars);
+    dkkt_residual_drelax.setZero(n_vars);
+    s_comp_stationarity.setZero(prob.n_comp);
+    s_ineq_stationarity.setZero(prob.n_ineq);
+    newton_step.setZero(n_vars);
+    dsolution_drelax.setZero(n_vars);
     backsolve_scratch.resize(n_vars);
 
     residual_eq.resize(prob.n_eq);
@@ -51,8 +52,8 @@ Workspace::Workspace(const Problem& prob)
     bwork.resize(n_vars);
     fwork.resize(n_vars);
     Lp.resize(n_vars + 1);
-    D.resize(n_vars);
-    Dinv.resize(n_vars);
+    D.setZero(n_vars);
+    Dinv.setZero(n_vars);
 }
 
 void Workspace::appendBlockTriplets(std::vector<Eigen::Triplet<double>>& triplets, const SMat& block, int row_start, int col_start) {

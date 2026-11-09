@@ -91,7 +91,7 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
 
     @testset "solves to known optimum" begin
         for (_, res) in solved
-            @test res.converged && isapprox(res.z, ZSTAR, atol = 1e-4)
+            @test res.converged && res.status == Marble.Converged && isapprox(res.z, ZSTAR, atol = 1e-4)
         end
     end
 
@@ -149,10 +149,9 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
     end
 
     @testset "dimension validation" begin
-        # Mismatched / missing blocks must error cleanly, never segfault. Validation
-        # happens in Julia (see _validate_problem_dims) because CxxWrap cannot
-        # translate the core's C++ exception into a catchable Julia error. These
-        # mirror the seven cases in the Python suite (TestDimensionValidation)
+        # Mismatched / missing blocks must error cleanly, never segfault. The core's
+        # Problem constructor raises these and the bindings turn them into Julia
+        # errors. These mirror the seven cases in the Python suite (TestDimensionValidation)
         Q2 = Matrix(1.0I, 2, 2)
         # L given (1 row) but l omitted
         @test_throws ErrorException Marble.setup!(Marble.Solver(), Q2, zeros(2);
@@ -173,6 +172,40 @@ const RETRACTIONS = [Marble.Softplus, Marble.Exp, Marble.ScaledExp]
         # Sparse blocks: L given but l omitted
         @test_throws ErrorException Marble.setup!(Marble.Solver(), sparse(Q2), zeros(2);
             L = sparse(zeros(1, 2)), R = sparse(zeros(1, 2)), r = zeros(1))
+    end
+
+    @testset "error handling" begin
+        # Misuse and numerical failure must come back as Julia errors or a status, never
+        # abort the process. Mirrors TestErrorHandling in the Python suite
+        s0 = Marble.Solver()
+        @test_throws ErrorException Marble.solve!(s0)
+        @test_throws ErrorException s0.workspace
+        @test_throws ErrorException s0.problem
+        @test_throws ErrorException Marble.update_residuals!(s0)
+        @test_throws ErrorException Marble.backsolve!(s0, zeros(1), zeros(1))
+
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), zeros(0, 0), zeros(0))
+        @test_throws ErrorException Marble.setup!(Marble.Solver(), Q, [NaN, 0.0, 0.0, 0.0])
+
+        solver, _ = setup_and_solve()
+        @test_throws ErrorException Marble.obj(solver.problem, zeros(3))
+        @test_throws ErrorException Marble.update_KKT_ineq!(solver, zeros(5), 0.1)
+        @test_throws ErrorException Marble.update_KKT_comp!(solver, zeros(1), zeros(2), zeros(1), 0.1)
+        @test_throws ErrorException Marble.backsolve!(solver, zeros(2), zeros(solver.n_vars))
+        @test_throws ErrorException Marble.backsolve!(solver, zeros(solver.n_vars), zeros(2))
+
+        fresh = Marble.Solver()
+        Marble.setup!(fresh, Q, q, C0; J_eq = J_EQ, b_eq = B_EQ, J_ineq = J_INEQ, b_ineq = B_INEQ,
+                      L = L, l = EL, R = R, r = ER)
+        @test_throws ErrorException Marble.backsolve!(fresh, zeros(fresh.n_vars), zeros(fresh.n_vars))
+
+        for opts in ((relaxation_initial = -1.0,), (penalty_initial = NaN,),
+                     (retraction_type = Marble.RetractionType(7),))
+            @test_throws ErrorException setup_and_solve(; opts...)
+        end
+
+        _, res = setup_and_solve(max_iters = 3)
+        @test !res.converged && res.status == Marble.MaxIterations
     end
 
     function kkt_residual(retract_enum::Marble.RetractionType, solver, solution, κ, ρ; symmetric = true)

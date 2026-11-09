@@ -6,7 +6,7 @@ import numpy
 import numpy.typing
 import scipy.sparse
 import typing
-__all__: list[str] = ['Filter', 'FilterEntry', 'Problem', 'RetractionType', 'SolveResult', 'Solver', 'SolverOptions', 'Workspace']
+__all__: list[str] = ['Filter', 'FilterEntry', 'InvalidInputError', 'MarbleError', 'Problem', 'RetractionType', 'SolveResult', 'SolveStatus', 'Solver', 'SolverOptions', 'Workspace']
 class Filter:
     @typing.overload
     def __init__(self) -> None:
@@ -49,6 +49,10 @@ class FilterEntry:
     @merit.setter
     def merit(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
         ...
+class InvalidInputError(MarbleError, ValueError):
+    pass
+class MarbleError(RuntimeError):
+    pass
 class Problem:
     @typing.overload
     def __init__(self, cost_hessian: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], cost_gradient: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], cost_const: typing.SupportsFloat | typing.SupportsIndex, J_eq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], c_eq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], J_ineq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], c_ineq: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], L: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], l: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"], R: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, n]"], r: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"]) -> None:
@@ -65,16 +69,16 @@ class Problem:
     def residual_ineq(self, z: typing.Annotated[numpy.typing.ArrayLike, numpy.float64, "[m, 1]"]) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
         ...
     @property
-    def J_eq(self) -> tuple[int, int, typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]]:
+    def J_eq(self) -> tuple:
         ...
     @property
-    def J_ineq(self) -> tuple[int, int, typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]]:
+    def J_ineq(self) -> tuple:
         ...
     @property
-    def L_comp(self) -> tuple[int, int, typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]]:
+    def L_comp(self) -> tuple:
         ...
     @property
-    def R_comp(self) -> tuple[int, int, typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]]:
+    def R_comp(self) -> tuple:
         ...
     @property
     def c_eq(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
@@ -89,7 +93,7 @@ class Problem:
     def cost_gradient(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
         ...
     @property
-    def cost_hessian(self) -> tuple[int, int, typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.int32], "[m, 1]"], typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]]:
+    def cost_hessian(self) -> tuple:
         ...
     @property
     def l_comp(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
@@ -192,7 +196,56 @@ class SolveResult:
     def solve_time_s(self) -> float:
         ...
     @property
+    def status(self) -> SolveStatus:
+        ...
+    @property
     def z(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+        ...
+class SolveStatus:
+    """
+    Members:
+    
+      Converged
+    
+      MaxIterations : Outer or inner iteration limit reached
+    
+      FactorizationFailed : KKT factorization failed for every regularizer
+    
+      InertiaCorrectionFailed : KKT inertia could not be corrected for any regularizer
+    
+      LinesearchFailed : Filter linesearch failed for every regularizer
+    """
+    Converged: typing.ClassVar[SolveStatus]  # value = <SolveStatus.Converged: 0>
+    FactorizationFailed: typing.ClassVar[SolveStatus]  # value = <SolveStatus.FactorizationFailed: 2>
+    InertiaCorrectionFailed: typing.ClassVar[SolveStatus]  # value = <SolveStatus.InertiaCorrectionFailed: 3>
+    LinesearchFailed: typing.ClassVar[SolveStatus]  # value = <SolveStatus.LinesearchFailed: 4>
+    MaxIterations: typing.ClassVar[SolveStatus]  # value = <SolveStatus.MaxIterations: 1>
+    __members__: typing.ClassVar[dict[str, SolveStatus]]  # value = {'Converged': <SolveStatus.Converged: 0>, 'MaxIterations': <SolveStatus.MaxIterations: 1>, 'FactorizationFailed': <SolveStatus.FactorizationFailed: 2>, 'InertiaCorrectionFailed': <SolveStatus.InertiaCorrectionFailed: 3>, 'LinesearchFailed': <SolveStatus.LinesearchFailed: 4>}
+    def __eq__(self, other: typing.Any) -> bool:
+        ...
+    def __getstate__(self) -> int:
+        ...
+    def __hash__(self) -> int:
+        ...
+    def __index__(self) -> int:
+        ...
+    def __init__(self, value: typing.SupportsInt | typing.SupportsIndex) -> None:
+        ...
+    def __int__(self) -> int:
+        ...
+    def __ne__(self, other: typing.Any) -> bool:
+        ...
+    def __repr__(self) -> str:
+        ...
+    def __setstate__(self, state: typing.SupportsInt | typing.SupportsIndex) -> None:
+        ...
+    def __str__(self) -> str:
+        ...
+    @property
+    def name(self) -> str:
+        ...
+    @property
+    def value(self) -> int:
         ...
 class Solver:
     def __init__(self) -> None:
@@ -227,6 +280,10 @@ class Solver:
         ...
     def retract_deriv(self, s: typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"], relax_param: typing.SupportsFloat | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
         ...
+    def retract_deriv_drelax(self, s: typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"], relax_param: typing.SupportsFloat | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+        ...
+    def retract_drelax(self, s: typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"], relax_param: typing.SupportsFloat | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
+        ...
     def retract_second_deriv(self, s: typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"], relax_param: typing.SupportsFloat | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
         ...
     def ruiz_equilibration(self, niter: typing.SupportsInt | typing.SupportsIndex) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
@@ -246,6 +303,8 @@ class Solver:
     def update_KKT_residual(self, relax_param: typing.SupportsFloat | typing.SupportsIndex, penalty_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
         ...
     def update_KKT_system(self, relax_param: typing.SupportsFloat | typing.SupportsIndex, penalty_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
+        ...
+    def update_dKKT_residual_drelax(self, relax_param: typing.SupportsFloat | typing.SupportsIndex) -> None:
         ...
     def update_residuals(self) -> None:
         ...
@@ -302,6 +361,7 @@ class SolverOptions:
     comp_init_random: bool
     inertia_warmstart: bool
     retraction_type: RetractionType
+    warmstart: bool
     def __init__(self) -> None:
         ...
     def __repr__(self) -> str:
@@ -423,6 +483,9 @@ class Workspace:
         ...
     @property
     def amd_perm_vec(self) -> typing.Annotated[numpy.typing.NDArray[numpy.int64], "[m, 1]"]:
+        ...
+    @property
+    def dkkt_residual_drelax(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:
         ...
     @property
     def kkt_residual(self) -> typing.Annotated[numpy.typing.NDArray[numpy.float64], "[m, 1]"]:

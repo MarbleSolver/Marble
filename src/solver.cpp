@@ -70,6 +70,17 @@ namespace {
                            penalty, relaxation, kkt, obj, eq_vio, ineq_vio, comp_vio, regularizer);
     }
 
+    constexpr const char* status_name(SolveStatus status) {
+        switch (status) {
+            case SolveStatus::Converged:               return "converged";
+            case SolveStatus::MaxIterations:           return "iteration limit reached";
+            case SolveStatus::FactorizationFailed:     return "KKT factorization failed";
+            case SolveStatus::InertiaCorrectionFailed: return "inertia correction failed";
+            case SolveStatus::LinesearchFailed:        return "linesearch failed";
+        }
+        return "unknown";
+    }
+
     constexpr const char* retraction_name(RetractionType retraction_type) {
         switch (retraction_type) {
             case RetractionType::Softplus:  return "softplus";
@@ -113,7 +124,7 @@ Vec Solver::retract(const Eigen::Ref<const Vec>& s, double relax_param) const {
         return sqrt_kappa * (s.array() / sqrt_kappa).exp();
     }
     else {
-        throw std::runtime_error("Invalid retraction type");
+        throw InvalidInputError("Marble: invalid retraction_type");
     }
 }
 
@@ -133,7 +144,7 @@ Vec Solver::retract_deriv(const Eigen::Ref<const Vec>& s, double relax_param) co
         return (s.array() / sqrt_kappa).exp();
     }
     else {
-        throw std::runtime_error("Invalid retraction type");
+        throw InvalidInputError("Marble: invalid retraction_type");
     }
 }
 
@@ -153,7 +164,7 @@ Vec Solver::retract_second_deriv(const Eigen::Ref<const Vec>& s, double relax_pa
         return (s.array() / sqrt_kappa).exp() / sqrt_kappa;
     }
     else {
-        throw std::runtime_error("Invalid retraction type");
+        throw InvalidInputError("Marble: invalid retraction_type");
     }
 }
 
@@ -173,7 +184,7 @@ Vec Solver::retract_drelax(const Eigen::Ref<const Vec>& s, double relax_param) c
         return (0.5 / sqrt_kappa) * (1.0 - s.array() / sqrt_kappa) * (s.array() / sqrt_kappa).exp();
     }
     else {
-        throw std::runtime_error("Invalid retraction type");
+        throw InvalidInputError("Marble: invalid retraction_type");
     }
 }
 
@@ -193,8 +204,29 @@ Vec Solver::retract_deriv_drelax(const Eigen::Ref<const Vec>& s, double relax_pa
         return (-0.5 / (relax_param * sqrt_kappa)) * s.array() * (s.array() / sqrt_kappa).exp();
     }
     else {
-        throw std::runtime_error("Invalid retraction type");
+        throw InvalidInputError("Marble: invalid retraction_type");
     }
+}
+
+void Solver::require_problem() const {
+    if (!prob || !workspace)
+        throw MarbleError("Marble: no problem has been set on this solver; set one up first");
+}
+
+void Solver::validate_options() const {
+    auto require = [](bool ok, const char* what) {
+        if (!ok) throw InvalidInputError(std::string("Marble options: ") + what);
+    };
+    // Written as !(x > 0) style checks so NaN is rejected too
+    require(options.retraction_type == RetractionType::Softplus ||
+            options.retraction_type == RetractionType::Exp ||
+            options.retraction_type == RetractionType::ScaledExp, "retraction_type is not a valid RetractionType");
+    require(options.relaxation_initial > 0, "relaxation_initial must be positive");
+    require(options.relaxation_min > 0,     "relaxation_min must be positive");
+    require(options.relaxation_scaling > 0, "relaxation_scaling must be positive");
+    require(options.penalty_initial > 0,    "penalty_initial must be positive");
+    require(options.penalty_max > 0,        "penalty_max must be positive");
+    require(options.penalty_scaling > 0,    "penalty_scaling must be positive");
 }
 
 void Solver::set_problem(Problem problem, Solver::Options& options) {
@@ -238,6 +270,7 @@ void Solver::set_problem(Problem problem, Solver::Options& options) {
 }
 
 void Solver::initialize_kkt_sparsity() {
+    require_problem();
     // Construct the general KKT matrix using the indices above to populate each block
     // Once the KKT matrix sparsity structure is established, we extract indicies into
     // valuePtr so that it can be efficiently update
@@ -369,6 +402,7 @@ void Solver::initialize_kkt_sparsity() {
 }
 
 void Solver::update_residuals() {
+    require_problem();
     // Constraint residuals at the current primal iterate z. Kept separate from
     // update_KKT_residual so they can be refreshed exactly where z changes (initial
     // point, filter linesearch, IFT relaxation predictor)
@@ -379,6 +413,7 @@ void Solver::update_residuals() {
 }
 
 void Solver::update_KKT_residual(double relax_param, double penalty_param) {
+    require_problem();
     // Assumes the constraint residuals are already up to date for the current z
     const double inv_penalty_param = 1.0 / penalty_param;
 
@@ -455,6 +490,7 @@ void Solver::update_KKT_residual(double relax_param, double penalty_param) {
 }
 
 void Solver::update_dKKT_residual_drelax(double relax_param) {
+    require_problem();
     // Derivative of the KKT residual wrt the relaxation parameter kappa (= relax_param).
     workspace->dkkt_residual_drelax.setZero();
 
@@ -510,6 +546,7 @@ void Solver::update_dKKT_residual_drelax(double relax_param) {
 }
 
 void Solver::update_KKT_system(double relax_param, double penalty_param) {
+    require_problem();
     // Update KKT system terms that depend on the solution, which are the nonlinear terms associated with the inequality
     // and complementarity slacks and multipliers, as well as the penalty terms
     update_KKT_ineq(workspace->s_ineq, relax_param);
@@ -518,6 +555,10 @@ void Solver::update_KKT_system(double relax_param, double penalty_param) {
 }
 
 void Solver::update_KKT_ineq(const Eigen::Ref<const Vec>& s_ineq, double relax_param) {
+    require_problem();
+    if (s_ineq.size() != prob->n_ineq)
+        throw InvalidInputError("update_KKT_ineq: s_ineq has length " + std::to_string(s_ineq.size()) +
+                                ", expected " + std::to_string(prob->n_ineq));
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_ineq, relax_param);
@@ -543,6 +584,10 @@ void Solver::update_KKT_ineq(const Eigen::Ref<const Vec>& s_ineq, double relax_p
 
 void Solver::update_KKT_comp(const Eigen::Ref<const Vec>& s_comp, const Eigen::Ref<const Vec>& m_comp_L,
                              const Eigen::Ref<const Vec>& m_comp_R, double relax_param) {
+    require_problem();
+    if (s_comp.size() != prob->n_comp || m_comp_L.size() != prob->n_comp || m_comp_R.size() != prob->n_comp)
+        throw InvalidInputError("update_KKT_comp: s_comp, m_comp_L and m_comp_R must all have length " +
+                                std::to_string(prob->n_comp));
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
     Vec d_p = retract_deriv(s_comp, relax_param);
@@ -577,6 +622,7 @@ void Solver::update_KKT_comp(const Eigen::Ref<const Vec>& s_comp, const Eigen::R
 }
 
 void Solver::update_KKT_penalty(const double penalty_param) {
+    require_problem();
     const double inv_penalty_param = 1.0 / penalty_param;
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
@@ -586,6 +632,7 @@ void Solver::update_KKT_penalty(const double penalty_param) {
 }
 
 void Solver::update_KKT_primal_regularizer(const double reg) {
+    require_problem();
     Eigen::Map<Eigen::VectorXd> nzval(workspace->kkt_system.valuePtr(), workspace->kkt_system.nonZeros());
     Eigen::Ref<Eigen::VectorXd> scaling = workspace->scaling;
 
@@ -606,6 +653,8 @@ void Solver::update_KKT_primal_regularizer(const double reg) {
 }
 
 bool Solver::analytical_factorization() {
+    require_problem();
+    factorization_valid = false;
     const QDLDL_int* Ap = workspace->kkt_system.outerIndexPtr();
     const QDLDL_int* Ai = workspace->kkt_system.innerIndexPtr();
 
@@ -625,6 +674,7 @@ bool Solver::analytical_factorization() {
 }
 
 bool Solver::numerical_factorization() {
+    require_problem();
     // Extract raw CSC pointers
     const QDLDL_int* Ap = workspace->kkt_system.outerIndexPtr();
     const QDLDL_int* Ai = workspace->kkt_system.innerIndexPtr();
@@ -638,7 +688,8 @@ bool Solver::numerical_factorization() {
                         workspace->bwork.data(), workspace->iwork.data(), workspace->fwork.data());
 
     // Check factor_status TODO: return/use
-    if (factor_status == -1) {
+    factorization_valid = factor_status != -1;
+    if (!factorization_valid) {
         return false;
     }
     ++n_factorizations;
@@ -646,10 +697,17 @@ bool Solver::numerical_factorization() {
 }
 
 bool Solver::check_inertia() {
+    require_problem();
     return (workspace->D.array() > 1e-10).count() == n_primals && (workspace->D.array() < -1e-10).count() == n_duals;
 }
 
 void Solver::backsolve(const Eigen::Ref<const Vec>& b, Vec& x) {
+    require_problem();
+    if (!factorization_valid)
+        throw MarbleError("backsolve: no valid KKT factorization (numerical_factorization has not succeeded)");
+    if (b.size() != n_vars)
+        throw InvalidInputError("backsolve: b has length " + std::to_string(b.size()) +
+                                ", expected " + std::to_string(n_vars));
     // The factorization is of the scaled system D*K*D (D = diag(scaling)), so to
     // solve K x = b we solve (D*K*D) y = D*b for y and recover x = D*y.
     // The RHS is also permuted into AMD ordering; the result is unpermuted after.
@@ -665,6 +723,7 @@ void Solver::backsolve(const Eigen::Ref<const Vec>& b, Vec& x) {
 }
 
 void Solver::compute_amd_ordering() {
+    require_problem();
     Eigen::AMDOrdering<QDLDL_int> amd_ordering;
     amd_ordering(workspace->kkt_system, workspace->amd_perm);
     workspace->amd_perm_vec = workspace->amd_perm.indices();
@@ -675,6 +734,7 @@ void Solver::compute_amd_ordering() {
 }
 
 bool Solver::convergence() const {
+    require_problem();
     // KKT residual norm
     double kkt_norm = workspace->kkt_residual.lpNorm<Eigen::Infinity>();
 
@@ -759,12 +819,14 @@ void Solver::log_iteration(LogRow row) {
                          kkt, obj, eq_vio, ineq_vio, comp_vio));
 }
 
-void Solver::log_solve_summary(bool converged) {
+void Solver::log_solve_summary(SolveStatus status) {
     if (!log->should_log(spdlog::level::info)) return;
 
     log->info("");
     log->info("{:=^{}}", "", kBannerWidth);
-    log->info("{:^{}}", converged ? "MARBLE CONVERGED" : "MARBLE DID NOT CONVERGE", kBannerWidth);
+    log->info("{:^{}}", status == SolveStatus::Converged ? "MARBLE CONVERGED" : "MARBLE DID NOT CONVERGE", kBannerWidth);
+    if (status != SolveStatus::Converged)
+        log->info("{:<{}}: {}", "Status", kKeyWidth, status_name(status));
     log->info("{:=^{}}", "", kBannerWidth);
     log->info("{:<{}}: {} total  ({} outer, {} inner)", "Iterations", kKeyWidth,
               n_iter_outer + n_iter_inner, n_iter_outer, n_iter_inner);
@@ -775,6 +837,8 @@ void Solver::log_solve_summary(bool converged) {
 }
 
 SolveResult Solver::solve() {
+    require_problem();
+    validate_options();
     const auto t0 = std::chrono::steady_clock::now();
 
     log_solver_info();
@@ -806,8 +870,8 @@ SolveResult Solver::solve() {
     // Clear the filter initially
     filter->clear();
 
-    // Initialize flags and counters
-    bool converged = false;
+    // Initialize status and counters
+    SolveStatus status = SolveStatus::MaxIterations;
     n_iter_outer = 0;
     n_iter_inner = 0;
     n_iter_linesearch = 0;
@@ -817,16 +881,30 @@ SolveResult Solver::solve() {
 
     for (; n_iter_outer < options.max_iters; ++n_iter_outer) {
         // Refresh the KKT residual for the current iterate, then check for convergence
-        if ((converged = convergence())) break;
+        if (convergence()) {
+            status = SolveStatus::Converged;
+            break;
+        }
 
         // Perform inner AL minimization
         double stat_tol = std::max(1e-14, 1e-1 * workspace->relax_param);
-        minimize_augmented_lagrangian(stat_tol);
+        try {
+            minimize_augmented_lagrangian(stat_tol);
+        } catch (const SolveFailure& failure) {
+            // A numerical failure ends the solve with that status and the last iterate
+            status = failure.status;
+            break;
+        }
         
         if (workspace->penalty_param >= options.penalty_max) {
-            // Use the existing factorization to get an estmate of d(solution*)/d(relaxation_param) using IFT
-            update_dKKT_residual_drelax(workspace->relax_param);
-            backsolve(-workspace->dkkt_residual_drelax, workspace->dsolution_drelax);
+            // Use the existing factorization to get an estmate of d(solution*)/d(relaxation_param) using IFT.
+            // There is none yet if every inner minimization so far stopped without a Newton step
+            if (factorization_valid) {
+                update_dKKT_residual_drelax(workspace->relax_param);
+                backsolve(-workspace->dkkt_residual_drelax, workspace->dsolution_drelax);
+            } else {
+                workspace->dsolution_drelax.setZero();
+            }
             
             // Update relaxation parameter
             double relax_param_new = std::max(options.relaxation_min, workspace->relax_param * options.relaxation_scaling);
@@ -867,10 +945,11 @@ SolveResult Solver::solve() {
     }
 
     solve_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    log_solve_summary(converged);
+    log_solve_summary(status);
 
     return SolveResult{
-        converged,
+        status == SolveStatus::Converged,
+        status,
         n_iter_outer + n_iter_inner,
         n_iter_outer,
         n_iter_inner,
@@ -888,6 +967,7 @@ SolveResult Solver::solve() {
 }
 
 int Solver::minimize_augmented_lagrangian(double stat_tol) {
+    require_problem();
     for (int iter = 0; iter < options.max_iters; ++iter) {
         // Compute KKT residual and check the inner stationarity tolerance
         update_KKT_residual(workspace->relax_param, workspace->penalty_param);
@@ -902,10 +982,11 @@ int Solver::minimize_augmented_lagrangian(double stat_tol) {
     }
 
     log->error("exceeded maximum iterations during inner AL minimize: {}", options.max_iters);
-    throw std::runtime_error("Exceeded maximum iterations during inner AL minimize!");
+    throw SolveFailure(SolveStatus::MaxIterations, "Exceeded maximum iterations during inner AL minimize!");
 }
 
 void Solver::newton_step(double relax_param, double penalty_param) {
+    require_problem();
     bool factorization_succeeded = false;
     bool inertia_correction_succeeded = false;
     bool linesearch_succeeded = false;
@@ -941,19 +1022,20 @@ void Solver::newton_step(double relax_param, double penalty_param) {
 
     if (!factorization_succeeded) {
         log->error("newton step: numerical factorization failed for all regularization values");
-        throw std::runtime_error("Numerical factorization failed for all regularization values!");
+        throw SolveFailure(SolveStatus::FactorizationFailed, "Numerical factorization failed for all regularization values!");
     } else if (!inertia_correction_succeeded) {
         log->error("newton step: inertia could not be corrected for any regularization value");
-        throw std::runtime_error("Inertia correction failed for all regularization values!");
+        throw SolveFailure(SolveStatus::InertiaCorrectionFailed, "Inertia correction failed for all regularization values!");
     } else if (!linesearch_succeeded) {
         log->error("newton step: linesearch failed for all regularization values");
-        throw std::runtime_error("Linesearch failed for all regularization values!");
+        throw SolveFailure(SolveStatus::LinesearchFailed, "Linesearch failed for all regularization values!");
     }
 
     last_regularizer = inertia_regularizer <= 1e-8 ? 0.0 : inertia_regularizer;
 }
 
 Filter::Entry Solver::entry_from_solution(double relax_param, double penalty_param) const {
+    require_problem();
     const double inv_penalty_param = 1.0 / penalty_param;
 
     Vec m_eq_primal_feas = workspace->residual_eq - inv_penalty_param * (workspace->m_eq - workspace->m_eq_est);
@@ -1010,6 +1092,7 @@ Filter::Entry Solver::entry_from_solution(double relax_param, double penalty_par
 }
 
 bool Solver::filter_linesearch(double relax_param, double penalty_param, int max_iters) {
+    require_problem();
     double step_size = 1.0;
 
     workspace->solution += step_size * workspace->newton_step;  // Candidate solution for full step
@@ -1044,6 +1127,7 @@ bool Solver::filter_linesearch(double relax_param, double penalty_param, int max
 }
 
 void Solver::ruiz_equilibration(int niter) {
+    require_problem();
     SMat H_bar = prob->cost_hessian;
     SMat J_eq_bar = prob->J_eq;
     SMat J_ineq_bar = prob->J_ineq;

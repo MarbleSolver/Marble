@@ -6,6 +6,7 @@
 #include "problem.h"
 #include "workspace.h"
 #include "filter.h"
+#include "errors.h"
 #include <chrono>
 #include <utility>
 #include <optional>
@@ -23,12 +24,31 @@ enum class RetractionType : int {
 };
 
 /**
- * A brief description of your class.
- *
- * A more detailed description of what the class does.
+ * How a solve ended. Every status other than Converged still returns the last iterate.
+ */
+enum class SolveStatus : int {
+    Converged               = 0,
+    MaxIterations           = 1, /** Outer or inner iteration limit reached */
+    FactorizationFailed     = 2, /** KKT factorization failed for every regularizer */
+    InertiaCorrectionFailed = 3, /** KKT inertia could not be corrected for any regularizer */
+    LinesearchFailed        = 4, /** Filter linesearch failed for every regularizer */
+};
+
+/**
+ * Thrown by newton_step / minimize_augmented_lagrangian when the solve can't make progress.
+ * solve() catches it and reports the status in its SolveResult instead of throwing.
+ */
+struct SolveFailure : MarbleError {
+    SolveStatus status;
+    SolveFailure(SolveStatus status, const std::string& what) : MarbleError(what), status(status) {}
+};
+
+/**
+ * Result of Solver::solve(): the final iterate with iteration counts and timings.
  */
 struct SolveResult {
     bool converged;
+    SolveStatus status;
     int iterations;
     int iterations_outer;
     int iterations_inner;
@@ -112,9 +132,9 @@ public:
     std::shared_ptr<Workspace> workspace;
 
     //Dimensions for the subproblems solved during the solver
-    int n_primals;
-    int n_duals;
-    int n_vars;
+    int n_primals{0};
+    int n_duals{0};
+    int n_vars{0};
 
     // Indices that define the structure of the KKT system (order of rows and columns)
     Eigen::VectorXi z_inds; // Original primal variables
@@ -184,6 +204,7 @@ public:
      * Returns the problem currently set for the solver
      */
     const Problem& get_problem() {
+        require_problem();
         return *prob;
     }
 
@@ -270,6 +291,7 @@ public:
      * Returns the workspace used by the solver
      */
     Workspace& get_workspace() {
+        require_problem();
         return *workspace;
     }
 
@@ -297,7 +319,9 @@ public:
     bool filter_linesearch(const double relax_param, const double penalty_param, int max_iters);
 
     /**
-     * Solve the current problem instance.
+     * Solve the current problem instance. A solve that fails numerically (iteration limit,
+     * factorization, inertia correction or linesearch failure) returns its last iterate with
+     * the corresponding status; only invalid usage (no problem set, invalid options) throws.
      */
     SolveResult solve();
 
@@ -327,6 +351,16 @@ private:
     // Counts numerical_factorization() calls; reset at the start of each solve()
     int n_factorizations{0};
 
+    // Whether the last numerical factorization succeeded, i.e. backsolve() has valid factors
+    // to use. Reset by analytical_factorization(), which reallocates them.
+    bool factorization_valid{false};
+
+    // Throws MarbleError when no problem has been set (prob/workspace are still null)
+    void require_problem() const;
+
+    // Throws InvalidInputError for option values the solver can't run with
+    void validate_options() const;
+
     // Timing for set_problem and solve, in seconds
     double setup_time_s{0.0};
     double solve_time_s{0.0};
@@ -355,7 +389,7 @@ private:
     // Kept out of solve()/minimize_augmented_lagrangian() so the loops stay readable.
     void log_solver_info();                  // solver details (once per solve)
     void log_iteration(LogRow row);          // one table row for the current iterate
-    void log_solve_summary(bool converged);  // final solve summary
+    void log_solve_summary(SolveStatus status);  // final solve summary
 
     // KKT system regularizers to try in Newton step
     const std::vector<double> kkt_system_regularizers = {

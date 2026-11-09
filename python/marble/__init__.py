@@ -8,9 +8,12 @@ from . import _core
 from ._core import (
     Filter,
     FilterEntry,
+    InvalidInputError,
+    MarbleError,
     Problem,
     RetractionType,
     SolveResult,
+    SolveStatus,
     SolverOptions,
     Workspace,
 )
